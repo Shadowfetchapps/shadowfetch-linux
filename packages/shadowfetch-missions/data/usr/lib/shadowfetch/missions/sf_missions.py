@@ -291,6 +291,15 @@ def trusted_which(name):
 MAX_FILES = 40
 REVIEW_LOCK_WAIT_SECONDS = 10
 LIST_PAGE_LIMIT = 1000
+# A read-only mission query retries a transient "database is locked" a few
+# times before surfacing it. db() already sets PRAGMA busy_timeout=30000, so
+# SQLite normally waits a contended lock out in its C busy handler; but that
+# handler is a sleep loop, and when every core is pegged by running missions
+# the sleeping reader can be starved of the CPU it needs to re-check before
+# its own deadline. See Store._read.
+READ_LOCK_RETRIES = 6
+READ_LOCK_BACKOFF = 0.05
+READ_LOCK_BACKOFF_MAX = 0.5
 TEXT_TYPES = {".txt", ".md", ".rst", ".csv", ".json", ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".go", ".rs", ".c", ".h", ".sh", ".toml", ".yaml", ".yml"}
 PRIVATE_NAMES = {".git", ".env", ".ssh", ".aws", ".config", ".local", "node_modules", ".venv", "venv", "__pycache__", "mission-output"}
 VALIDATION_CONFIG_NAMES = {"conftest.py", "pytest.ini", "tox.ini", "karma.conf.js", ".mocharc.json", ".mocharc.yml", ".mocharc.yaml", ".mocharc.js", ".mocharc.cjs"}
@@ -1105,6 +1114,30 @@ class Store:
                 yield db
         finally:
             db.close()
+
+    def _read(self, operation):
+        """Run a read-only DB operation, retrying briefly on a transient lock.
+
+        db() already sets PRAGMA busy_timeout=30000, so SQLite normally waits a
+        contended lock out inside its C busy handler. That handler is a sleep
+        loop, though, and when every core is pegged by running missions the
+        sleeping reader can be starved of the CPU it needs to re-check before
+        its own deadline -- one read in ~200 surfaced "database is locked"
+        under a full four-core workload while writers held the write lock for
+        sub-millisecond bursts. A read holds no transaction, so re-running the
+        whole open-and-query a few times with a short backoff turns that into a
+        wait rather than an error. Only reads retry here; the worker's write
+        path is deliberately left to fail loudly.
+        """
+        delay = READ_LOCK_BACKOFF
+        for attempt in range(READ_LOCK_RETRIES):
+            try:
+                return operation()
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or attempt == READ_LOCK_RETRIES - 1:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, READ_LOCK_BACKOFF_MAX)
 
     def _append(self, db, *, mission, event, detail="", actor=ACTOR_ORCHESTRATOR,
                 task_id=None, session_id=None, tool_execution_id=None, at=None,
@@ -2604,8 +2637,10 @@ class Store:
         return result
 
     def get(self, mid):
-        with self.db() as db:
-            row = db.execute("SELECT * FROM missions WHERE id=?", (mid,)).fetchone()
+        def read():
+            with self.db() as db:
+                return db.execute("SELECT * FROM missions WHERE id=?", (mid,)).fetchone()
+        row = self._read(read)
         if not row:
             raise MissionError("Mission does not exist")
         return self.unpack(row)
@@ -2627,9 +2662,12 @@ class Store:
                 return {"missions": [], "total": 0, "offset": offset, "limit": limit, "truncated": False, "next_offset": None}
             where = " WHERE state IN (" + ",".join("?" for _ in states) + ")"
             params = list(states)
-        with self.db() as db:
-            total = db.execute("SELECT COUNT(*) FROM missions" + where, params).fetchone()[0]
-            rows = [self.unpack(row) for row in db.execute("SELECT * FROM missions" + where + " ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?", [*params, -1 if limit is None else limit, offset])]
+        def read():
+            with self.db() as db:
+                total = db.execute("SELECT COUNT(*) FROM missions" + where, params).fetchone()[0]
+                rows = [self.unpack(row) for row in db.execute("SELECT * FROM missions" + where + " ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?", [*params, -1 if limit is None else limit, offset])]
+            return total, rows
+        total, rows = self._read(read)
         seen = offset + len(rows)
         return {"missions": rows, "total": total, "offset": offset, "limit": limit, "truncated": seen < total, "next_offset": seen if seen < total else None}
 
@@ -2639,8 +2677,10 @@ class Store:
 
     def events(self, mid):
         self.get(mid)
-        with self.db() as db:
-            return [dict(r) for r in db.execute("SELECT at,event,detail FROM events WHERE mission=? ORDER BY seq", (mid,))]
+        def read():
+            with self.db() as db:
+                return [dict(r) for r in db.execute("SELECT at,event,detail FROM events WHERE mission=? ORDER BY seq", (mid,))]
+        return self._read(read)
 
     def directory(self, mid):
         self.get(mid)

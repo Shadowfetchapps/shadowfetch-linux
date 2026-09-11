@@ -697,5 +697,75 @@ class MissionTests(unittest.TestCase):
         self.assertTrue(any(row["path"].endswith("report.md") and row["change"] == "added" for row in record["rows"]))
         self.assertTrue(all(row["after"]["sha256"] for row in record["rows"]))
 
+class ReadLockRetryTests(unittest.TestCase):
+    """Store._read waits out a transient WAL lock on read-only queries.
+
+    db()'s PRAGMA busy_timeout=30000 handles the common case, but its C busy
+    handler is a sleep loop that can be starved when every core is pegged, so a
+    read very occasionally surfaced "database is locked". _read retries such a
+    read a bounded number of times; a non-lock error, and a lock that never
+    clears, still propagate. The worker's write path does NOT go through _read.
+    """
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name).resolve()
+        self.ws = self.base / "Workspaces" / "example"
+        self.ws.mkdir(parents=True)
+        (self.ws / "facts.md").write_text("The launch is Friday.\n")
+        self.env = patch.dict(os.environ, {"SHADOWFETCH_AGENT_WORKSPACES": str(self.ws.parent), "SHADOWFETCH_MISSIONS_STATE": str(self.base / "state")})
+        self.env.start()
+        self.store = m.Store()
+        # Real sleeps would make the give-up test wait out the backoff for no
+        # reason; the timing is not what is under test here.
+        self.no_sleep = patch.object(m.time, "sleep", lambda _s: None)
+        self.no_sleep.start()
+    def tearDown(self):
+        self.no_sleep.stop()
+        self.env.stop()
+        self.temp.cleanup()
+
+    def test_transient_lock_is_retried_then_succeeds(self):
+        calls = {"n": 0}
+        def op():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise m.sqlite3.OperationalError("database is locked")
+            return "value"
+        self.assertEqual(self.store._read(op), "value")
+        self.assertEqual(calls["n"], 3)
+
+    def test_non_lock_error_propagates_immediately(self):
+        calls = {"n": 0}
+        def op():
+            calls["n"] += 1
+            raise m.sqlite3.OperationalError("no such table: missions")
+        with self.assertRaises(m.sqlite3.OperationalError):
+            self.store._read(op)
+        self.assertEqual(calls["n"], 1)
+
+    def test_persistent_lock_gives_up_after_the_bound(self):
+        calls = {"n": 0}
+        def op():
+            calls["n"] += 1
+            raise m.sqlite3.OperationalError("database is locked")
+        with self.assertRaises(m.sqlite3.OperationalError):
+            self.store._read(op)
+        self.assertEqual(calls["n"], m.READ_LOCK_RETRIES)
+
+    def test_get_returns_after_transient_open_lock(self):
+        mission = self.store.create(kind="report", provider_id="codex", workspace_value="example", title="t", prompt="p", inputs=["facts.md"], network="allow")
+        real_connect = m.sqlite3.connect
+        state = {"left": 2}
+        def flaky_connect(*a, **k):
+            if state["left"] > 0:
+                state["left"] -= 1
+                raise m.sqlite3.OperationalError("database is locked")
+            return real_connect(*a, **k)
+        with patch.object(m.sqlite3, "connect", flaky_connect):
+            got = self.store.get(mission["id"])
+        self.assertEqual(got["id"], mission["id"])
+        self.assertEqual(state["left"], 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
