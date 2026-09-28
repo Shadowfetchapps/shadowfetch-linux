@@ -1,3 +1,12 @@
+shadowfetch-missions (5.0.0-1) umbra; urgency=medium
+
+  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
+    follow once the 5.0 scope is decided.
+  * Retry read-only queries on a transient "database is locked" instead
+    of failing the call.
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
+
 shadowfetch-missions (4.1.0-1) umbra; urgency=medium
 
   * BREAKING: a mission must name its provider when more than one installed

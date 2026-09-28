@@ -12,7 +12,7 @@ PACKAGE = "shadowfetch-drkonqi-pickup"
 # cycle. Two independently-maintained copies that a gate compares is the
 # point; two that nothing compares is how this one reached 4.1.0 saying
 # 4.0.0-1.
-VERSION = "4.1.0-1"
+VERSION = "5.0.0-1"
 UPSTREAM_VERSION = "6.6.5-3"
 HELPER = "usr/libexec/shadowfetch-drkonqi-pickup"
 DROPIN = "usr/lib/systemd/user/drkonqi-coredump-pickup.service.d/10-shadowfetch-pickup.conf"

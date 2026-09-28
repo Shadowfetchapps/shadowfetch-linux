@@ -33,7 +33,7 @@ import sys
 import time
 import uuid
 
-VERSION = "4.1.0"
+VERSION = "5.0.0"
 # ---------------------------------------------------------------- states ---
 # The seven 4.0.0 mission states, kept exactly as they are spelled on disk, in
 # the CLI and in the desktop. Phase 3 adds a machine, not a vocabulary: renaming

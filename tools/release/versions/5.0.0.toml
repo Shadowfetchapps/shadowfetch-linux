@@ -1,54 +1,36 @@
-# Shadowfetch Linux 4.1.0 -- release gate DATA.
+# Shadowfetch Linux 5.0.0 -- release gate DATA.
 #
 # Stage Q: this file is the whole per-release input to the gates. Cutting a
 # release means adding one of these, not copying source_gate/package_gate/
 # iso_gate/verify_acceptance and editing version strings inside each copy.
 #
-# Only put things here that vary BECAUSE THE VERSION CHANGED. Structural facts
-# about the product -- which payload paths must exist, which contracts a script
-# must contain -- belong in the single live gate module, where they get
-# reviewed once rather than diverging across copies.
-#
-# WHY THE MIDDLE DIGIT MOVED. 4.1.0 is not a patch. It changes behaviour that
-# a working 4.0.0 setup depends on: a mission created without --provider now
-# FAILS, because three providers serve code_change and the engine refuses to
-# choose; an approval stored before this release stops covering a mission that
-# names destinations, because Scope gained egress_hosts; `--net allow` no
-# longer reaches the host's loopback; a seccomp-BPF filter denies 46 syscalls
-# inside a sandbox; and shadowfetch-update is a shim over fireproof with no
-# replacement for `flatpak update --user`. None of that is representable as a
-# key here. It is written down because the next reader of this file will want
-# to know why a minor bump exists at all, and the answer is not in the keys.
+# WHY THE MAJOR DIGIT MOVED: NOT YET DECIDED. This file was cut from
+# versions/4.1.0.toml to open the 5.0 line, and every key below is still the
+# 4.1.0 value unless it says otherwise. The comments beneath [packages] and
+# after it describe 4.1.0 and are inherited, not re-checked. Before 5.0.0 is
+# gated, write down here what breaks for a working 4.1.0 setup -- a major bump
+# with no stated break is the same lie as a minor bump with one.
 
 [release]
-version = "4.1.0"
-edition = "Fire and Ice"
-# PROVISIONAL -- the one value in this file that is a decision rather than a
-# fact read out of the tree. Nothing in the tree names 4.1.0 yet, so no
-# subtitle was inherited. This one states what the release actually adds -- an
-# nftables egress filter and a seccomp-BPF syscall filter -- rather than
-# claiming the sandbox as a whole is now enforced, which would be untrue: the
-# credential broker and the blast-radius classifier are built and wired to
-# nothing. tools/drift_gate.py compares this against qa/4.1.0/acceptance.json
-# and the README fact table, so all three have to be settled together.
+version = "5.0.0"
+edition = "Fire and Ice"  # PROVISIONAL: carried from 4.1.0, a 5.0 decision
+# PROVISIONAL: carried from 4.1.0. Must state what 5.0 actually adds, and
+# tools/drift_gate.py compares it against qa/5.0.0/acceptance.json and the
+# README fact table, so all three are settled together.
 subtitle = "Egress and Syscall Filters"
 # APT suite name, lower case. Appears in dists/<codename>/ and sources.list.
-# Permanent for this line: umbra does not move with the version.
+# PROVISIONAL: umbra was "permanent for this line" -- the 4.x line. Keeping it
+# means 4.1 systems receive 5.0 from the suite they already track; a new
+# suite means every installed sources.list must be migrated. Decide before
+# the first 5.0 package is published.
 codename = "umbra"
 # Codename as written in os-release PRETTY_NAME and the acceptance manifest.
 display_codename = "Umbra"
 package_revision = "1"
 signing_fingerprint = "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1"
-# Set true once a newer release ships. A historical file may still be loaded
-# with --version, but see ReleaseData.historical: re-running today's gate over
-# old data re-gates that release with today's logic, it does not reproduce the
-# gate that shipped it.
-#
-# versions/4.0.0.toml flipped to historical = true in the same change that
-# added this file: two non-historical files is an ambiguity that both
-# gate.load_release(None) and tools/drift_gate.py's load_truth() REFUSE rather
-# than guess, and test_release_gate now proves every earlier file says so.
-historical = true
+# Set true once a newer release ships. versions/4.1.0.toml flipped to
+# historical = true in the same change that added this file.
+historical = false
 
 [packages]
 # Every Shadowfetch binary package the release publishes. Versions are derived

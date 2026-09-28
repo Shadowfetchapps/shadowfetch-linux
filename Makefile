@@ -10,7 +10,7 @@
 #   make distclean  Wipe everything regenerable
 
 SHELL := /bin/bash
-VERSION  ?= 4.1.0
+VERSION  ?= 5.0.0
 CODENAME ?= umbra
 ISO_NAME := shadowfetch-$(VERSION)-amd64.iso
 VERSION_TOKEN := $(subst .,_,$(VERSION))

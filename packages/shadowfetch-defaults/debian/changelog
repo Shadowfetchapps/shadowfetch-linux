@@ -1,3 +1,10 @@
+shadowfetch-defaults (5.0.0-1) umbra; urgency=medium
+
+  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
+    follow once the 5.0 scope is decided.
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
+
 shadowfetch-defaults (4.1.0-1) umbra; urgency=medium
 
   * BREAKING: /etc/apt/apt.conf.d/52shadowfetch-unattended.conf is removed
