@@ -2,6 +2,17 @@ shadowfetch-themes (5.0.0-1) umbra; urgency=medium
 
   * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
     follow once the 5.0 scope is decided.
+  * ShadowCode: one look replaces Fire and Ice. ShadowfetchDark.colors,
+    ShadowfetchUmbra.colorscheme, org.shadowfetch.dark and the umbra SDDM
+    theme keep their ids so 4.1 configurations still resolve, are restyled
+    to ShadowCode gold (#F2B33D) and brushed-steel silver on near-black, and
+    display as "ShadowCode". The splash shows the two-tone wordmark.
+  * Remove ShadowfetchIce.colors, ShadowfetchGlacier.colorscheme and the
+    org.shadowfetch.ice look-and-feel. Desktops that used them are moved
+    once at login by /usr/lib/shadowfetch/look-migrate.sh
+    (shadowfetch-defaults).
+  * Move the warning colour from amber #E0A33A to #E68F2E so it no longer
+    reads as the brighter ShadowCode gold.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

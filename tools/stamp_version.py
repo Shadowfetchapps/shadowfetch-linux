@@ -263,7 +263,7 @@ def _replace(path: Path, data: bytes) -> None:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        # mkstemp creates 0600. shadowfetch-element, shadowfetch-grok-bot and
+        # mkstemp creates 0600. shadowfetch-agent-network, shadowfetch-grok-bot and
         # shadowfetch-firebreak are 0755/0775 executables that get packaged as
         # they sit here, so a stamp that dropped the mode would ship a payload
         # /usr/bin script nobody can run.

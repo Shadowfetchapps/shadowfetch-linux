@@ -151,7 +151,7 @@ class RecordTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {
             "SHADOWFETCH_AGENT_WORKSPACES": str(self.ws.parent),
             fb.STATE_ENV: str(self.audit),
-            "SHADOWFETCH_ELEMENT": "ice"})
+            "SHADOWFETCH_AGENT_NETWORK": "offline"})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.which = patch.object(fb.shutil, "which", fake_which)

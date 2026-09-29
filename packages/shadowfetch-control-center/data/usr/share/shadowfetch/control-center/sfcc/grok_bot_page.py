@@ -2,7 +2,7 @@
 from PyQt6.QtCore import Qt, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QGridLayout, QHBoxLayout, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
-from sfcc import theme
+from sfcc import desktop
 from sfcc.mission_client import GROK_COMMAND, MissionClient
 from sfcc.theme import Card, ProcessDialog, label, fmt_bytes
 
@@ -78,9 +78,9 @@ class GrokBotPage(QWidget):
             row.addWidget(label(content, "detail", wrap=True))
             facts.addWidget(card, i // 2, i % 2)
         layout.addLayout(facts)
-        self.ice = label("Ice is active. Grok Bot installation and cloud launch are paused. Switch to Fire deliberately when you want to use this cloud app.", "statusWarn", wrap=True)
-        self.ice.setVisible(theme.ELEMENT == "ice")
-        layout.addWidget(self.ice)
+        self.offline_note = label("The agent network is offline. Grok Bot installation and cloud launch are paused. Turn the agent network on deliberately when you want to use this cloud app.", "statusWarn", wrap=True)
+        self.offline_note.setVisible(self._offline())
+        layout.addWidget(self.offline_note)
         links = QHBoxLayout()
         for title, callback in (("Getting started", lambda: self._url("https://docs.x.ai/grok-bot/get-started")), ("Vendor terms", lambda: self._url("https://cursor.com/terms/grok-bot")), ("Open Mission Control", lambda: self.open_route("missions"))):
             button = QPushButton(title)
@@ -126,18 +126,24 @@ class GrokBotPage(QWidget):
             self.state.setText("Ready to install the official native app")
             self.state.setObjectName("statusWarn")
             self.progress.setText(f"Download: {fmt_bytes(data.get('download_bytes'))} · Eligible account and plan required")
-        if theme.ELEMENT == "ice":
-            self.state.setText("Ice is active — Grok Bot cloud setup is paused")
+        offline = self._offline()
+        self.offline_note.setVisible(offline)
+        if offline:
+            self.state.setText("The agent network is offline — Grok Bot cloud setup is paused")
             self.state.setObjectName("statusWarn")
-            self.progress.setText("Switch to Fire deliberately to install or open Grok Bot. Offline workspaces remain available in Ice.")
+            self.progress.setText("Turn the agent network on deliberately to install or open Grok Bot. Offline workspaces remain available.")
         self.state.style().unpolish(self.state)
         self.state.style().polish(self.state)
         self.install.setText("Installed" if ready else "Repair installation" if data.get("installed") else "Install Grok Bot")
-        self.install.setEnabled(not ready and theme.ELEMENT != "ice")
-        self.launch.setEnabled(ready and theme.ELEMENT != "ice")
+        self.install.setEnabled(not ready and not offline)
+        self.launch.setEnabled(ready and not offline)
+
+    @staticmethod
+    def _offline():
+        return desktop.agent_network_offline()
 
     def _install(self):
-        if theme.ELEMENT == "ice":
+        if self._offline():
             return
         message = ("Install the official Grok Bot Linux package?\n\n"
                    f"Download: {fmt_bytes(self.record.get('download_bytes'))}. Shadowfetch verifies the pinned artifact before requesting administrator approval. "
@@ -152,7 +158,7 @@ class GrokBotPage(QWidget):
         dialog.exec()
 
     def _launch(self):
-        if theme.ELEMENT == "ice":
+        if self._offline():
             return
         dialog = ProcessDialog(self, "Opening Grok Bot", [GROK_COMMAND, "open"], "The native app handles sign-in and its own task permissions.")
         dialog.completed.connect(lambda _code: self.refresh())
@@ -160,7 +166,7 @@ class GrokBotPage(QWidget):
         dialog.exec()
 
     def _url(self, url):
-        if theme.ELEMENT == "ice":
-            QMessageBox.information(self, "Ice connection scope", "This opens a public website. Switch to Fire when you want to connect, or use the installed local guide.")
+        if self._offline():
+            QMessageBox.information(self, "Offline agent network", "This opens a public website. Turn the agent network on when you want to connect, or use the installed local guide.")
             return
         QDesktopServices.openUrl(QUrl(url))

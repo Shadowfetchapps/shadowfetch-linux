@@ -8,8 +8,8 @@ LOG="$HOME/.cache/shadowfetch-first-login.log"
 exec >>"$LOG" 2>&1
 echo "=== shadowfetch first-login $(date) ==="
 
-# 1) Appearance: wallpaper + global theme + color scheme
-plasma-apply-wallpaperimage /usr/share/backgrounds/shadowfetch/umbra-4k.jpg || true
+# 1) Appearance: the ShadowCode look -- wallpaper + global theme + color scheme
+plasma-apply-wallpaperimage /usr/share/backgrounds/shadowfetch/shadowcode-4k.jpg || true
 plasma-apply-lookandfeel -a org.shadowfetch.dark || true
 plasma-apply-colorscheme ShadowfetchDark || true
 

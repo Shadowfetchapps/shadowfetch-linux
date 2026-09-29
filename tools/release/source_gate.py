@@ -64,9 +64,41 @@ ACTIVE_IMAGE_ROOTS = (
     "live-build/config/package-lists",
 )
 RETIRED_RUNTIME = re.compile(
-    r"openclaw|\bhermes\b|\bollama\b|open[- ]?webui|llama\.cpp|llama-server",
+    r"\bollama\b|open[- ]?webui|llama\.cpp|llama-server",
     re.IGNORECASE,
 )
+# 5.0: Hermes Agent and OpenClaw came back as OPTIONAL agents that a person
+# installs into their own home, after consent, through two helpers. They are
+# no longer retired, but they must never be preinstalled: a name that appears
+# anywhere else in the image source, in a live-build package list or chroot
+# include, or in any Shadowfetch package relationship fails the gate.
+OPTIONAL_AGENT = re.compile(r"openclaw|\bhermes\b", re.IGNORECASE)
+OPTIONAL_AGENT_FILES = frozenset({
+    "packages/shadowfetch-defaults/data/usr/bin/shadowfetch-hermes",
+    "packages/shadowfetch-defaults/data/usr/bin/shadowfetch-openclaw",
+    # Names the cloud agents it pauses while offline.
+    "packages/shadowfetch-defaults/data/usr/bin/shadowfetch-agent-network",
+    # The trusted program table that classifies both helpers.
+    "packages/shadowfetch-defaults/data/usr/lib/shadowfetch/desktop/sf_desktop.py",
+    "packages/shadowfetch-defaults/debian/shadowfetch-defaults.install",
+    "packages/shadowfetch-control-center/data/usr/share/shadowfetch/control-center/sfcc/optional_agents_page.py",
+    "packages/shadowfetch-control-center/data/usr/share/shadowfetch/control-center/sfcc/pages.py",
+    "packages/shadowfetch-control-center/debian/shadowfetch-control-center.install",
+    "packages/shadowfetch-welcome/src/shadowfetch-welcome",
+    # Installer slideshow TEXT saying the agents are optional. The only file
+    # under includes.chroot allowed to name them; it installs nothing.
+    "live-build/config/includes.chroot/etc/calamares/branding/debian/show.qml",
+})
+OPTIONAL_AGENT_PREFIXES = (
+    # The distro-generated OpenClaw lockfiles the helper installs from.
+    "packages/shadowfetch-defaults/data/usr/share/shadowfetch/openclaw/",
+    "packages/shadowfetch-defaults/data/usr/share/doc/shadowfetch/",
+)
+OPTIONAL_AGENT_FORBIDDEN_PREFIXES = (
+    "live-build/config/package-lists/",
+    "live-build/config/includes.chroot/",
+)
+PACKAGE_RELATIONSHIP_FIELDS = ("Depends", "Pre-Depends", "Recommends", "Suggests", "Enhances", "Provides")
 MIGRATION_MANIFEST = (
     "packages/shadowfetch-defaults/data/usr/share/shadowfetch/"
     "migrations/2.1.3-ai-packages"
@@ -368,7 +400,65 @@ def retired_runtime_gate() -> None:
             "retired runtime references remain in the active image: "
             + ", ".join(sorted(findings))
         )
-    print("PASS: retired OpenClaw, Hermes and competing runtime scan")
+    print("PASS: retired competing runtime scan (Ollama, Open WebUI, llama.cpp)")
+    optional = optional_agent_findings(ROOT)
+    if optional:
+        raise RuntimeError(
+            "Hermes/OpenClaw must stay optional user installs: " + "; ".join(optional)
+        )
+    print("PASS: Hermes and OpenClaw appear only in their optional-install allowlist")
+
+
+def optional_agent_reference_allowed(relative: str) -> bool:
+    if relative in OPTIONAL_AGENT_FILES:
+        return True
+    if relative.startswith(OPTIONAL_AGENT_FORBIDDEN_PREFIXES):
+        return False
+    if re.fullmatch(r"packages/[^/]+/debian/changelog", relative):
+        return True
+    return relative.startswith(OPTIONAL_AGENT_PREFIXES)
+
+
+def control_relationship_findings(relative: str, text: str) -> list[str]:
+    """Any Shadowfetch package relationship that names Hermes or OpenClaw."""
+    uncommented = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    findings = []
+    for record in gate.parse_deb822(uncommented):
+        for field in PACKAGE_RELATIONSHIP_FIELDS:
+            if OPTIONAL_AGENT.search(record.get(field, "")):
+                findings.append(f"{relative}: {record.get('Package') or record.get('Source') or '?'} {field}")
+    return findings
+
+
+def optional_agent_findings(root: Path) -> list[str]:
+    """Where Hermes/OpenClaw are named outside the optional-install allowlist."""
+    findings: list[str] = []
+    candidates: list[Path] = []
+    for value in ACTIVE_IMAGE_ROOTS:
+        base = root / value
+        candidates.extend([base] if base.is_file() else base.rglob("*"))
+    # Top-level packaging files only: debian/<package>/ and .debhelper/ are
+    # build output, not source.
+    candidates.extend((root / "packages").glob("*/debian/*"))
+    seen: set[str] = set()
+    for path in candidates:
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(root).as_posix()
+        if relative in seen:
+            continue
+        seen.add(relative)
+        try:
+            content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if re.fullmatch(r"packages/[^/]+/debian/control", relative):
+            findings.extend(control_relationship_findings(relative, content))
+        if OPTIONAL_AGENT.search(content) and not optional_agent_reference_allowed(relative):
+            where = ("preinstall list or chroot include"
+                     if relative.startswith(OPTIONAL_AGENT_FORBIDDEN_PREFIXES) else "not allowlisted")
+            findings.append(f"{relative} ({where})")
+    return sorted(findings)
 
 
 def migration_manifest_gate() -> None:

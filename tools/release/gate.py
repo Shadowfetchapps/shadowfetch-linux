@@ -320,6 +320,10 @@ class ReleaseData:
         return self.release["edition"]
 
     @property
+    def subtitle(self) -> str:
+        return self.release["subtitle"]
+
+    @property
     def codename(self) -> str:
         """APT suite name, lower case (for example "umbra")."""
         return self.release["codename"]
@@ -367,7 +371,45 @@ class ReleaseData:
         }
         for name, pinned in packages.get("third_party", {}).items():
             versions[name] = pinned
+        for name, pin in self.prebuilt.items():
+            if name in versions:
+                raise MissingReleaseData(
+                    f"{self.path}: {name} is declared both as prebuilt and elsewhere"
+                )
+            versions[name] = pin["version"]
         return dict(sorted(versions.items()))
+
+    @property
+    def prebuilt(self) -> dict[str, dict[str, Any]]:
+        """Packages republished exactly as their upstream built and signed them.
+
+        [packages.prebuilt] maps a package name to its pin file, relative to
+        the repository root (shadow-code = "tools/release/shadowcode.toml").
+        The version is deliberately NOT repeated here: it lives only in the pin
+        file, which tools/bump_shadowcode.py rewrites after verifying the
+        upstream signature. A second copy in this data file would be a second
+        authority that a bump could forget. No source package exists for these,
+        so they appear in binary_versions but never in source_packages.
+        """
+        table = self.document["packages"].get("prebuilt", {})
+        if not isinstance(table, dict):
+            raise MissingReleaseData(f"{self.path}: [packages.prebuilt] must be a table")
+        pins: dict[str, dict[str, Any]] = {}
+        for name, relative in table.items():
+            path = ROOT / str(relative)
+            try:
+                with path.open("rb") as handle:
+                    document = tomllib.load(handle)
+            except OSError as exc:
+                raise MissingReleaseData(
+                    f"{self.path}: pin file for {name} is unreadable: {path}: {exc}"
+                ) from exc
+            if document.get("package") != name or not isinstance(document.get("version"), str):
+                raise MissingReleaseData(
+                    f"{path}: must declare package = {name!r} and a version string"
+                )
+            pins[name] = document
+        return pins
 
     @property
     def source_packages(self) -> set[str]:

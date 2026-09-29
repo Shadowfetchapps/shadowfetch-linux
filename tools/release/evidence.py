@@ -32,6 +32,8 @@ from iso_gate import mounted_iso
 # builder below reads them, exactly as the copied per-version modules did.
 VERSION: str = ""
 CODENAME: str = ""
+EDITION: str = ""
+SUBTITLE: str = ""
 WEBSITE = "https://www.shadowfetchlinux.org"
 GITHUB = "https://github.com/Shadowfetchapps/shadowfetch-linux"
 
@@ -209,7 +211,7 @@ def build_sbom(
             },
             "component": {
                 "type": "operating-system",
-                "name": "Shadowfetch Linux Fire and Ice",
+                "name": f"Shadowfetch Linux {EDITION}",
                 "version": VERSION,
                 "description": f"Shadowfetch Linux {VERSION} {CODENAME} exact ISO package inventory",
                 "externalReferences": [
@@ -339,7 +341,7 @@ def build_dossier(manifest: dict[str, object], timestamp: str) -> str:
         "",
         "## Release intent",
         "",
-        "Shadowfetch Linux 4.0.0 brings native Mission Control, persistent code/document/media tasks, reviewed artifacts, scoped execution and featured official Grok Bot setup to the Fire and Ice desktop.",
+        f"Shadowfetch Linux {VERSION} {CODENAME} ({EDITION}): {SUBTITLE}.",
         "",
         "Task state, recovery behavior, vendor integration and resource limits are verified by the acceptance cases below. A pending or failed case does not establish a product capability.",
         "",
@@ -351,8 +353,9 @@ def build_dossier(manifest: dict[str, object], timestamp: str) -> str:
         "",
         "## Disclosures",
         "",
-        "- No text-generation model weights are bundled in the ISO. Buzz downloads the selected language model after the user confirms sharing in Settings > Compute; the native app may separately download speech assets during onboarding.",
-        "- Grok Bot uses the official provider application and native account sign-in; it is a cloud service. Grok Build and the other coding agents remain separate tools.",
+        "- No text-generation model weights are bundled in the ISO. ShadowCode ships a local model runtime and downloads a model only when the user asks for one.",
+        "- ShadowCode connects the user's own subscriptions, API keys and local models; it carries no account or credit of its own.",
+        "- Grok Bot, Hermes and OpenClaw are optional, installed only on the user's request, and use their own accounts or model providers. Grok Bot is a cloud service.",
         "- No provider credential is embedded in the ISO. Text-generation model acquisition is explicit; model/hardware results belong to the recorded test configuration.",
         "- Recovery of local files does not reverse external actions. Supported Btrfs and non-Btrfs behavior is documented separately.",
         "- Physical hardware and graphics claims are limited to the exact tested machines identified in the evidence; VM rendering is not a hardware compatibility claim.",
@@ -387,10 +390,12 @@ def main() -> int:
     gate.add_version_argument(parser)
     args = parser.parse_args()
 
-    global VERSION, CODENAME
+    global VERSION, CODENAME, EDITION, SUBTITLE
     release = gate.load_release(args.version)
     VERSION = release.version
     CODENAME = release.display_codename
+    EDITION = release.edition
+    SUBTITLE = release.subtitle
 
     # iso_gate.mounted_iso runs mount/umount/findmnt through its own resolved
     # program table, so it has to be populated before the first use.

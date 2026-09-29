@@ -18,6 +18,7 @@ spec.loader.exec_module(bundle)
 # test_publish_release_4_0_0.py: a fixture tree named after a literal
 # release cannot test a tool that is no longer pinned to one.
 V = bundle.VERSION
+RELEASE = bundle.gate.load_release(V)
 
 
 def digest(data):
@@ -38,7 +39,7 @@ class EvidenceBundleTests(unittest.TestCase):
         write("work/private/API Keys.txt", b"UNREFERENCED SECRET MUST NOT ENTER BUNDLE")
         artifact = {"iso_path": "candidate.iso", "iso_sha256": digest(b"test ISO"),
                     "iso_size_bytes": 8, "signature_path": "candidate.iso.asc", "signing_fingerprint": "A" * 40}
-        manifest = {"schema_version": 1, "release": {"version": V, "edition": "Fire and Ice", "codename": "Umbra"},
+        manifest = {"schema_version": 1, "release": {"version": V, "edition": RELEASE.edition, "codename": RELEASE.display_codename},
                     "evidence_root": f"work/qa-{V}/evidence", "artifact": artifact,
                     "cases": [{"id": "SRC-01", "phase": "prepublish", "required": True, "status": "pass", "evidence": [{"kind": "log", "path": "real.log", "sha256": digest(b"actual fixture evidence")}]},
                               {"id": "EVIDENCE-01", "phase": "prepublish", "required": True, "status": "pending", "evidence": []},

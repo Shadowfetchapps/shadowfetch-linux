@@ -1,4 +1,4 @@
-# Shadowfetch Linux - Umbra GRUB theme (graphite + gold)
+# Shadowfetch Linux - ShadowCode GRUB theme (gold + brushed steel on near-black)
 title-text: ""
 desktop-image: "background.png"
 desktop-color: "#0A0D11"
@@ -16,7 +16,7 @@ terminal-height: "100%"
     item_font = "DejaVu Sans Regular 18"
     item_color = "#9AA3AD"
     selected_item_font = "DejaVu Sans Regular 18"
-    selected_item_color = "#E8B65E"
+    selected_item_color = "#F2B33D"
     item_height = 40
     item_padding = 8
     item_spacing = 10
@@ -28,9 +28,9 @@ terminal-height: "100%"
     left = 0
     width = 100%
     align = "center"
-    color = "#D8A24A"
+    color = "#BCC0C6"
     font = "DejaVu Sans Bold 24"
-    text = "Privacy, Power, and Precision from the Depths"
+    text = "One harness. All models."
 }
 
 + progress_bar {
@@ -40,7 +40,7 @@ terminal-height: "100%"
     top = 88%
     height = 14
     show_text = false
-    fg_color = "#D8A24A"
+    fg_color = "#F2B33D"
     bg_color = "#161A20"
     border_color = "#2C333B"
 }

@@ -1,0 +1,10 @@
+ShadowCode-Release-Trust-v1
+repository=Shadowfetchapps/ShadowCode
+repository-id=1377099349
+owner-id=209457103
+target=x86_64-unknown-linux-gnu
+channel=stable
+minimum-epoch=1
+minimum-version=0.33.0
+keys=ed25519-spki-sha256
+key=1	f0c60ff8228314616985712f8918c9798c0ecf72b7271e19343a041c25663b7f	0.33.0	0.33.1

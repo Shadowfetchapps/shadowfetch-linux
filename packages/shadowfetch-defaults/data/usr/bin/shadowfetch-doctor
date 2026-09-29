@@ -299,7 +299,7 @@ def resolve_tool(name: str) -> Tool:
 PASS, WARN, FAIL, INFO, SKIP = "pass", "warn", "fail", "info", "skip"
 STATUSES = (PASS, WARN, FAIL, INFO, SKIP)
 
-CATEGORIES = ("system", "gpu", "drivers", "ai", "firebreak", "broker",
+CATEGORIES = ("system", "shadowcode", "gpu", "drivers", "ai", "firebreak", "broker",
               "apt", "services", "recovery", "security", "development")
 
 
@@ -406,8 +406,21 @@ DENY_PREFIXES = (
 #: AT ALL -- even to ask whether a file exists. Everything else under a home
 #: -- dotfiles, keys, browser profiles, shell history, documents -- is out of
 #: scope by construction, not by a pattern match someone has to keep current.
+#: A user-level ShadowCode (the upstream AppImage installer) puts these in the
+#: home directory. Any one of them wins over the system copy: the binary on
+#: PATH, the desktop entry by id.
+SHADOWCODE_USER_COPIES = (
+    ".local/bin/shadowcode",
+    ".local/share/applications/com.shadowfetch.shadowcode.desktop",
+    ".local/share/applications/shadow-agent.desktop",
+)
+
 HOME_PROBE_SUBPATHS = (
     ".local/state/shadowfetch",
+    # Exact files a user-level ShadowCode install writes: whether one EXISTS is
+    # what says the person's copy shadows the system one. Existence only;
+    # nothing else under ~/.local is probed and none of these is read.
+    *SHADOWCODE_USER_COPIES,
 )
 
 #: And of those, the only subtree whose CONTENT may be read. Metadata (does it
@@ -887,6 +900,39 @@ def check_drivers(host: Host) -> list[Finding]:
                            remedy="Check dmesg for the module that tainted the kernel."
                                   if interesting else "",
                            evidence=[ev]))
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Checks: ShadowCode
+# --------------------------------------------------------------------------- #
+
+SHADOWCODE_BIN = "/usr/bin/shadowcode"
+
+
+def check_shadowcode(host: Host) -> list[Finding]:
+    out: list[Finding] = []
+    installed = host.exists(SHADOWCODE_BIN)
+    out.append(Finding("shadowcode.installed", "shadowcode", "ShadowCode", PASS if installed else FAIL,
+                       "installed at " + SHADOWCODE_BIN if installed else "missing: " + SHADOWCODE_BIN,
+                       remedy="" if installed else "Reinstall the shadow-code package from Software.",
+                       evidence=[Evidence("file", SHADOWCODE_BIN, installed)], gated=True))
+    home = host.home()
+    if home is None:
+        out.append(_skip("shadowcode.user-copy", "shadowcode", "User copy of ShadowCode",
+                         "this account has no home directory in the passwd database"))
+        return out
+    found = [relative for relative in SHADOWCODE_USER_COPIES if host.exists(str(home / relative))]
+    out.append(Finding(
+        "shadowcode.user-copy", "shadowcode", "User copy of ShadowCode",
+        WARN if found else PASS,
+        ("a user-level ShadowCode takes precedence over the system one: ~/" + ", ~/".join(found))
+        if found else "no user-level copy takes precedence over the system one",
+        detail={"user_copies": found},
+        remedy="Uninstall the user copy (the AppImage installer's uninstall) so system updates "
+               "reach the ShadowCode you actually run." if found else "",
+        evidence=[Evidence("probe", "~/" + relative, relative in found, "existence only")
+                  for relative in SHADOWCODE_USER_COPIES]))
     return out
 
 
@@ -1551,6 +1597,7 @@ def check_security(host: Host) -> list[Finding]:
 POSTURE_ENV = (
     "SHADOWFETCH_FIREBREAK_STATE",
     "SHADOWFETCH_AGENT_WORKSPACES",
+    "SHADOWFETCH_AGENT_NETWORK",
     "SHADOWFETCH_ELEMENT",
     "SHADOWFETCH_FIREBREAK_TEST_BIN",
     "SHADOWFETCH_CHECKPOINT_BIN",
@@ -1627,6 +1674,7 @@ def check_development(host: Host) -> list[Finding]:
 
 CHECKS = {
     "system": check_system,
+    "shadowcode": check_shadowcode,
     "gpu": check_gpu,
     "drivers": check_drivers,
     "ai": check_ai,

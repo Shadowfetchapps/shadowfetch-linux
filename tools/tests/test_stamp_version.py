@@ -447,7 +447,7 @@ class PreservationTests(StampTestCase):
         self.assertEqual(
             0o755,
             (self.tree / 'packages/shadowfetch-defaults/data/usr/bin/'
-             'shadowfetch-element').stat().st_mode & 0o7777)
+             'shadowfetch-agent-network').stat().st_mode & 0o7777)
 
     def test_upstream_versions_are_not_rewritten(self):
         grok = (self.tree / 'packages/shadowfetch-defaults/data/usr/bin/'

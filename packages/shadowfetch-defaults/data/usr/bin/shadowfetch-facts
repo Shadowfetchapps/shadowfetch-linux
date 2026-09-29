@@ -363,7 +363,7 @@ def shadowfetch_stack():
     for t in ["shadowfetch-gpu", "shadowfetch-grok-bot", "shadowfetch-health",
               "shadowfetch-update", "shadowfetch-control",
               "shadowfetch-passport",
-              "shadowfetch-agent-workspace", "shadowfetch-code-agent"]:
+              "shadowfetch-agent-workspace", "shadowcode"]:
         tools[t] = shutil.which(t) is not None
     return {
         "defaults_version": ver.strip() if ok else None,

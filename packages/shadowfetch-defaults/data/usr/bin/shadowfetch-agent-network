@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# shadowfetch-agent-network - read and set whether agent sandboxes start with network.
+#
+#   online   agent sandboxes may reach the network (the default)
+#   offline  agent sandboxes start with NO network; add it per session, deliberately
+#
+# Resolution (first valid hit wins): $SHADOWFETCH_AGENT_NETWORK, then the user
+# file, then the system file, then online. At each level a legacy 4.x element
+# file still counts (ice = offline, fire = online) so an upgraded Ice machine
+# stays offline. shadowfetch-firebreak, Grok Bot, Hermes, OpenClaw, Welcome and
+# the Control Center all read the same setting.
+set -uo pipefail
+VERSION="5.0.0"
+
+home_dir="${HOME:-}"
+if [ -z "$home_dir" ]; then
+  home_dir="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
+fi
+home_dir="${home_dir:-/tmp}"
+USER_DIR="${XDG_CONFIG_HOME:-$home_dir/.config}/shadowfetch"
+SYS_DIR="${SHADOWFETCH_SYSTEM_CONFIG:-/etc/shadowfetch}"
+
+ok()   { printf '\033[1;32m OK\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;31m !!\033[0m %s\n' "$*" >&2; }
+
+first_line() { [ -f "$1" ] && head -1 "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]'; }
+
+from_legacy() {
+  case "$1" in ice) printf offline ;; fire) printf online ;; esac
+}
+
+# Prints "<value> <source>".
+resolve() {
+  local v
+  v="$(printf '%s' "${SHADOWFETCH_AGENT_NETWORK:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$v" in online|offline) printf '%s %s' "$v" "\$SHADOWFETCH_AGENT_NETWORK"; return ;; esac
+  v="$(from_legacy "$(printf '%s' "${SHADOWFETCH_ELEMENT:-}" | tr '[:upper:]' '[:lower:]')")"
+  [ -n "$v" ] && { printf '%s %s' "$v" "\$SHADOWFETCH_ELEMENT (legacy)"; return; }
+  local dir
+  for dir in "$USER_DIR" "$SYS_DIR"; do
+    v="$(first_line "$dir/agent-network")"
+    case "$v" in online|offline) printf '%s %s' "$v" "$dir/agent-network"; return ;; esac
+    v="$(from_legacy "$(first_line "$dir/element")")"
+    [ -n "$v" ] && { printf '%s %s' "$v" "$dir/element (legacy)"; return; }
+  done
+  printf 'online default'
+}
+
+usage() {
+  cat <<'EOF'
+shadowfetch-agent-network - whether agent sandboxes start with network access.
+
+USAGE
+  shadowfetch-agent-network                        print online or offline
+  shadowfetch-agent-network status                 value and where it came from
+  shadowfetch-agent-network set online|offline     set YOUR default
+  shadowfetch-agent-network --system set online|offline   set the system default (root)
+
+online  = agent sandboxes may use the network
+offline = agent sandboxes start with NO network; cloud agents stay paused
+EOF
+}
+
+write_setting() {
+  local dir="$1" value="$2"
+  if ! { mkdir -p "$dir" && printf '%s\n' "$value" > "$dir/agent-network"; }; then
+    warn "could not write $dir/agent-network"; exit 1
+  fi
+  # A leftover 4.x element file would otherwise keep speaking for this level.
+  rm -f "$dir/element"
+}
+
+read -r value source <<<"$(resolve)"
+
+case "${1:-}" in
+  ""|show) echo "$value" ;;
+  status)
+    echo "agent network: $value (from $source)"
+    if [ "$value" = offline ]; then
+      echo "sandboxes: firebreak defaults to --net none; cloud agents are paused"
+    else
+      echo "sandboxes: firebreak allows sandbox network by default"
+    fi ;;
+  set)
+    v="${2:-}"; case "$v" in online|offline) : ;; *) warn "value must be online or offline"; exit 2 ;; esac
+    write_setting "$USER_DIR" "$v"
+    ok "agent network: $v" ;;
+  --system)
+    [ "${2:-}" = "set" ] || { usage; exit 2; }
+    v="${3:-}"; case "$v" in online|offline) : ;; *) warn "value must be online or offline"; exit 2 ;; esac
+    if [ "$(id -u)" != 0 ]; then warn "--system needs root"; exit 1; fi
+    write_setting "$SYS_DIR" "$v"
+    ok "system agent network: $v" ;;
+  --version) echo "shadowfetch-agent-network (Shadowfetch Linux) $VERSION" ;;
+  -h|--help) usage ;;
+  *) usage; exit 2 ;;
+esac

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Element Workbench
-Comment=Create verified Fire and Ice production workspaces
+Name=Shadowfetch Workbench
+Comment=Create verified production workspaces
 Exec=shadowfetch-control --page workbench
 Icon=shadowfetch
 Terminal=false

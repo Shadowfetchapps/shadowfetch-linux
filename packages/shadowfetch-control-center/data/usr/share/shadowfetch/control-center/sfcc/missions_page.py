@@ -384,9 +384,9 @@ class NewMissionDialog(QDialog):
         self.account_login.clicked.connect(self._login_account)
         form.addRow("", self.account_login)
         self.network = QComboBox()
-        self.network.addItem("Ice · no external network", "none")
-        self.network.addItem("Fire · allow network for this mission", "allow")
-        self.network.setCurrentIndex(0 if theme.ELEMENT == "ice" else 1)
+        self.network.addItem("Offline · no external network", "none")
+        self.network.addItem("Online · allow network for this mission", "allow")
+        self.network.setCurrentIndex(0 if desktop.agent_network_offline() else 1)
         form.addRow("Performed by", self.provider_choice)
         form.addRow("Connection", self.network)
         self.inputs = QPlainTextEdit()
@@ -487,14 +487,15 @@ class NewMissionDialog(QDialog):
         self.queue.setEnabled(not blocked)
         self.queue.setToolTip("" if not blocked else
                               "The engine reports this agent is not ready.")
-        self.network.setEnabled(needs_network and theme.ELEMENT != "ice")
+        offline = desktop.agent_network_offline()
+        self.network.setEnabled(needs_network and not offline)
         if known:
-            self.network.setCurrentIndex(0 if not needs_network or theme.ELEMENT == "ice" else 1)
+            self.network.setCurrentIndex(0 if not needs_network or offline else 1)
         self.tests.setEnabled(is_code)
         self.form.setRowVisible(self.tests, is_code)
         self.form.setRowVisible(self.provider_setup, bool(self.provider_setup.text()))
         self.form.setRowVisible(self.account_login, needs_network)
-        self.account_login.setEnabled(theme.ELEMENT != "ice")
+        self.account_login.setEnabled(not offline)
         self.inputs.setPlaceholderText("One relative media path per line" if is_media else "One relative document path per line")
         self.workflow_note.setText({
             "code": "Provide a test command so the result can be checked. Shell syntax is not evaluated; enter a program and its arguments.",
@@ -525,8 +526,8 @@ class NewMissionDialog(QDialog):
         if needs_network and network == "none":
             raise ValueError(
                 f"{info.get('display_name', provider)} needs a cloud connection. "
-                "Switch to Fire and allow a connection for this mission; offline "
-                "providers remain offline.")
+                "Turn the agent network on and allow a connection for this mission; "
+                "offline providers remain offline.")
         inputs = [line.strip() for line in self.inputs.toPlainText().splitlines() if line.strip()]
         for value in inputs:
             path = Path(value)
@@ -550,8 +551,8 @@ class NewMissionDialog(QDialog):
         return args
 
     def _login_account(self):
-        if theme.ELEMENT == "ice":
-            self.error.setText("Switch to Fire deliberately before signing in to a cloud account.")
+        if desktop.agent_network_offline():
+            self.error.setText("Turn the agent network on deliberately before signing in to a cloud account.")
             return
         # Both programs come from the trusted table: this launches the flow
         # that signs the desktop in to a provider account, and a $PATH lookup

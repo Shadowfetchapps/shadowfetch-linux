@@ -1,5 +1,9 @@
 import QtQuick 2.15
 
+// ShadowCode splash: the two-tone wordmark (SHADOWFETCH gold, LINUX brushed
+// steel, as on the emblem artwork) on the near-black window colour.
+// Every colour here is a role in
+// tools/truth/palette.json; tools/drift_gate.py rejects any other.
 Rectangle {
     id: root
     color: "#0e1116"
@@ -12,25 +16,38 @@ Rectangle {
         anchors.centerIn: parent
         spacing: 30
 
-        Text {
+        Row {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Shadowfetch"
-            color: "#d8a24a"
-            font.family: "Inter"
-            font.pixelSize: 46
-            font.weight: Font.DemiBold
-            font.letterSpacing: 2
-            renderType: Text.NativeRendering
+
+            Text {
+                text: "SHADOWFETCH"
+                color: "#f2b33d"
+                font.family: "Inter"
+                font.pixelSize: 46
+                font.weight: Font.Bold
+                font.letterSpacing: 3
+                renderType: Text.NativeRendering
+            }
+
+            Text {
+                text: " LINUX"
+                color: "#bcc0c6"
+                font.family: "Inter"
+                font.pixelSize: 46
+                font.weight: Font.Bold
+                font.letterSpacing: 3
+                renderType: Text.NativeRendering
+            }
         }
 
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "U M B R A"
+            text: "ONE HARNESS. ALL MODELS."
             color: "#9aa3ad"
             font.family: "Inter"
             font.pixelSize: 14
             font.weight: Font.Medium
-            font.letterSpacing: 8
+            font.letterSpacing: 6
             renderType: Text.NativeRendering
         }
 
@@ -44,7 +61,7 @@ Rectangle {
             Rectangle {
                 height: parent.height
                 radius: 2
-                color: "#d8a24a"
+                color: "#f2b33d"
                 width: parent.width * Math.max(0.04, Math.min(1.0, root.stage / root.totalStages))
                 Behavior on width {
                     NumberAnimation { duration: 280; easing.type: Easing.OutCubic }

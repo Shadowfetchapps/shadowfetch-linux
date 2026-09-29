@@ -40,13 +40,10 @@ class TheElementReachesTheGuide(unittest.TestCase):
     def test_the_passport_accent_is_the_themes_accent(self):
         self.assertIn(theme.GOLD, guide_page._report_html(DOCUMENT))
 
-    def test_the_fire_accent_is_not_written_into_the_document(self):
-        """On Ice the literal must be absent, which is the whole finding: a
-        hard-coded accent looks right in exactly one element."""
-        if theme.ELEMENT == "ice":
-            self.assertNotIn("#d8a24a", guide_page._report_html(DOCUMENT))
-        else:
-            self.assertEqual("#d8a24a", theme.GOLD)
+    def test_the_accent_is_not_written_into_the_document_source(self):
+        """A hard-coded accent silently diverges the day the palette moves."""
+        source = (SFCC / "guide_page.py").read_text(encoding="utf-8")
+        self.assertNotIn(theme.GOLD.lower(), source.lower())
 
     def test_the_alarm_colour_has_one_spelling(self):
         source = (SFCC / "guide_page.py").read_text(encoding="utf-8")

@@ -181,7 +181,7 @@ class SupportBundlePrivacy(unittest.TestCase):
             "PATH": "/usr/bin:/bin",
             "OPENAI_API_KEY": PLANTED["openai_project_key"],
             "GITHUB_TOKEN": PLANTED["github_pat"],
-            "SHADOWFETCH_ELEMENT": "ice",
+            "SHADOWFETCH_AGENT_NETWORK": "offline",
         }
         self.host = doctor.Host(root=self.sysroot, env=self.env)
 
@@ -236,7 +236,7 @@ class SupportBundlePrivacy(unittest.TestCase):
         serialised = json.dumps(environment)
         self.assertNotIn(PLANTED["openai_project_key"], serialised)
         self.assertNotIn(PLANTED["github_pat"], serialised)
-        self.assertEqual(environment["posture_values"], {"SHADOWFETCH_ELEMENT": "ice"})
+        self.assertEqual(environment["posture_values"], {"SHADOWFETCH_AGENT_NETWORK": "offline"})
 
     def test_home_directory_contents_are_never_read(self):
         """The second control: these plants are not secret-shaped on purpose.
@@ -646,6 +646,50 @@ class PackagedCorrectly(unittest.TestCase):
         install = (ROOT / "packages/shadowfetch-defaults/debian"
                    / "shadowfetch-defaults.install").read_text()
         self.assertRegex(install, r"data/usr/bin/shadowfetch-doctor\s+usr/bin/")
+
+
+class ShadowCodeUserCopy(unittest.TestCase):
+    """A user-level ShadowCode shadows the system one; say so without snooping."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.home = self.root / str(Path(pwd.getpwuid(os.geteuid()).pw_dir)).lstrip("/")
+        (self.root / "usr/bin").mkdir(parents=True)
+        (self.root / "usr/bin/shadowcode").write_text("#!/bin/sh\n")
+        self.host = doctor.Host(root=self.root, env={"PATH": "/usr/bin:/bin"})
+
+    def findings(self):
+        return {f.id: f for f in doctor.check_shadowcode(self.host)}
+
+    def test_only_the_system_copy_passes(self):
+        found = self.findings()
+        self.assertEqual(doctor.PASS, found["shadowcode.installed"].status)
+        self.assertEqual(doctor.PASS, found["shadowcode.user-copy"].status)
+
+    def test_a_user_binary_or_desktop_entry_is_a_warning(self):
+        for relative in doctor.SHADOWCODE_USER_COPIES:
+            with self.subTest(copy=relative):
+                path = self.home / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("x")
+                found = self.findings()["shadowcode.user-copy"]
+                self.assertEqual(doctor.WARN, found.status)
+                self.assertIn(relative, found.detail["user_copies"])
+                path.unlink()
+
+    def test_a_missing_system_copy_fails(self):
+        (self.root / "usr/bin/shadowcode").unlink()
+        self.assertEqual(doctor.FAIL, self.findings()["shadowcode.installed"].status)
+
+    def test_the_probe_allowance_is_exact_files_and_never_content(self):
+        home = Path(pwd.getpwuid(os.geteuid()).pw_dir)
+        for relative in (".local/bin/other-tool", ".local/share/applications/firefox.desktop"):
+            with self.assertRaises(doctor.Refused):
+                self.host.exists(str(home / relative))
+        with self.assertRaises(doctor.Refused):
+            self.host.read_text(str(home / ".local/bin/shadowcode"))
 
 
 if __name__ == "__main__":

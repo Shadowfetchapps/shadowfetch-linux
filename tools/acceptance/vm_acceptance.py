@@ -155,6 +155,12 @@ def command_run(args: argparse.Namespace) -> int:
         "interrupt_deadline": args.interrupt_deadline,
         "installer_settle": args.installer_settle,
         "install_timeout": args.install_timeout,
+        "shadowcode_minutes": args.shadowcode_minutes,
+        "window_timeout": args.window_timeout,
+        "soak_minutes": args.soak_minutes,
+        "soak_hold": args.soak_hold,
+        "soak_drift_mib": args.soak_drift_mib,
+        "soak_cpu_percent": args.soak_cpu_percent,
     }
     evidence = EvidenceSet(root, evidence_dir)
     ctx = Context(
@@ -547,6 +553,31 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=5400.0,
         help="how long the installation itself may run before the case fails",
+    )
+    run_parser.add_argument(
+        "--shadowcode-minutes", type=float, default=5.0,
+        help="shadowcode: how long the launched app must stay up",
+    )
+    run_parser.add_argument(
+        "--window-timeout", type=float, default=120.0,
+        help="shadowcode cases: how long a launch may take to show its window",
+    )
+    run_parser.add_argument(
+        "--soak-minutes", type=float, default=30.0,
+        help="shadowcode-soak: total duration of the open/close cycles",
+    )
+    run_parser.add_argument(
+        "--soak-hold", type=float, default=60.0,
+        help="shadowcode-soak: seconds each cycle keeps the app open",
+    )
+    run_parser.add_argument(
+        "--soak-drift-mib", type=float, default=256.0,
+        help="shadowcode-soak: largest allowed drop in MemAvailable after close, "
+        "first cycle to worst later cycle",
+    )
+    run_parser.add_argument(
+        "--soak-cpu-percent", type=float, default=50.0,
+        help="shadowcode-soak: largest allowed idle CPU of the open app, percent of one core",
     )
     run_parser.add_argument(
         "--record",

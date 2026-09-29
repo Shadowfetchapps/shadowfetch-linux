@@ -223,14 +223,18 @@ class ReverseManifest(unittest.TestCase):
             consumed=set(), roots=self.ROOTS, exempt=[])
         self.assertEqual((findings, swept), ([], 0))
 
-    def test_the_two_declared_exclusions_are_still_the_only_ones(self):
+    def test_the_declared_exclusion_is_still_the_only_one(self):
         """If a package stops shipping something, the reverse manifest fails
-        rather than letting a debian/not-installed grow quietly."""
+        rather than letting a debian/not-installed grow quietly.
+
+        shadowfetch-branding's entry (the unshipped UmbraEmblem and UmbraVault
+        wallpapers) went in 5.0.0: the ShadowCode look deleted both sets from
+        the tree, so there is nothing left to declare unshipped."""
         declared = {
             path.parent.parent.name: ship.not_installed(path.parent.parent)
             for path in ROOT.glob("packages/*/debian/not-installed")
         }
-        self.assertEqual(sorted(declared), ["shadowfetch-branding", "shadowfetch-welcome"])
+        self.assertEqual(sorted(declared), ["shadowfetch-welcome"])
         self.assertEqual(declared["shadowfetch-welcome"],
                          ["data/usr/share/shadowfetch/welcome/catalog/README"])
 

@@ -15,9 +15,9 @@ Color=52,208,88
 [Color2Intense]
 Color=95,224,138
 [Color3]
-Color=216,162,74
+Color=242,179,61
 [Color3Intense]
-Color=232,182,94
+Color=255,201,94
 [Color4]
 Color=62,142,158
 [Color4Intense]
@@ -37,10 +37,10 @@ Color=238,241,244
 [Foreground]
 Color=203,210,217
 [ForegroundIntense]
-Color=232,182,94
+Color=255,201,94
 [General]
 Blur=true
 ColorRandomization=false
-Description=Shadowfetch Umbra
+Description=ShadowCode
 Opacity=0.96
 Wallpaper=

@@ -95,6 +95,21 @@ captured and hashed, never a trusted attestation.
 | `recovery` | `RECOVERY-01` | A Phoenix Point is restored and the restored generation is what boots, with root and `/boot` from the same generation. |
 | `recovery-interrupted` | companion of `RECOVERY-01` | Power is cut mid-restore. |
 | `recovery-project` | `RECOVERY-01` | Fireline's project diff/undo, against a workspace an agent has damaged. The case RECOVERY-01 is recorded from. |
+| `shadowcode` | companion of `SHADOWCODE-01` | ShadowCode is installed at the version pinned in `tools/release/shadowcode.toml`, `shadowcode --version` answers it, the bundled `llama-server`/`llama-cli` execute and report the pinned llama.cpp commit, and the app launched in the live user's session shows a window (per KWin) and stays up for `--shadowcode-minutes` (5) with no crash, no restart and a clean exit. |
+| `shadowcode-soak` | `SHADOWCODE-01` | The same install checks, then open/close cycles for `--soak-minutes` (30, `--soak-hold` 60s each): every cycle shows a window, stays up, exits without SIGKILL, leaves no process; no coredump or kernel fault; MemAvailable after close drifts down no more than `--soak-drift-mib`; idle CPU under `--soak-cpu-percent`. Recorded only when a `shadowcode` run of the same artifact has passed. |
+
+### ShadowCode: how it is driven
+
+ShadowCode is started with `systemd-run --user` in the live user's own systemd
+user manager, with the session's `WAYLAND_DISPLAY`/`DISPLAY`, so its unit's
+cgroup accounts for the WebKit helper processes too. A window is confirmed
+through KWin's window list on the session bus (`org.kde.KWin /WindowsRunner`);
+if that interface is unreachable the case is BLOCKED rather than inferring a
+window from a screenshot. Closing is `systemctl --user stop` (SIGTERM, SIGKILL
+after 20s), **not** the window's close button, and the receipt records that.
+Crashes are read from `coredumpctl` (what DrKonqi's pickup consumes) and from
+kernel fault lines. The expected version and llama.cpp commit are read from the
+pin and the vendored signed `RELEASE-MANIFEST.json`, never restated here.
 
 ### Contributing to a required case is not proving it
 

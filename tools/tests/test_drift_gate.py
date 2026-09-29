@@ -95,22 +95,17 @@ def edit(path: Path, old: str, new: str) -> None:
 PALETTE_REL = "tools/truth/palette.json"
 GENERATED = (
     "packages/shadowfetch-themes/data/usr/share/color-schemes/ShadowfetchDark.colors",
-    "packages/shadowfetch-themes/data/usr/share/color-schemes/ShadowfetchIce.colors",
     "packages/shadowfetch-themes/data/usr/share/konsole/ShadowfetchUmbra.colorscheme",
-    "packages/shadowfetch-themes/data/usr/share/konsole/ShadowfetchGlacier.colorscheme",
 )
 VERSION_RELS = tuple({rel for rel, _, _ in drift_gate.VERSION_SITES}) + (
     f"qa/{TRUTH['version']}/acceptance.json", RELEASE_DATA, POINTER)
 FINGERPRINT_RELS = drift_gate.FINGERPRINT_REQUIRED + (
     f"qa/{TRUTH['version']}/acceptance.json", RELEASE_DATA, POINTER)
-LNF_RELS = tuple(
-    drift_gate.LNF_DEFAULTS.format(plugin=plugin)
-    for plugin in ("org.shadowfetch.dark", "org.shadowfetch.ice"))
+LNF_RELS = (drift_gate.LNF_DEFAULTS.format(plugin="org.shadowfetch.dark"),)
+SPLASH_REL = drift_gate.SPLASH.format(plugin="org.shadowfetch.dark")
 PALETTE_LITERAL_RELS = (
     tuple(drift_gate.SURFACE_OF)
-    + tuple(drift_gate.SPLASH.format(plugin=p)
-            for p in ("org.shadowfetch.dark", "org.shadowfetch.ice"))
-    + (drift_gate.THEME_CONF, PALETTE_REL))
+    + (SPLASH_REL, drift_gate.THEME_CONF, PALETTE_REL))
 HELPER_RELS = tuple(set(drift_gate.HELPER_CONSUMERS) | set(drift_gate.BUNDLE_CALL_SITES))
 
 
@@ -161,8 +156,19 @@ class TestTreeIsClean(unittest.TestCase):
         #
         # desktop-helpers went 4 -> 3: Welcome's loader was the same
         # sys.modules hole the Control Center's had, and is closed.
+        #
+        # 5.0.0: element-assets (1) became look-assets (0). With one look there
+        # is no second look-and-feel package for nothing to apply. palette
+        # gains a second finding, RETIRED_LOOK_LITERALS, for as long as another
+        # owner's file still spells a Fire/Ice colour; it is counted from the
+        # tree because that conversion is landing in parallel.
+        lingering = any(
+            colour in (ROOT / rel).read_text(encoding="utf-8").lower()
+            for rel, colours in drift_gate.RETIRED_LOOK_LITERALS.items()
+            for colour in colours)
+        expected = {"palette": 2 if lingering else 1, "desktop-helpers": 3}
         self.assertEqual(
-            {"palette": 1, "element-assets": 1, "desktop-helpers": 3},
+            expected,
             by_check,
             "the blocked-duplication inventory changed:\n"
             + "\n".join(str(f) for f in blocked))
@@ -186,7 +192,7 @@ class TestVersionDrift(unittest.TestCase):
         """A copy that stops existing is drift too -- silence is not agreement."""
         with sandbox(*VERSION_RELS) as fake:
             target = fake / ("packages/shadowfetch-defaults/data/usr/bin/"
-                             "shadowfetch-element")
+                             "shadowfetch-agent-network")
             edit(target, f'VERSION="{LIVE}"',
                  'VERSION=$(cat /usr/share/shadowfetch/version)')
             found = drifts(drift_gate.check_version(TRUTH))
@@ -195,7 +201,10 @@ class TestVersionDrift(unittest.TestCase):
     def test_acceptance_manifest_release_block_is_checked(self):
         with sandbox(*VERSION_RELS) as fake:
             manifest = fake / f"qa/{TRUTH['version']}/acceptance.json"
-            edit(manifest, '"edition": "Fire and Ice"', '"edition": "Fire"')
+            # Derived, like LIVE/WRONG: 5.0.0 renamed the edition, and a
+            # written-down "Fire and Ice" stopped matching anything.
+            edit(manifest, f'"edition": "{TRUTH["edition"]}"',
+                 f'"edition": "{TRUTH["edition"]} (stale)"')
             found = drifts(drift_gate.check_version(TRUTH))
         self.assertTrue(any("release.edition" in f.detail for f in found))
 
@@ -321,32 +330,114 @@ class TestReleaseData(unittest.TestCase):
 class TestGeneratedThemeAssets(unittest.TestCase):
     def test_a_hand_edited_generated_file_is_caught(self):
         with sandbox(PALETTE_REL, *GENERATED) as fake:
-            target = fake / GENERATED[1]
+            target = fake / GENERATED[0]
             edit(target, "inactiveForeground=154,163,173", "inactiveForeground=0,0,0")
             found = drifts(drift_gate.check_theme_assets(TRUTH))
         self.assertTrue(found)
         self.assertIn("inactiveForeground=0,0,0", found[0].detail)
 
-    def test_semantic_colours_do_not_mirror_by_element(self):
-        """The defect this generator was written to end.
+    def test_semantic_colours_come_from_semantic_not_brand(self):
+        """The defect this generator was written to end (4.1.0).
 
-        The Ice assets had been produced by R/B-mirroring every value, so ANSI
-        red rendered blue in Konsole and Plasma error text rendered blue --
-        contradicting sfcc/theme.py:29-31, which promises semantic colours keep
-        their meaning on a cold desktop.
+        The old Ice assets had been produced by R/B-mirroring every value, so
+        ANSI red rendered blue in Konsole and Plasma error text rendered blue.
+        Semantic roles are read from "semantic", never from the brand.
         """
         palette = generate_theme_assets.load_palette()
-        fire = generate_theme_assets.render_konsole(palette, "fire")
-        ice = generate_theme_assets.render_konsole(palette, "ice")
+        konsole = generate_theme_assets.render_konsole(palette)
+        colors = generate_theme_assets.render_colors(palette)
         red = generate_theme_assets.rgb(palette["semantic"]["negative"])
-        self.assertIn(f"[Color1]\nColor={red}", fire)
-        self.assertIn(f"[Color1]\nColor={red}", ice)
-        for element in ("fire", "ice"):
-            colors = generate_theme_assets.render_colors(palette, element)
-            self.assertIn(f"ForegroundNegative={red}", colors)
-        # ...while the brand accent still does mirror.
-        self.assertNotEqual(palette["elements"]["fire"]["accent"],
-                            palette["elements"]["ice"]["accent"])
+        warning = generate_theme_assets.rgb(palette["semantic"]["warning"])
+        self.assertIn(f"[Color1]\nColor={red}", konsole)
+        self.assertIn(f"ForegroundNegative={red}", colors)
+        self.assertIn(f"ForegroundNeutral={warning}", colors)
+        gold = generate_theme_assets.rgb(palette["elements"]["shadowcode"]["accent"])
+        self.assertIn(f"[Color3]\nColor={gold}", konsole)
+
+    def test_there_is_exactly_one_look(self):
+        palette = generate_theme_assets.load_palette()
+        self.assertEqual(["shadowcode"], list(palette["elements"]))
+        self.assertEqual(2, len(generate_theme_assets.generated(palette)))
+        for surface in ("app-chrome", "document"):
+            self.assertEqual(["shadowcode"],
+                             list(palette["surfaces"][surface]["element_roles"]))
+
+    def test_a_second_element_is_refused(self):
+        palette = generate_theme_assets.load_palette()
+        palette["elements"]["ice"] = dict(palette["elements"]["shadowcode"])
+        with self.assertRaises(ValueError):
+            generate_theme_assets.generated(palette)
+
+    def test_display_names_say_shadowcode_and_ids_do_not_move(self):
+        palette = generate_theme_assets.load_palette()
+        look = palette["elements"]["shadowcode"]
+        # The ids are what 4.1 configurations name; renaming them strands them.
+        self.assertEqual("ShadowfetchDark", look["plasma_color_scheme"])
+        self.assertEqual("ShadowfetchUmbra", look["konsole_scheme"])
+        self.assertEqual("org.shadowfetch.dark", look["look_and_feel"])
+        colors = generate_theme_assets.render_colors(palette)
+        self.assertIn("\nName=ShadowCode\n", colors)
+        self.assertIn("Description=ShadowCode\n",
+                      generate_theme_assets.render_konsole(palette))
+
+    def test_contrast_meets_the_recorded_floor(self):
+        """Body text >= 7:1 and the accent >= 4.5:1 on every surface's ground."""
+        def lum(hex_):
+            chans = [int(hex_.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+            lin = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+                   for c in chans]
+            return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+        def ratio(a, b):
+            hi, lo = sorted((lum(a), lum(b)), reverse=True)
+            return (hi + 0.05) / (lo + 0.05)
+
+        palette = generate_theme_assets.load_palette()
+        accent = palette["elements"]["shadowcode"]["accent"]
+        desk = palette["surfaces"]["desktop"]["roles"]
+        chrome = palette["surfaces"]["app-chrome"]
+        doc = palette["surfaces"]["document"]
+        pairs = [
+            ("desktop text/window", desk["text"], desk["window"], 7),
+            ("desktop text/ink", desk["text"], desk["ink"], 7),
+            ("accent/window", accent, desk["window"], 4.5),
+            ("accent/ink", accent, desk["ink"], 4.5),
+            ("ink on accent (selection)", desk["ink"], accent, 4.5),
+            ("chrome text/bg", chrome["roles"]["text"], chrome["roles"]["bg"], 7),
+            ("chrome gold/bg", chrome["element_roles"]["shadowcode"]["gold"],
+             chrome["roles"]["bg"], 4.5),
+            ("document text/bg", doc["roles"]["text"],
+             doc["element_roles"]["shadowcode"]["bg"], 7),
+            ("document gold/bg", doc["element_roles"]["shadowcode"]["gold"],
+             doc["element_roles"]["shadowcode"]["bg"], 4.5),
+            ("warning/window", palette["semantic"]["warning"], desk["window"], 4.5),
+        ]
+        for name, fg, bg, floor in pairs:
+            self.assertGreaterEqual(ratio(fg, bg), floor, name)
+
+    def test_warning_is_not_the_accent(self):
+        """A warning must not read as brand gold.
+
+        CIE76 distance in Lab. 4.1's Fire gold and amber warning sat 8.6 apart
+        and were hard to tell apart; ShadowCode gold and the 5.0 warning sit
+        17.2 apart. The floor is between the two.
+        """
+        import math
+
+        def lab(hex_):
+            chans = [int(hex_.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+            r, g, b = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+                       for c in chans]
+            x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047
+            y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+            f = [v ** (1 / 3) if v > 0.008856 else 7.787 * v + 16 / 116 for v in (x, y, z)]
+            return 116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])
+
+        palette = generate_theme_assets.load_palette()
+        distance = math.dist(lab(palette["semantic"]["warning"]),
+                             lab(palette["elements"]["shadowcode"]["accent"]))
+        self.assertGreaterEqual(distance, 12)
 
     def test_write_then_check_is_a_fixed_point(self):
         with sandbox(PALETTE_REL, *GENERATED):
@@ -393,33 +484,51 @@ class TestPaletteLiterals(unittest.TestCase):
         self.assertTrue(found)
         self.assertIn("#e07a6a", found[0].detail)
 
-    def test_a_splash_that_uses_the_other_accent_is_caught(self):
-        rel = drift_gate.SPLASH.format(plugin="org.shadowfetch.ice")
+    def test_a_splash_that_keeps_the_retired_gold_is_caught(self):
         with sandbox(*PALETTE_LITERAL_RELS) as fake:
-            (fake / rel).write_text(
-                (fake / rel).read_text(encoding="utf-8").replace("#4aa2d8", "#d8a24a"),
+            (fake / SPLASH_REL).write_text(
+                (fake / SPLASH_REL).read_text(encoding="utf-8").replace("#f2b33d", "#d8a24a"),
                 encoding="utf-8")
             found = drifts(drift_gate.check_palette_literals(TRUTH))
         self.assertTrue(any("#d8a24a" in f.detail for f in found))
 
+    def test_an_sddm_theme_on_the_retired_gold_is_caught(self):
+        with sandbox(*PALETTE_LITERAL_RELS) as fake:
+            edit(fake / drift_gate.THEME_CONF, "color=#F2B33D", "color=#D8A24A")
+            found = drifts(drift_gate.check_palette_literals(TRUTH))
+        self.assertTrue(any("SDDM accent" in f.detail for f in found))
+
+    def test_a_retired_literal_outside_its_listed_file_is_a_stray(self):
+        """RETIRED_LOOK_LITERALS excuses the files it names, nobody else."""
+        with sandbox(*PALETTE_LITERAL_RELS) as fake:
+            edit(fake / self.THEME, 'GOLD = "#f2b33d"', 'GOLD = "#4aa2d8"')
+            found = drifts(drift_gate.check_palette_literals(TRUTH))
+        self.assertTrue(any("#4aa2d8" in f.detail for f in found))
+
 
 class TestLookAndFeelIdentity(unittest.TestCase):
-    ICE = drift_gate.LNF_DEFAULTS.format(plugin="org.shadowfetch.ice")
+    DARK = LNF_RELS[0]
 
-    def test_a_package_naming_the_other_package_is_caught(self):
-        """Exactly the regression this stage fixed: Ice declared itself Dark."""
+    def test_a_package_naming_another_package_is_caught(self):
+        """The 4.1 regression: a package declaring itself as a different one."""
         with sandbox(*LNF_RELS, PALETTE_REL) as fake:
-            edit(fake / self.ICE, "LookAndFeelPackage=org.shadowfetch.ice",
-                 "LookAndFeelPackage=org.shadowfetch.dark")
+            edit(fake / self.DARK, "LookAndFeelPackage=org.shadowfetch.dark",
+                 "LookAndFeelPackage=org.shadowfetch.ice")
             found = drifts(drift_gate.check_lookandfeel(TRUTH))
         self.assertTrue(found)
         self.assertIn("LookAndFeelPackage", found[0].detail)
 
     def test_a_wrong_accent_colour_is_caught(self):
         with sandbox(*LNF_RELS, PALETTE_REL) as fake:
-            edit(fake / self.ICE, "AccentColor=74,162,216", "AccentColor=216,162,74")
+            edit(fake / self.DARK, "AccentColor=242,179,61", "AccentColor=216,162,74")
             found = drifts(drift_gate.check_lookandfeel(TRUTH))
         self.assertTrue(any("AccentColor" in f.detail for f in found))
+
+    def test_the_retired_wallpaper_is_caught(self):
+        with sandbox(*LNF_RELS, PALETTE_REL) as fake:
+            edit(fake / self.DARK, "shadowcode-4k.jpg", "umbra-4k.jpg")
+            found = drifts(drift_gate.check_lookandfeel(TRUTH))
+        self.assertTrue(any("Wallpaper" in f.detail for f in found))
 
     def test_clean_copy_passes(self):
         with sandbox(*LNF_RELS, PALETTE_REL):
@@ -510,33 +619,59 @@ class TestDesktopHelpers(unittest.TestCase):
             self.assertEqual([], drifts(drift_gate.check_desktop_helpers(TRUTH)))
 
 
-class TestElementAssets(unittest.TestCase):
-    RELS = (drift_gate.ELEMENT_APPLIER, drift_gate.FIRST_LOGIN,
-            drift_gate.SKEL_KDEGLOBALS, PALETTE_REL)
+class TestLookAssets(unittest.TestCase):
+    RELS = (*drift_gate.LOOK_APPLIERS, PALETTE_REL)
 
-    def test_a_bash_branch_that_forgets_an_asset_is_caught(self):
-        with sandbox(*self.RELS) as fake:
-            edit(fake / drift_gate.ELEMENT_APPLIER,
-                 'konsole="ShadowfetchGlacier"', 'konsole="ShadowfetchUmbra"')
-            found = drifts(drift_gate.check_element_assets(TRUTH))
-        self.assertTrue(found)
-        self.assertIn("ShadowfetchGlacier", found[0].detail)
+    def test_clean_copy_passes(self):
+        with sandbox(*self.RELS):
+            self.assertEqual([], drift_gate.check_look_assets(TRUTH))
 
-    def test_an_unapplied_look_and_feel_package_is_reported(self):
-        """Choosing Ice leaves the Fire splash installed; nothing applies it."""
-        findings = drift_gate.check_element_assets(TRUTH)
-        blocked = [f for f in findings if f.kind == "BLOCKED"]
-        self.assertTrue(blocked)
-        self.assertIn("ice", blocked[0].detail)
-
-    def test_it_stops_reporting_once_the_package_is_applied(self):
+    def test_an_applier_that_forgets_an_asset_is_caught(self):
         with sandbox(*self.RELS) as fake:
             edit(fake / drift_gate.FIRST_LOGIN,
                  "plasma-apply-lookandfeel -a org.shadowfetch.dark || true",
-                 "plasma-apply-lookandfeel -a org.shadowfetch.dark || true\n"
-                 "plasma-apply-lookandfeel -a org.shadowfetch.ice || true")
-            findings = drift_gate.check_element_assets(TRUTH)
-        self.assertEqual([], findings)
+                 "plasma-apply-lookandfeel -a org.kde.breezedark.desktop || true")
+            found = drifts(drift_gate.check_look_assets(TRUTH))
+        self.assertTrue(any("org.shadowfetch.dark" in f.detail for f in found), found)
+
+    def test_a_retired_asset_back_in_the_tree_is_caught(self):
+        with sandbox(*self.RELS) as fake:
+            back = fake / ("packages/shadowfetch-themes/data/usr/share/"
+                           "color-schemes/ShadowfetchIce.colors")
+            back.parent.mkdir(parents=True, exist_ok=True)
+            back.write_text("[General]\nName=Shadowfetch Ice\n")
+            found = drifts(drift_gate.check_look_assets(TRUTH))
+        self.assertTrue(any("retired Fire/Ice asset is back" in f.detail for f in found))
+        self.assertTrue(any("ShadowfetchIce.colors" in f.site for f in found))
+
+    def test_an_install_line_for_a_retired_asset_is_caught(self):
+        rel = "packages/shadowfetch-branding/debian/shadowfetch-branding.install"
+        with sandbox(*self.RELS, rel) as fake:
+            with (fake / rel).open("a", encoding="utf-8") as fh:
+                fh.write("data/usr/share/wallpapers/UmbraIce     usr/share/wallpapers/\n")
+            found = drifts(drift_gate.check_look_assets(TRUTH))
+        self.assertTrue(any("installs a retired" in f.detail for f in found), found)
+
+    def test_a_look_file_naming_a_retired_asset_is_drift(self):
+        with sandbox(*self.RELS) as fake:
+            edit(fake / drift_gate.SKEL_LOCKRC, "shadowcode-4k.jpg", "umbra-ice-4k.jpg")
+            found = drifts(drift_gate.check_look_assets(TRUTH))
+        self.assertTrue(any(drift_gate.SKEL_LOCKRC in f.site for f in found), found)
+
+    def test_another_owners_file_is_reported_not_failed(self):
+        rel = "packages/shadowfetch-defaults/data/usr/bin/shadowfetch-example"
+        with sandbox(*self.RELS) as fake:
+            (fake / rel).parent.mkdir(parents=True, exist_ok=True)
+            (fake / rel).write_text('wall="/usr/share/wallpapers/UmbraFire"\n')
+            findings = drift_gate.check_look_assets(TRUTH)
+        self.assertEqual([], drifts(findings))
+        (blocked,) = [f for f in findings if f.kind == "BLOCKED"]
+        self.assertIn(rel, blocked.detail)
+
+    def test_the_migration_script_may_name_what_it_migrates(self):
+        with sandbox(*self.RELS):
+            self.assertIn("UmbraFire", (ROOT / drift_gate.LOOK_MIGRATE).read_text())
+            self.assertEqual([], drift_gate.check_look_assets(TRUTH))
 
 
 class TestWorkspaceNameRule(unittest.TestCase):

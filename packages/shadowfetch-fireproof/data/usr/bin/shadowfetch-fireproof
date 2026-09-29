@@ -66,7 +66,7 @@ from PyQt6.QtWidgets import (
 BG = "#151619"
 CARD = "#202126"
 BORDER = "#34363d"
-GOLD = "#d8a24a"
+GOLD = "#f2b33d"
 TEXT = "#f0eee9"
 MUTED = "#aaa69f"
 GREEN = "#72c69c"
@@ -148,8 +148,8 @@ class FireproofPage(QWidget):
             QProgressBar::chunk {{ background: {GOLD}; border-radius: 5px; }}
             QPushButton {{ background: {GOLD}; color: #151515; border: 0; border-radius: 6px;
                            padding: 6px 12px; font-weight: 700; }}
-            QPushButton:hover {{ background: #efb95d; }}
-            QPushButton:pressed {{ background: #bf8735; }}
+            QPushButton:hover {{ background: #ffc95e; }}
+            QPushButton:pressed {{ background: #b97e22; }}
             QPushButton:disabled {{ background: {BORDER}; color: {MUTED}; }}
             QPushButton#quiet {{ background: {CARD}; color: {TEXT}; border: 1px solid {BORDER}; }}
             QPushButton#danger {{ background: {RED}; color: #151515; }}

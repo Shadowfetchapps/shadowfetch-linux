@@ -1,0 +1,12 @@
+{
+ "KPlugin": {
+  "Id": "ShadowCode",
+  "Name": "ShadowCode",
+  "License": "GPL-3.0",
+  "Authors": [
+   {
+    "Name": "Shadowfetch Project"
+   }
+  ]
+ }
+}

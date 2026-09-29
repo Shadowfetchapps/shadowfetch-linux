@@ -1,0 +1,14 @@
+[Unit]
+Description=Stamp the Shadowfetch agent network setting from the kernel command line
+DefaultDependencies=no
+After=local-fs.target
+Before=display-manager.service sddm.service
+ConditionKernelCommandLine=|sf.agent-network=online
+ConditionKernelCommandLine=|sf.agent-network=offline
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/shadowfetch/agent-network-boot.sh
+
+[Install]
+WantedBy=multi-user.target

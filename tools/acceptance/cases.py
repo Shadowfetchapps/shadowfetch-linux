@@ -2179,6 +2179,546 @@ def case_recovery_project(ctx: Context) -> None:
         finally:
             ctx.collect_machine_evidence(machine, "project")
 
+
+# --- SHADOWCODE ---------------------------------------------------------------
+#
+# ShadowCode is the 5.0 flagship and the one package in the image nobody here
+# built: upstream's signed .deb, preinstalled. The release gates prove the
+# bytes are the signed ones and that they are installed; they cannot prove the
+# app runs. These cases do, on the live session of the artifact under test:
+#
+#   shadowcode       pinned version installed, --version answers, the bundled
+#                    llama.cpp runtime executes, and the app is launched under
+#                    the live desktop, shows a window, and stays up for
+#                    --shadowcode-minutes without a crash.
+#   shadowcode-soak  the same checks, then open/close cycles for
+#                    --soak-minutes, watching window appearance, clean exits,
+#                    leftover processes, crashes, memory drift and idle CPU.
+#                    SHADOWCODE-01 is recorded from this case, and only when a
+#                    `shadowcode` run of the same artifact has also passed.
+#
+# How it is driven, and what that costs. The app is started in the live user's
+# own systemd user manager (`systemd-run --user`), with the live session's
+# Wayland/X11 display, as the desktop user -- the same place a launcher click
+# puts it -- so the unit's cgroup accounts for every WebKit child process. It
+# is closed with `systemctl --user stop` (SIGTERM, 20s before SIGKILL), NOT the
+# window's close button; the receipt says so. A window is confirmed through
+# KWin's own window list on the session bus (org.kde.KWin /WindowsRunner),
+# never inferred from a screenshot; if that interface is unreachable the case
+# is BLOCKED, not guessed.
+
+SHADOWCODE_UNIT = "sf-acceptance-shadowcode"
+# Process image names that belong to a ShadowCode run: the launcher, its
+# bundled runtime, and the WebKitGTK helper processes the window spawns.
+SHADOWCODE_FAMILY = ("shadowcode", "llama-server", "llama-cli", "webkit")
+
+
+def _shadowcode_pin(ctx: Context) -> dict[str, Any]:
+    """The pin the artifact is supposed to carry, read from the source tree.
+
+    Loaded from tools/release/shadowcode.py -- the module the release gates
+    use -- rather than restating the version here, which would be a second
+    authority a bump could forget.
+    """
+    import importlib.util
+    import re as _re
+
+    path = ctx.repo_root / "tools/release/shadowcode.py"
+    try:
+        import sys as _sys
+
+        spec = importlib.util.spec_from_file_location("sf_acceptance_shadowcode", path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        # Registered before execution: its dataclasses resolve their own module
+        # through sys.modules while the class bodies run.
+        _sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        pin = module.load_pin()
+        manifest = json.loads(
+            (pin.vendor_dir / "RELEASE-MANIFEST.json").read_text(encoding="utf-8")
+        )
+    except Exception as error:  # noqa: BLE001 - no pin means nothing to compare against
+        ctx.blocked(f"the ShadowCode pin cannot be read from the source tree: {error}")
+    runtime = _re.search(r"commit=([0-9a-f]{40})", manifest.get("runtime_pin", ""))
+    facts = {
+        "package": pin.package,
+        "version": pin.version,
+        "commit": pin.commit,
+        "deb_sha256": pin.deb.sha256,
+        "runtime_commit": runtime.group(1) if runtime else "",
+        "launcher": "/" + module.LAUNCHER,
+        "desktop_file": "/" + module.DESKTOP_FILE,
+        "llama_server": "/" + module.LLAMA_SERVER,
+        "llama_cli": "/" + module.LLAMA_CLI,
+    }
+    ctx.observe("shadowcode_pin", facts)
+    return facts
+
+
+def _await_session(ctx: Context, machine: Guest) -> dict[str, str]:
+    """Wait for the live desktop, then identify it (observed, never assumed)."""
+    deadline = time.monotonic() + float(ctx.options.get("desktop_settle", 90)) + 240
+    while time.monotonic() < deadline:
+        if machine.run("/usr/bin/pgrep -x plasmashell", timeout=60)["exitcode"] == 0:
+            break
+        time.sleep(5)
+    # Plasma is up before its session bus services are; give KWin a moment.
+    time.sleep(min(30.0, float(ctx.options.get("desktop_settle", 90))))
+    session = _live_session(ctx, machine)
+    session["home"] = machine.out(
+        f"/usr/bin/getent passwd {shlex.quote(session['user'])} | /usr/bin/cut -d: -f6"
+    )
+    ctx.observe("live_session", session)
+    return session
+
+
+def _as_session(
+    machine: Guest, session: dict[str, str], command: str, timeout: float = 120
+) -> dict:
+    """Run a command as the live desktop user, inside that user's session."""
+    uid = session["uid"]
+    environment = [
+        f"HOME={session['home']}",
+        f"XDG_RUNTIME_DIR=/run/user/{uid}",
+        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+        "LC_ALL=C.UTF-8",
+    ]
+    if session.get("wayland_display"):
+        environment.append(f"WAYLAND_DISPLAY={session['wayland_display']}")
+    if session.get("display"):
+        environment.append(f"DISPLAY={session['display']}")
+    return machine.run(
+        f"/usr/sbin/runuser -u {shlex.quote(session['user'])} -- /usr/bin/env "
+        + " ".join(shlex.quote(item) for item in environment)
+        + f" /bin/sh -c {shlex.quote(command)}",
+        timeout=timeout,
+    )
+
+
+def _shadowcode_windows(machine: Guest, session: dict[str, str]) -> dict[str, Any]:
+    """KWin's own answer to "is there a ShadowCode window". Evidence, not proof."""
+    result = _as_session(
+        machine, session,
+        "/usr/bin/dbus-send --session --print-reply --dest=org.kde.KWin "
+        "/WindowsRunner org.kde.krunner1.Match string:ShadowCode",
+        timeout=60,
+    )
+    texts = [
+        line.strip()[len('string "'):-1]
+        for line in result["stdout"].splitlines()
+        if line.strip().startswith('string "')
+    ]
+    return {
+        "reachable": result["exitcode"] == 0,
+        "matches": [text for text in texts if "shadowcode" in text.lower()],
+        "raw": (result["stdout"] + result["stderr"])[:4000],
+    }
+
+
+def _unit_state(machine: Guest, session: dict[str, str], unit: str) -> dict[str, str]:
+    result = _as_session(
+        machine, session,
+        f"/usr/bin/systemctl --user show {shlex.quote(unit)} -p LoadState "
+        "-p ActiveState -p SubState -p Result -p MainPID -p NRestarts "
+        "-p MemoryCurrent -p MemoryPeak -p CPUUsageNSec -p ExecMainCode "
+        "-p ExecMainStatus",
+        timeout=60,
+    )
+    return dict(
+        line.split("=", 1) for line in result["stdout"].splitlines() if "=" in line
+    )
+
+
+def _mem_available_kib(machine: Guest) -> int:
+    value = machine.out("/usr/bin/awk '/^MemAvailable:/ {print $2}' /proc/meminfo")
+    return int(value) if value.isdigit() else -1
+
+
+def _sample(machine: Guest, session: dict[str, str], unit: str) -> dict[str, Any]:
+    state = _unit_state(machine, session, unit)
+    return {
+        "monotonic": round(time.monotonic(), 1),
+        "active": state.get("ActiveState"),
+        "sub": state.get("SubState"),
+        "main_pid": state.get("MainPID"),
+        "restarts": state.get("NRestarts"),
+        "memory_current": state.get("MemoryCurrent"),
+        "memory_peak": state.get("MemoryPeak"),
+        "cpu_ns": state.get("CPUUsageNSec"),
+        "mem_available_kib": _mem_available_kib(machine),
+    }
+
+
+def _number(value: Any) -> int | None:
+    return int(value) if isinstance(value, str) and value.isdigit() else None
+
+
+def _shadowcode_leftovers(machine: Guest, session: dict[str, str]) -> str:
+    return machine.out(
+        f"/usr/bin/pgrep -a -u {shlex.quote(session['user'])} "
+        "-f '^/usr/bin/shadowcode|/usr/lib/shadowcode/' || true"
+    )
+
+
+def _crashes_since(ctx: Context, machine: Guest, since: str, label: str) -> list[str]:
+    """ShadowCode-family crashes recorded since `since`, from coredumps and the kernel.
+
+    systemd-coredump is what DrKonqi's pickup reads, so a crash DrKonqi would
+    offer to report is a crash coredumpctl lists. The kernel's own segfault
+    lines are read too, for the case where no core was written.
+    """
+    cores = machine.run(
+        "if [ -x /usr/bin/coredumpctl ]; then /usr/bin/coredumpctl --no-pager "
+        f"--no-legend list --since=@{since} 2>&1; else echo NO_COREDUMPCTL; fi",
+        timeout=120,
+    )["stdout"]
+    kernel = machine.out(
+        f"/usr/bin/journalctl -k --no-pager --since=@{since} 2>&1 "
+        "| /usr/bin/grep -iE 'segfault|general protection|traps:' || true",
+        timeout=120,
+    )
+    errors = machine.out(
+        f"/usr/bin/journalctl --no-pager --since=@{since} -p err 2>&1 "
+        "| /usr/bin/grep -iE 'shadowcode|webkit|llama' || true",
+        timeout=120,
+    )
+    ctx.evidence.write_text(
+        f"{label}-crash-scan.log",
+        f"coredumps since @{since}:\n{cores.strip() or '(none)'}\n\n"
+        f"kernel faults since @{since}:\n{kernel or '(none)'}\n\n"
+        f"error-priority journal lines naming shadowcode/webkit/llama:\n{errors or '(none)'}\n",
+    )
+    ctx.observe(f"{label}_coredumpctl_available", "NO_COREDUMPCTL" not in cores)
+    found = [
+        line.strip()
+        for line in (cores + "\n" + kernel).splitlines()
+        if line.strip() and any(name in line.lower() for name in SHADOWCODE_FAMILY)
+    ]
+    return found
+
+
+def _start_shadowcode(
+    ctx: Context, machine: Guest, session: dict[str, str], unit: str
+) -> dict:
+    setenv = " ".join(
+        f"--setenv={shlex.quote(f'{key}={session[field]}')}"
+        for key, field in (("WAYLAND_DISPLAY", "wayland_display"), ("DISPLAY", "display"))
+        if session.get(field)
+    )
+    return _as_session(
+        machine, session,
+        f"/usr/bin/systemctl --user reset-failed {unit} >/dev/null 2>&1; "
+        f"/usr/bin/systemd-run --user --unit={unit} --property=TimeoutStopSec=20 "
+        f"{setenv} /usr/bin/shadowcode",
+        timeout=120,
+    )
+
+
+def _await_window(
+    ctx: Context, machine: Guest, session: dict[str, str], unit: str
+) -> tuple[float | None, dict[str, Any]]:
+    limit = float(ctx.options.get("window_timeout", 120))
+    started = time.monotonic()
+    last: dict[str, Any] = {}
+    while time.monotonic() - started < limit:
+        last = _shadowcode_windows(machine, session)
+        if last["matches"]:
+            return round(time.monotonic() - started, 1), last
+        if _unit_state(machine, session, unit).get("ActiveState") not in ("active", "activating"):
+            break
+        time.sleep(3)
+    return None, last
+
+
+def _stop_shadowcode(
+    machine: Guest, session: dict[str, str], unit: str
+) -> dict[str, Any]:
+    started = time.monotonic()
+    _as_session(machine, session, f"/usr/bin/systemctl --user stop {unit}", timeout=90)
+    state = _unit_state(machine, session, unit)
+    time.sleep(3)
+    return {
+        "seconds": round(time.monotonic() - started, 1),
+        "active": state.get("ActiveState"),
+        "result": state.get("Result"),
+        "leftovers": _shadowcode_leftovers(machine, session),
+    }
+
+
+def _shadowcode_install_checks(
+    ctx: Context, machine: Guest, session: dict[str, str], pin: dict[str, Any]
+) -> None:
+    import re as _re
+
+    installed = machine.out(
+        "/usr/bin/dpkg-query -W -f='${Version}\\t${db:Status-Abbrev}' "
+        f"{shlex.quote(pin['package'])} 2>&1"
+    )
+    version, _, status = installed.partition("\t")
+    ctx.check(
+        "the pinned ShadowCode version is installed in the image",
+        version == pin["version"] and status.startswith("ii"),
+        f"dpkg reports {installed!r}, pin is {pin['version']}",
+    )
+    present = machine.out(
+        f"/usr/bin/test -x {pin['launcher']} && /usr/bin/test -f {pin['desktop_file']} "
+        f"&& /usr/bin/test -x {pin['llama_server']} && echo present || echo absent"
+    )
+    entry = machine.out(f"/usr/bin/cat {pin['desktop_file']} 2>&1")
+    ctx.check(
+        "the ShadowCode launcher, desktop entry and bundled runtime are installed",
+        present == "present" and "\nExec=shadowcode" in "\n" + entry,
+        f"{present}; desktop entry Exec: "
+        + next((line for line in entry.splitlines() if line.startswith("Exec=")), "none"),
+    )
+    reported = _as_session(machine, session, f"{pin['launcher']} --version", timeout=90)
+    text = (reported["stdout"] + reported["stderr"]).strip()
+    ctx.check(
+        "shadowcode --version answers with the pinned version",
+        reported["exitcode"] == 0 and text == f"ShadowCode {pin['version']}",
+        f"exit {reported['exitcode']}: {text[:200]!r}",
+    )
+    runtime_report = {}
+    for label in ("llama_server", "llama_cli"):
+        result = _as_session(machine, session, f"{pin[label]} --version", timeout=90)
+        output = (result["stdout"] + result["stderr"]).strip()
+        runtime_report[label] = {"exit": result["exitcode"], "output": output[-2000:]}
+        commit = _re.search(r"commit ([0-9a-f]{7,40})", output)
+        ctx.check(
+            f"the bundled {pin[label]} executes and reports the pinned llama.cpp commit",
+            result["exitcode"] == 0 and bool(commit)
+            and bool(pin["runtime_commit"])
+            and pin["runtime_commit"].startswith(commit.group(1)),
+            f"exit {result['exitcode']}, reported "
+            f"{commit.group(1) if commit else None}, pinned {pin['runtime_commit'][:12]}",
+        )
+    ctx.evidence.write_json("shadowcode-installed.json", {
+        "pin": pin,
+        "dpkg": installed,
+        "desktop_entry": entry,
+        "shadowcode_version": text,
+        "runtime": runtime_report,
+        "installed_sha256": machine.out(
+            f"/usr/bin/sha256sum {pin['launcher']} {pin['llama_server']} 2>&1"
+        ),
+    })
+
+
+def _boot_live_for_shadowcode(ctx: Context, name: str) -> Guest:
+    iso = Path(ctx.artifact["path"])
+    if not iso.is_file():
+        ctx.blocked(f"the artifact under test is not a readable file: {iso}")
+    machine = ctx.guest(name, firmware=ctx.options.get("firmware", "bios"))
+    machine.create_disk(int(ctx.options.get("disk_gib", 32)))
+    ctx.log(f"booting {iso.name} ({ctx.artifact['sha256'][:16]}...)")
+    machine.boot("live", iso=iso, note="live session for ShadowCode acceptance")
+    return machine
+
+
+def _require_window_probe(ctx: Context, machine: Guest, session: dict[str, str]) -> None:
+    probe = _shadowcode_windows(machine, session)
+    ctx.evidence.write_text("shadowcode-window-probe.log", probe["raw"] or "(empty reply)")
+    if not probe["reachable"]:
+        ctx.blocked(
+            "KWin's window list (org.kde.KWin /WindowsRunner) is not reachable on "
+            "the live session bus, so whether a ShadowCode window appears cannot "
+            f"be observed here: {probe['raw'][:300]!r}"
+        )
+    ctx.observe("shadowcode_windows_before_launch", probe["matches"])
+
+
+def case_shadowcode(ctx: Context) -> None:
+    """ShadowCode is installed at the pin, runs, opens a window and stays up."""
+    pin = _shadowcode_pin(ctx)
+    minutes = float(ctx.options.get("shadowcode_minutes", 5))
+    machine = _boot_live_for_shadowcode(ctx, "shadowcode")
+    try:
+        ctx.observe("guest_agent_seconds",
+                    round(machine.wait_agent(float(ctx.options.get("boot_timeout", 900))), 1))
+        session = _await_session(ctx, machine)
+        _shadowcode_install_checks(ctx, machine, session, pin)
+        _require_window_probe(ctx, machine, session)
+
+        since = machine.out("/usr/bin/date +%s")
+        unit = SHADOWCODE_UNIT
+        started = _start_shadowcode(ctx, machine, session, unit)
+        ctx.evidence.write_text(
+            "shadowcode-launch.log",
+            f"$ systemd-run --user --unit={unit} /usr/bin/shadowcode\n"
+            f"exit={started['exitcode']}\n{started['stdout']}{started['stderr']}",
+        )
+        ctx.check("ShadowCode starts in the live user's session",
+                  started["exitcode"] == 0,
+                  (started["stdout"] + started["stderr"]).strip()[:200])
+        seconds, windows = _await_window(ctx, machine, session, unit)
+        ctx.evidence.write_text("shadowcode-window.log", windows.get("raw") or "(empty reply)")
+        ctx.check("a ShadowCode window appears on the live desktop",
+                  seconds is not None,
+                  f"KWin lists {windows.get('matches')} after {seconds}s"
+                  if seconds is not None else "no ShadowCode window within the timeout")
+        time.sleep(10)
+        ctx.snap(machine, "shadowcode-window.png", required=True)
+
+        samples = [_sample(machine, session, unit)]
+        deadline = time.monotonic() + minutes * 60
+        while time.monotonic() < deadline and samples[-1]["active"] == "active":
+            time.sleep(20)
+            samples.append(_sample(machine, session, unit))
+        ctx.evidence.write_json("shadowcode-samples.json", samples)
+        pids = {sample["main_pid"] for sample in samples}
+        ctx.check(
+            f"ShadowCode stays up for {minutes:g} minutes without restarting",
+            all(sample["active"] == "active" for sample in samples)
+            and len(pids) == 1 and len(samples) >= 2,
+            f"{len(samples)} samples; states "
+            f"{sorted({sample['active'] for sample in samples})}; main PIDs {sorted(pids)}",
+        )
+        ctx.observe("shadowcode_memory_current_last", samples[-1]["memory_current"])
+        still_there = _shadowcode_windows(machine, session)
+        ctx.check("the ShadowCode window is still there at the end",
+                  bool(still_there["matches"]), str(still_there["matches"])[:200])
+        ctx.snap(machine, "shadowcode-after-soak.png")
+
+        stopped = _stop_shadowcode(machine, session, unit)
+        ctx.observe("shadowcode_stop", stopped)
+        ctx.check("ShadowCode exits cleanly when its session unit is stopped",
+                  stopped["result"] in ("success", "") and stopped["active"] != "failed",
+                  f"Result={stopped['result']!r} ActiveState={stopped['active']!r} "
+                  f"in {stopped['seconds']}s")
+        ctx.check("no ShadowCode process outlives it",
+                  not stopped["leftovers"], stopped["leftovers"][:300])
+        crashes = _crashes_since(ctx, machine, since, "shadowcode")
+        ctx.check("no ShadowCode crash is recorded (coredumps, kernel faults)",
+                  not crashes, "; ".join(crashes)[:400])
+        ctx.evidence.write_text("shadowcode-journal.log", machine.out(
+            f"/usr/bin/journalctl --no-pager --since=@{since} "
+            f"_SYSTEMD_USER_UNIT={unit}.service 2>&1 | /usr/bin/tail -n 400",
+            timeout=120,
+        ) or "(no journal lines from the ShadowCode unit)")
+    finally:
+        try:
+            machine.shutdown()
+        finally:
+            ctx.collect_machine_evidence(machine, "shadowcode")
+
+
+def case_shadowcode_soak(ctx: Context) -> None:
+    """Open and close ShadowCode repeatedly; watch crashes, leaks, CPU and exits."""
+    pin = _shadowcode_pin(ctx)
+    soak_minutes = float(ctx.options.get("soak_minutes", 30))
+    hold = float(ctx.options.get("soak_hold", 60))
+    drift_mib = float(ctx.options.get("soak_drift_mib", 256))
+    cpu_limit = float(ctx.options.get("soak_cpu_percent", 50))
+    ctx.observe("soak_thresholds", {
+        "minutes": soak_minutes, "hold_seconds": hold,
+        "max_mem_available_drop_mib": drift_mib, "max_idle_cpu_percent": cpu_limit,
+        "close_method": "systemctl --user stop (SIGTERM, 20s before SIGKILL)",
+    })
+    machine = _boot_live_for_shadowcode(ctx, "shadowcode-soak")
+    try:
+        ctx.observe("guest_agent_seconds",
+                    round(machine.wait_agent(float(ctx.options.get("boot_timeout", 900))), 1))
+        session = _await_session(ctx, machine)
+        _shadowcode_install_checks(ctx, machine, session, pin)
+        _require_window_probe(ctx, machine, session)
+
+        since = machine.out("/usr/bin/date +%s")
+        baseline = _mem_available_kib(machine)
+        cycles: list[dict[str, Any]] = []
+        deadline = time.monotonic() + soak_minutes * 60
+        while time.monotonic() < deadline:
+            index = len(cycles) + 1
+            unit = f"{SHADOWCODE_UNIT}-{index}"
+            cycle: dict[str, Any] = {"cycle": index, "unit": unit}
+            started = _start_shadowcode(ctx, machine, session, unit)
+            cycle["started"] = started["exitcode"] == 0
+            seconds, windows = _await_window(ctx, machine, session, unit)
+            cycle["window_seconds"] = seconds
+            samples = [_sample(machine, session, unit)]
+            held_until = time.monotonic() + hold
+            while time.monotonic() < held_until and samples[-1]["active"] == "active":
+                time.sleep(15)
+                samples.append(_sample(machine, session, unit))
+            cycle["samples"] = samples
+            cycle["held"] = all(sample["active"] == "active" for sample in samples)
+            # Idle CPU from the unit's own cgroup accounting: the last two
+            # samples, after the window has had the first 15s to settle.
+            first, last = (samples[1], samples[-1]) if len(samples) >= 3 else (None, None)
+            if first and _number(first["cpu_ns"]) is not None and _number(last["cpu_ns"]) is not None:
+                elapsed = last["monotonic"] - first["monotonic"]
+                cycle["idle_cpu_percent"] = round(
+                    (_number(last["cpu_ns"]) - _number(first["cpu_ns"])) / 1e9 / elapsed * 100, 1
+                ) if elapsed > 0 else None
+            if index == 1:
+                ctx.snap(machine, "shadowcode-soak-window.png", required=True)
+            cycle["stop"] = _stop_shadowcode(machine, session, unit)
+            time.sleep(5)
+            cycle["mem_available_after_close_kib"] = _mem_available_kib(machine)
+            cycles.append(cycle)
+            ctx.log(
+                f"cycle {index}: window={seconds}s held={cycle['held']} "
+                f"stop={cycle['stop']['result']} cpu={cycle.get('idle_cpu_percent')}% "
+                f"avail={cycle['mem_available_after_close_kib']}KiB"
+            )
+            if not cycle["started"] or seconds is None or not cycle["held"]:
+                break
+        ctx.evidence.write_json("shadowcode-soak-cycles.json", {
+            "baseline_mem_available_kib": baseline, "cycles": cycles,
+        })
+        ctx.observe("soak_cycles", len(cycles))
+        if len(cycles) < 3 and all(c["started"] and c["window_seconds"] is not None and c["held"]
+                                   for c in cycles):
+            ctx.blocked(
+                f"only {len(cycles)} open/close cycles fit in --soak-minutes "
+                f"{soak_minutes:g} with --soak-hold {hold:g}s; a soak of fewer than "
+                "three cycles cannot show drift"
+            )
+        ctx.check(f"every cycle opened a ShadowCode window ({len(cycles)} cycles)",
+                  all(c["started"] and c["window_seconds"] is not None for c in cycles),
+                  "window seconds: " + ", ".join(str(c["window_seconds"]) for c in cycles))
+        ctx.check("ShadowCode stayed up for every hold",
+                  all(c["held"] for c in cycles),
+                  f"cycles not held: {[c['cycle'] for c in cycles if not c['held']]}")
+        ctx.check("every close was clean (no SIGKILL, no failed unit)",
+                  all(c["stop"]["result"] in ("success", "") and c["stop"]["active"] != "failed"
+                      for c in cycles),
+                  "; ".join(f"{c['cycle']}:{c['stop']['result']}/{c['stop']['seconds']}s"
+                            for c in cycles)[:400])
+        ctx.check("no ShadowCode process outlived any close",
+                  not any(c["stop"]["leftovers"] for c in cycles),
+                  "; ".join(c["stop"]["leftovers"] for c in cycles if c["stop"]["leftovers"])[:400])
+        after = [c["mem_available_after_close_kib"] for c in cycles if c["mem_available_after_close_kib"] > 0]
+        # Drift is measured from the FIRST close, not from before the first
+        # open: page cache the first launch warms is not a leak.
+        drop_mib = (after[0] - min(after[1:])) / 1024 if len(after) >= 2 else None
+        ctx.check(
+            f"available memory after close does not drift down by more than {drift_mib:g} MiB",
+            drop_mib is not None and drop_mib <= drift_mib,
+            f"after first close {after[0] if after else None} KiB, lowest later "
+            f"{min(after[1:]) if len(after) >= 2 else None} KiB, drop "
+            f"{round(drop_mib, 1) if drop_mib is not None else None} MiB",
+        )
+        cpu = [c["idle_cpu_percent"] for c in cycles if c.get("idle_cpu_percent") is not None]
+        if cpu:
+            ctx.check(
+                f"ShadowCode idles below {cpu_limit:g}% of one CPU while open",
+                max(cpu) <= cpu_limit,
+                f"per-cycle idle CPU %: {cpu}",
+            )
+        else:
+            ctx.observe("idle_cpu_unmeasured",
+                        "the user manager reported no CPUUsageNSec for the unit; "
+                        "no CPU claim is made")
+        crashes = _crashes_since(ctx, machine, since, "shadowcode-soak")
+        ctx.check(f"no ShadowCode crash across {len(cycles)} cycles",
+                  not crashes, "; ".join(crashes)[:400])
+    finally:
+        try:
+            machine.shutdown()
+        finally:
+            ctx.collect_machine_evidence(machine, "shadowcode-soak")
+
 # --- registry -----------------------------------------------------------------
 
 
@@ -2310,6 +2850,22 @@ CASES: dict[str, Case] = {
             "restore it did not complete",
             consumes_artifact=False,
             minutes=25,
+        ),
+        Case(
+            "shadowcode",
+            case_shadowcode,
+            summary="ShadowCode at the pinned version: installed, --version, bundled "
+            "llama.cpp runs, window opens in the live session and stays up",
+            minutes=20,
+        ),
+        Case(
+            "shadowcode-soak",
+            case_shadowcode_soak,
+            summary="Open/close ShadowCode for --soak-minutes watching crashes, "
+            "leftovers, memory and CPU; the case SHADOWCODE-01 is recorded from",
+            manifest_case="SHADOWCODE-01",
+            required_runs=({"case": "shadowcode"},),
+            minutes=45,
         ),
     )
 }

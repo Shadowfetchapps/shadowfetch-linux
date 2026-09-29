@@ -21,27 +21,27 @@ IntensityEffect=0
 [Colors:Button]
 BackgroundAlternate=30,36,43
 BackgroundNormal=22,26,32
-DecorationFocus=216,162,74
-DecorationHover=232,182,94
-ForegroundActive=216,162,74
+DecorationFocus=242,179,61
+DecorationHover=255,201,94
+ForegroundActive=242,179,61
 ForegroundInactive=154,163,173
 ForegroundLink=79,166,184
 ForegroundNegative=224,72,75
-ForegroundNeutral=224,163,58
+ForegroundNeutral=230,143,46
 ForegroundNormal=214,219,225
 ForegroundPositive=52,208,88
-ForegroundVisited=166,121,47
+ForegroundVisited=185,126,34
 
 [Colors:Selection]
-BackgroundAlternate=166,121,47
-BackgroundNormal=216,162,74
-DecorationFocus=232,182,94
-DecorationHover=232,182,94
+BackgroundAlternate=185,126,34
+BackgroundNormal=242,179,61
+DecorationFocus=255,201,94
+DecorationHover=255,201,94
 ForegroundActive=10,13,17
 ForegroundInactive=10,13,17
 ForegroundLink=10,13,17
 ForegroundNegative=90,20,20
-ForegroundNeutral=90,60,15
+ForegroundNeutral=90,53,16
 ForegroundNormal=10,13,17
 ForegroundPositive=20,80,35
 ForegroundVisited=10,13,17
@@ -49,58 +49,58 @@ ForegroundVisited=10,13,17
 [Colors:Tooltip]
 BackgroundAlternate=16,20,25
 BackgroundNormal=10,13,17
-DecorationFocus=216,162,74
-DecorationHover=232,182,94
-ForegroundActive=216,162,74
+DecorationFocus=242,179,61
+DecorationHover=255,201,94
+ForegroundActive=242,179,61
 ForegroundInactive=154,163,173
 ForegroundLink=79,166,184
 ForegroundNegative=224,72,75
-ForegroundNeutral=224,163,58
+ForegroundNeutral=230,143,46
 ForegroundNormal=214,219,225
 ForegroundPositive=52,208,88
-ForegroundVisited=166,121,47
+ForegroundVisited=185,126,34
 
 [Colors:View]
 BackgroundAlternate=16,20,25
 BackgroundNormal=10,13,17
-DecorationFocus=216,162,74
-DecorationHover=232,182,94
-ForegroundActive=216,162,74
+DecorationFocus=242,179,61
+DecorationHover=255,201,94
+ForegroundActive=242,179,61
 ForegroundInactive=154,163,173
 ForegroundLink=79,166,184
 ForegroundNegative=224,72,75
-ForegroundNeutral=224,163,58
+ForegroundNeutral=230,143,46
 ForegroundNormal=214,219,225
 ForegroundPositive=52,208,88
-ForegroundVisited=166,121,47
+ForegroundVisited=185,126,34
 
 [Colors:Window]
 BackgroundAlternate=30,36,43
 BackgroundNormal=14,17,22
-DecorationFocus=216,162,74
-DecorationHover=232,182,94
-ForegroundActive=216,162,74
+DecorationFocus=242,179,61
+DecorationHover=255,201,94
+ForegroundActive=242,179,61
 ForegroundInactive=154,163,173
 ForegroundLink=79,166,184
 ForegroundNegative=224,72,75
-ForegroundNeutral=224,163,58
+ForegroundNeutral=230,143,46
 ForegroundNormal=214,219,225
 ForegroundPositive=52,208,88
-ForegroundVisited=166,121,47
+ForegroundVisited=185,126,34
 
 [Colors:Header]
 BackgroundAlternate=30,36,43
 BackgroundNormal=20,24,30
-DecorationFocus=216,162,74
-DecorationHover=232,182,94
-ForegroundActive=216,162,74
+DecorationFocus=242,179,61
+DecorationHover=255,201,94
+ForegroundActive=242,179,61
 ForegroundInactive=154,163,173
 ForegroundLink=79,166,184
 ForegroundNegative=224,72,75
-ForegroundNeutral=224,163,58
+ForegroundNeutral=230,143,46
 ForegroundNormal=214,219,225
 ForegroundPositive=52,208,88
-ForegroundVisited=166,121,47
+ForegroundVisited=185,126,34
 
 [Colors:Header][Inactive]
 BackgroundAlternate=22,26,32
@@ -108,7 +108,7 @@ BackgroundNormal=14,17,22
 
 [General]
 ColorScheme=ShadowfetchDark
-Name=Shadowfetch Umbra
+Name=ShadowCode
 shadeSortColumn=true
 
 [KDE]
@@ -116,7 +116,7 @@ contrast=4
 
 [WM]
 activeBackground=14,17,22
-activeBlend=216,162,74
+activeBlend=242,179,61
 activeForeground=214,219,225
 inactiveBackground=14,17,22
 inactiveBlend=74,79,86

@@ -1,7 +1,7 @@
 [General]
 ColorScheme=ShadowfetchDark
-Name=Shadowfetch Umbra
-AccentColor=216,162,74
+Name=ShadowCode
+AccentColor=242,179,61
 accentColorFromWallpaper=false
 font=Inter,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
 fixed=Fira Code,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1

@@ -44,34 +44,38 @@ class GrokBotTests(unittest.TestCase):
         self.assertIn("/linux/x64/", parsed.path)
         self.assertTrue(parsed.path.endswith(f"grok-bot_{BOT.VERSION}_amd64.deb"))
 
-    def test_ice_blocks_setup_before_privilege_or_network(self):
-        with patch.object(BOT, "require_platform"), patch.object(BOT, "element", return_value="ice"), patch.object(BOT, "system_install") as install:
-            with self.assertRaisesRegex(BOT.SetupError, "Switch to Fire"):
+    def test_offline_blocks_setup_before_privilege_or_network(self):
+        with patch.object(BOT, "require_platform"), patch.object(BOT, "agent_network", return_value="offline"), patch.object(BOT, "system_install") as install:
+            with self.assertRaisesRegex(BOT.SetupError, "agent network on"):
                 BOT.setup(argparse.Namespace(yes=True, no_open=True))
             install.assert_not_called()
 
-    def test_ice_blocks_native_launch(self):
-        with patch.object(BOT, "require_platform"), patch.object(BOT, "element", return_value="ice"), patch.object(BOT.subprocess, "Popen") as launch:
+    def test_offline_blocks_native_launch(self):
+        with patch.object(BOT, "require_platform"), patch.object(BOT, "agent_network", return_value="offline"), patch.object(BOT.subprocess, "Popen") as launch:
             with self.assertRaises(BOT.SetupError):
                 BOT.open_app()
             launch.assert_not_called()
 
-    def test_element_env_then_user_then_system(self):
+    def test_agent_network_env_then_user_then_system_with_legacy_ice(self):
         with tempfile.TemporaryDirectory() as folder:
             config = Path(folder) / "config"
             (config / "shadowfetch").mkdir(parents=True)
             (config / "shadowfetch/element").write_text("ice\n")
-            system = Path(folder) / "system-element"
-            system.write_text("fire\n")
-            with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config), "SHADOWFETCH_ELEMENT": ""}), patch.object(BOT, "SYSTEM_ELEMENT", system):
-                self.assertEqual(BOT.element(), "ice")
-                with patch.dict(os.environ, {"SHADOWFETCH_ELEMENT": "fire"}):
-                    self.assertEqual(BOT.element(), "fire")
+            system = Path(folder) / "etc"
+            system.mkdir()
+            (system / "agent-network").write_text("online\n")
+            env = {"XDG_CONFIG_HOME": str(config), "SHADOWFETCH_ELEMENT": "", "SHADOWFETCH_AGENT_NETWORK": ""}
+            with patch.dict(os.environ, env), patch.object(BOT, "SYSTEM_CONFIG", system):
+                self.assertEqual(BOT.agent_network(), "offline")
+                with patch.dict(os.environ, {"SHADOWFETCH_AGENT_NETWORK": "online"}):
+                    self.assertEqual(BOT.agent_network(), "online")
                 (config / "shadowfetch/element").unlink()
-                self.assertEqual(BOT.element(), "fire")
+                self.assertEqual(BOT.agent_network(), "online")
+                (system / "agent-network").write_text("offline\n")
+                self.assertEqual(BOT.agent_network(), "offline")
 
     def test_no_download_without_noninteractive_consent(self):
-        with patch.object(BOT, "require_platform"), patch.object(BOT, "require_fire"), patch.object(BOT.sys.stdin, "isatty", return_value=False), contextlib.redirect_stdout(io.StringIO()), patch.object(BOT, "system_install") as install:
+        with patch.object(BOT, "require_platform"), patch.object(BOT, "require_online"), patch.object(BOT.sys.stdin, "isatty", return_value=False), contextlib.redirect_stdout(io.StringIO()), patch.object(BOT, "system_install") as install:
             with self.assertRaisesRegex(BOT.SetupError, "setup --yes"):
                 BOT.setup(argparse.Namespace(yes=False, no_open=True))
             install.assert_not_called()
@@ -135,15 +139,15 @@ class GrokBotTests(unittest.TestCase):
             self.assertEqual(BOT.installed_package(), "0.43.0")
 
     def test_absent_status_is_not_authentication(self):
-        with patch.object(BOT, "installed_package", return_value=None), patch.object(BOT, "element", return_value="fire"):
+        with patch.object(BOT, "installed_package", return_value=None), patch.object(BOT, "agent_network", return_value="online"):
             result = BOT.status()
         self.assertFalse(result["installed"])
         self.assertFalse(result["launchable"])
         self.assertIsNone(result["authenticated"])
         self.assertEqual(result["state"], "not-installed")
 
-    def test_verified_install_remains_unlaunchable_in_ice(self):
-        with patch.object(BOT, "installed_package", return_value=BOT.VERSION), patch.object(BOT, "integrity", return_value=(True, "test")), patch.object(BOT, "element", return_value="ice"):
+    def test_verified_install_remains_unlaunchable_while_offline(self):
+        with patch.object(BOT, "installed_package", return_value=BOT.VERSION), patch.object(BOT, "integrity", return_value=(True, "test")), patch.object(BOT, "agent_network", return_value="offline"):
             result = BOT.status()
         self.assertTrue(result["verified"])
         self.assertFalse(result["launchable"])
@@ -172,7 +176,7 @@ class GrokBotTests(unittest.TestCase):
             self.assertEqual(BOT.main(["doctor", "--json"]), 1)
 
     def test_launch_rejects_root(self):
-        with patch.object(BOT, "require_platform"), patch.object(BOT, "require_fire"), patch.object(BOT.os, "geteuid", return_value=0):
+        with patch.object(BOT, "require_platform"), patch.object(BOT, "require_online"), patch.object(BOT.os, "geteuid", return_value=0):
             with self.assertRaisesRegex(BOT.SetupError, "not as root"):
                 BOT.open_app()
 

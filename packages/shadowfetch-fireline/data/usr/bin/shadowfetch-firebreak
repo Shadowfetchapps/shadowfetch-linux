@@ -236,14 +236,36 @@ def state_relocated():
     """Whether records are going somewhere other than the canonical directory."""
     return bool(os.environ.get(STATE_ENV, "").strip())
 
-def element():
-    value = os.environ.get("SHADOWFETCH_ELEMENT", "")
-    if not value:
-        for path in (Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shadowfetch/element", Path("/etc/shadowfetch/element")):
-            if path.is_file():
-                value = path.read_text().strip()
-                break
-    return "ice" if value == "ice" else "fire"
+# 5.0 retired Fire/Ice; an upgraded Ice setting must keep meaning offline.
+LEGACY_ELEMENT_NETWORK = {"ice": "offline", "fire": "online"}
+SYSTEM_CONFIG = Path("/etc/shadowfetch")
+
+
+def agent_network():
+    """online or offline: the default network posture of an agent sandbox.
+
+    Env beats the user file beats the system file. At each level the 5.0
+    agent-network setting wins over the legacy element one.
+    """
+    value = os.environ.get("SHADOWFETCH_AGENT_NETWORK", "").strip().lower()
+    if value in ("online", "offline"):
+        return value
+    value = os.environ.get("SHADOWFETCH_ELEMENT", "").strip().lower()
+    if value in LEGACY_ELEMENT_NETWORK:
+        return LEGACY_ELEMENT_NETWORK[value]
+    config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shadowfetch"
+    for directory in (config, SYSTEM_CONFIG):
+        for name, table in (("agent-network", None), ("element", LEGACY_ELEMENT_NETWORK)):
+            try:
+                with open(directory / name, encoding="utf-8") as handle:
+                    value = handle.readline().strip().lower()
+            except OSError:
+                continue
+            if table is None and value in ("online", "offline"):
+                return value
+            if table is not None and value in table:
+                return table[value]
+    return "online"
 
 def workspace(name):
     base = root()
@@ -1077,7 +1099,7 @@ def effective_network(args):
     networked sandbox needs a resolver file that the argv has to bind, and the
     argv is built here.
     """
-    return args.net or ("none" if element() == "ice" else "allow")
+    return args.net or ("none" if agent_network() == "offline" else "allow")
 
 
 # The NAT's own DNS forwarder. slirp4netns --configure lays out 10.0.2.0/24 with

@@ -1,8 +1,6 @@
-# Element Workbench
+# Workbench
 
-Shadowfetch Linux 4.0.0 connects Mission Control to the same two Fire and Ice
-operating postures and the
-same four production profiles:
+Shadowfetch Linux connects Mission Control to four production profiles:
 
 - **Software Studio**: Python, TypeScript, rootless containers, database tools,
   and a Dev Container-ready project template.
@@ -13,8 +11,9 @@ same four production profiles:
 - **Creative AI**: Krita, Blender, Kdenlive, OBS, FFmpeg, raw photography tools,
   and provenance templates.
 
-Fire is the connected, high-throughput posture. Ice is the private posture:
-Firebreak agent sessions start without network access until the user grants it.
+The agent network setting decides whether Firebreak agent sessions start with
+network access. Online is the default; offline starts every session without
+network until the user grants it (`shadowfetch-agent-network set offline`).
 Both keep the same boundary: the project is the only path on your disk a session can
 write, the sandbox environment starts empty rather than having known secrets removed
 from it, and every session takes a checkpoint and leaves a receipt.
@@ -50,7 +49,8 @@ Workbench first. Choose one of:
   a deterministic FFmpeg export and records validation in its receipt.
 
 The connection selector makes external network access explicit. Codex needs
-Fire for its cloud connection; deterministic media workflows can use Ice. A queued mission persists locally. Activity, Changes and Results
+the agent network online for its cloud connection; deterministic media
+workflows work offline. A queued mission persists locally. Activity, Changes and Results
 show its execution evidence. Failed and cancelled missions can be retried;
 completed work waits for your review. Restore changes uses the mission's local
 checkpoint and reports conflicts instead of silently overwriting newer work.
@@ -59,20 +59,8 @@ In Dolphin, right-click a project folder and choose **Shadowfetch Mission** to
 open the same scoped creation form. Folders outside the workspace root are not
 accepted; move or copy only the files you want the agent to use into a project.
 
-**Grok Bot** has a featured page in Mission Control and a native installation
-choice during Welcome. Its cloud tasks and account sign-in live in the official
-Grok Bot app. The Grok Build coding CLI is a separate tool. No API keys or app
-accounts are included in the distro.
-
-The former Buzz integration is retired in this release (see the retirement helper
-below); an on-device model provider now ships, though no model is bundled, so you
-supply the model service. Existing models, workspaces and vendor application data
-are preserved during upgrades.
-
-The upgrade disables the former distro relay and its automatic container restart.
-It stops only recognized Shadowfetch relay containers, keeping their volumes and
-images. Vendor Buzz Desktop, models, profiles, credentials and workspaces remain
-untouched. Custom service overrides or edited relay configurations are preserved.
-If the desktop user manager is unavailable, retirement retries once at the next
-login; failures remain visible in the session journal. The supported retirement
-helper is `/usr/libexec/shadowfetch-retire-buzz` (run as the desktop user).
+**ShadowCode** is preinstalled and connects the coding tools and models you
+already have: subscriptions, API keys, or a model that runs on this computer.
+Welcome offers three optional agents -- Grok Bot, Hermes and OpenClaw -- each
+installed only if you choose it. No API keys or app accounts are included in the
+distro.

@@ -1,0 +1,40 @@
+# ShadowCode pin -- the ONE place the shipped ShadowCode version lives.
+#
+# WRITTEN BY tools/bump_shadowcode.py. Do not hand-edit a value: every field
+# below is copied out of an upstream RELEASE-AUTH whose Ed25519 signature the
+# bump verified against vendor/shadowcode/trust/, and the gates re-verify that
+# signature and compare it with this file on every run. A hand edit that does
+# not match the signed document fails the package gate.
+#
+# Consumers: tools/fetch_shadowcode.py (make packages / make repo),
+# tools/release/package_gate.py, tools/release/iso_gate.py,
+# tools/shadowcode_smoke.py and the shadowcode VM acceptance cases. The release
+# data file only names this file ([packages.prebuilt] in versions/<v>.toml).
+
+package = "shadow-code"
+version = "0.33.1"
+
+[shadowcode]
+tag = "v0.33.1"
+commit = "e15c4480e65db5650af012bb2a9773dbe89acf84"
+key_id = "f0c60ff8228314616985712f8918c9798c0ecf72b7271e19343a041c25663b7f"
+key_epoch = 1
+# ShadowCode commit the vendored trust policy, public key and verifier scripts
+# were copied from. See vendor/shadowcode/README.md.
+trust_commit = "e15c4480e65db5650af012bb2a9773dbe89acf84"
+# Shadowfetch releases that preinstall this pin. A gate for a release named
+# here refuses to run unless that release's data file declares the package.
+ships_in = ["5.0.0"]
+
+[shadowcode.deb]
+filename = "ShadowCode_0.33.1_amd64.deb"
+sha256 = "4f93c63092e0a2e832839e5796afc1a208b29ea5dd18adbaae7cc9c6b17d30af"
+bytes = 27546972
+
+# The AppImage runtime's corresponding source. Fetched, verified and published
+# beside the APT repository; see vendor/shadowcode/README.md for why it is not
+# in main/source and why it is not the .deb's source.
+[shadowcode.runtime_sources]
+filename = "ShadowCode_0.33.1_appimage-runtime-sources.tar.gz"
+sha256 = "909ee4d387f09e587be3d7a48bfa13ad6e5277b01c2d75d701c22cf1a53a5ec7"
+bytes = 104169189

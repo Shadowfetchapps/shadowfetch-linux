@@ -1,8 +1,9 @@
 """Shared palette, stylesheet and small widgets for the Control Center.
 
 The palette is the one the 2.1.1 Control Center shipped with (deep graphite
-plus Umbra Gold); every 2.1.2 page draws from here so Ignite, Watch,
-Recover, Guide, Workspaces, Drivers and Software & Updates read as one application.
+plus the brand gold -- ShadowCode gold since 5.0); every 2.1.2 page draws
+from here so Ignite, Watch, Recover, Guide, Workspaces, Drivers and Software
+& Updates read as one application.
 """
 
 from PyQt6.QtCore import Qt, QProcess, pyqtSignal
@@ -25,36 +26,12 @@ SIDEBAR = "#101114"
 CARD = "#202126"
 CARD_HOVER = "#26272d"
 BORDER = "#34363d"
-GOLD = "#d8a24a"
-GOLD_HOVER = "#efb95d"
-GOLD_PRESS = "#bf8735"
-
-# --- Fire and Ice (3.1) -----------------------------------------------------
-# The element mirrors the brand accents: Fire keeps Umbra gold, Ice swaps the
-# warm trio for its azure reflection (#d8a24a -> #4aa2d8 is a literal R/B
-# mirror). Semantic colors (GREEN/AMBER/ORANGE/RED) keep their meanings in
-# both elements — a warning must stay warning-colored on a cold desktop.
-def _element() -> str:
-    import os
-    v = os.environ.get("SHADOWFETCH_ELEMENT", "")
-    for path in (
-        os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "shadowfetch/element"),
-        "/etc/shadowfetch/element",
-    ):
-        if v:
-            break
-        try:
-            with open(path, encoding="utf-8") as fh:
-                v = fh.readline().strip()
-        except OSError:
-            continue
-    return v if v in ("fire", "ice") else "fire"
-
-ELEMENT = _element()
-if ELEMENT == "ice":
-    GOLD = "#4aa2d8"
-    GOLD_HOVER = "#5db9ef"
-    GOLD_PRESS = "#3587bf"
+# ShadowCode (5.0): the brand gold, and the brushed-steel silver for secondary
+# accents. Values are tools/truth/palette.json surfaces.app-chrome.
+GOLD = "#f2b33d"
+GOLD_HOVER = "#ffc95e"
+GOLD_PRESS = "#b97e22"
+SILVER = "#bcc0c6"
 TEXT = "#f0eee9"
 MUTED = "#aaa69f"
 GREEN = "#72c69c"

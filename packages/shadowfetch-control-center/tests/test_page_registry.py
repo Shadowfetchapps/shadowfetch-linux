@@ -116,7 +116,7 @@ class OneRegistry(unittest.TestCase):
     def test_agents_still_routes_to_workspaces(self):
         """The rename must not break a deep link, a .desktop file or the
         servicemenu, all of which are installed on machines already."""
-        for word in ("agents", "local-ai", "ai", "buzz", "workspaces"):
+        for word in ("agents", "local-ai", "ai", "workspaces"):
             with self.subTest(word=word):
                 resolved = pages.resolve(word)
                 self.assertIsNotNone(resolved)
@@ -133,7 +133,7 @@ class OneRegistry(unittest.TestCase):
             "watch": "watch", "firewatch": "watch", "recover": "recover",
             "phoenix": "recover", "recovery": "recover",
             "workspaces": "workspaces", "local-ai": "workspaces",
-            "agents": "workspaces", "ai": "workspaces", "buzz": "workspaces",
+            "agents": "workspaces", "ai": "workspaces",
             "drivers": "drivers", "software": "software",
             "software-updates": "software", "updates": "software",
             "bundles": "software",

@@ -41,6 +41,8 @@ from gate import (
 
 from providers.validate_manifest import validate_provider_payload
 
+import shadowcode
+
 from drkonqi_pickup_contract import (
     DROPIN, HELPER, UPSTREAM_UNITS, UPSTREAM_VERSION,
     validate_dropin, validate_upstream_unit,
@@ -125,8 +127,8 @@ REQUIRED_ROOT_FILES = {
     "etc/apt/sources.list.d/shadowfetch.list",
     "etc/calamares/branding/debian/branding.desc",
     "etc/calamares/branding/debian/show.qml",
-    "etc/calamares/branding/debian/slide-fire.jpg",
-    "etc/calamares/branding/debian/slide-ice.jpg",
+    "etc/calamares/branding/debian/slide-shadowcode.jpg",
+    "etc/calamares/branding/debian/slide-agents.jpg",
     "etc/calamares/modules/partition.conf",
     "etc/calamares/modules/shellprocess.conf",
     "etc/calamares/settings.conf",
@@ -138,8 +140,11 @@ REQUIRED_ROOT_FILES = {
     "usr/bin/add-calamares-desktop-icon",
     "usr/bin/shadowfetch-missions",
     "usr/bin/shadowfetch-grok-bot",
+    # Optional-agent installers only; the agents themselves are never in the image.
+    "usr/bin/shadowfetch-hermes",
+    "usr/bin/shadowfetch-openclaw",
     "usr/bin/shadowfetch-control",
-    "usr/bin/shadowfetch-element",
+    "usr/bin/shadowfetch-agent-network",
     "usr/bin/shadowfetch-firebreak",
     "usr/bin/shadowfetch-passport",
     "usr/bin/shadowfetch-workbench",
@@ -177,8 +182,10 @@ REQUIRED_EXECUTABLES = {
     "usr/bin/add-calamares-desktop-icon",
     "usr/bin/shadowfetch-missions",
     "usr/bin/shadowfetch-grok-bot",
+    "usr/bin/shadowfetch-hermes",
+    "usr/bin/shadowfetch-openclaw",
     "usr/bin/shadowfetch-control",
-    "usr/bin/shadowfetch-element",
+    "usr/bin/shadowfetch-agent-network",
     "usr/bin/shadowfetch-firebreak",
     "usr/bin/shadowfetch-passport",
     "usr/bin/shadowfetch-workbench",
@@ -190,7 +197,7 @@ REQUIRED_EXECUTABLES = {
 
 RETIRED_PACKAGE = re.compile(
     r"^(?:openclaw(?:-|$)|hermes(?:-|$)|ollama(?:-|$)|"
-    r"llama\.cpp(?:-|$)|libllama(?:-|$)|shadowfetch-ai-workspace$)",
+    r"llama\.cpp(?:-|$)|libllama[0-9]*(?:-|$)|shadowfetch-ai-workspace$)",
     re.IGNORECASE,
 )
 
@@ -224,7 +231,9 @@ CRITICAL_PACKAGE_PAYLOADS = {
     ),
     "shadowfetch-defaults": (
         "usr/bin/shadowfetch-grok-bot",
-        "usr/bin/shadowfetch-element",
+        "usr/bin/shadowfetch-hermes",
+        "usr/bin/shadowfetch-openclaw",
+        "usr/bin/shadowfetch-agent-network",
         "usr/bin/shadowfetch-passport",
         "usr/bin/shadowfetch-workbench",
     ),
@@ -611,6 +620,24 @@ def forbidden_build_time_packages(installed: set[str]) -> list[str]:
     return sorted(installed & FORBIDDEN_BUILD_TIME_PACKAGES)
 
 
+def custom_packages(installed: dict[str, str], release: gate.ReleaseData) -> dict[str, str]:
+    """The installed packages this project answers for, with their versions.
+
+    Shadowfetch's own packages and grub-btrfs by name, plus every prebuilt
+    package the release declares (ShadowCode). Selecting the prebuilt ones by
+    the release data -- not by name pattern -- is what makes a missing or
+    wrong-version shadow-code a mismatch against image_packages(): it is in the
+    expected set through binary_versions, so it has to be in this one.
+    """
+    prebuilt = set(release.prebuilt)
+    return {
+        package: version
+        for package, version in installed.items()
+        if package.startswith("shadowfetch-") or package == "grub-btrfs"
+        or package in prebuilt
+    }
+
+
 def package_gate(squashfs: Path) -> None:
     status_text = squash_cat(squashfs, "var/lib/dpkg/status")
     assert isinstance(status_text, str)
@@ -619,11 +646,7 @@ def package_gate(squashfs: Path) -> None:
         for record in parse_deb822(status_text)
         if record.get("Status") == "install ok installed"
     }
-    custom = {
-        package: version
-        for package, version in installed.items()
-        if package.startswith("shadowfetch-") or package == "grub-btrfs"
-    }
+    custom = custom_packages(installed, RELEASE)
     expected_custom = image_packages(RELEASE)
     if custom != expected_custom:
         missing = sorted(set(expected_custom) - set(custom))
@@ -661,6 +684,60 @@ def package_gate(squashfs: Path) -> None:
         f"PASS: installed package contract ({len(installed)} total, "
         f"{len(custom)} exact Shadowfetch packages, no retired runtime, proprietary NVIDIA driver, "
         "or build-time downloader)"
+    )
+
+
+SHADOWCODE_PARITY = (shadowcode.LAUNCHER, shadowcode.LLAMA_SERVER, shadowcode.DESKTOP_FILE)
+
+
+def misplaced_local_runtime(inventory: dict[str, str], *, allowed: bool) -> list[str]:
+    """llama.cpp / ggml runtime files the image may not carry.
+
+    With ShadowCode shipped (`allowed`), exactly one tree may hold them:
+    /usr/lib/shadowcode/, its private bundled runtime. Anywhere else -- /usr/bin,
+    a system library directory, another package's tree -- they are the retired
+    local-inference stack coming back, and still refused. Without ShadowCode
+    there is no permitted location at all.
+    """
+    return sorted(
+        path for path in inventory
+        if shadowcode.llama_family(path)
+        and not (allowed and path.startswith(shadowcode.RUNTIME_PREFIX))
+    )
+
+
+def shadowcode_gate(squashfs: Path, inventory: dict[str, str]) -> None:
+    """ShadowCode is installed, launchable, and byte-identical to the signed .deb.
+
+    The package gate authenticated build/shadow-code_<v>_amd64.deb against the
+    upstream publisher key. Here the INSTALLED files are compared with that
+    archive, after re-checking its size and SHA-256 against the pin, so a stale
+    live-build cache entry or a same-version republication cannot pass.
+    """
+    pin = shadowcode.load_pin()
+    for path in (shadowcode.LAUNCHER, shadowcode.DESKTOP_FILE, shadowcode.LLAMA_SERVER):
+        if path not in inventory:
+            raise RuntimeError(f"ShadowCode is not installed in the image: /{path} is absent")
+    for path in (shadowcode.LAUNCHER, shadowcode.LLAMA_SERVER):
+        if "x" not in inventory[path]:
+            raise RuntimeError(f"ShadowCode program is not executable: /{path}")
+    shadowcode.check_file(pin.build_deb, pin.deb, "ShadowCode .deb in build/")
+    with tempfile.TemporaryDirectory(prefix="shadowfetch-shadowcode-parity-") as temporary:
+        root = Path(temporary)
+        subprocess.run(
+            program("dpkg-deb").argv("--extract", str(pin.build_deb), str(root)),
+            check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        for path in SHADOWCODE_PARITY:
+            installed = squash_cat(squashfs, path, binary=True)
+            assert isinstance(installed, bytes)
+            if (root / path).read_bytes() != installed:
+                raise RuntimeError(
+                    f"installed /{path} differs from the signed ShadowCode {pin.version} archive"
+                )
+    print(
+        f"PASS: ShadowCode {pin.version} installed; {len(SHADOWCODE_PARITY)} files match "
+        "the upstream-signed archive"
     )
 
 
@@ -722,11 +799,22 @@ def retired_path(path: str) -> bool:
         "var/lib/openclaw/",
         "var/lib/hermes/",
         "var/lib/ollama/",
+        # 5.0: Hermes and OpenClaw are optional PER-USER installs. Seeding their
+        # state into new homes, or a system-wide copy, is preinstallation.
+        "etc/skel/.hermes",
+        "etc/skel/.openclaw",
+        "etc/skel/.npm-global",
+        "etc/skel/.local/share/shadowfetch/openclaw",
+        "root/.hermes",
+        "root/.openclaw",
+        "usr/lib/node_modules/openclaw/",
+        "usr/local/lib/node_modules/openclaw/",
+        "usr/local/lib/hermes-agent/",
     )
     if lowered.startswith(exact_prefixes):
         return True
     basename = PurePosixPath(lowered).name
-    if lowered.startswith(("usr/bin/", "usr/sbin/")) and (
+    if lowered.startswith(("usr/bin/", "usr/sbin/", "usr/local/bin/")) and (
         basename == "openclaw"
         or basename == "hermes"
         or basename == "ollama"
@@ -757,6 +845,14 @@ def payload_gate(squashfs: Path, inventory: dict[str, str]) -> None:
     retired = sorted(path for path in inventory if retired_path(path))
     if retired:
         raise RuntimeError("retired runtime paths remain in squashfs: " + ", ".join(retired))
+    ships_shadowcode = shadowcode.PACKAGE in RELEASE.prebuilt
+    misplaced = misplaced_local_runtime(inventory, allowed=ships_shadowcode)
+    if misplaced:
+        raise RuntimeError(
+            "llama.cpp/ggml runtime files outside "
+            + (f"/{shadowcode.RUNTIME_PREFIX}" if ships_shadowcode else "any permitted location")
+            + ": " + ", ".join(misplaced)
+        )
     models = sorted(
         path for path in inventory if path.lower().endswith((".gguf", ".safetensors"))
     )
@@ -774,7 +870,15 @@ def payload_gate(squashfs: Path, inventory: dict[str, str]) -> None:
             return None
     result = validate_provider_payload(inventory, mission_source, read=_read)
     print("PASS: provider manifests validated: " + ", ".join(result["providers"]))
-    print("PASS: local AI stack absent; Codex cloud and offline media capabilities")
+    # Was "local AI stack absent" -- false once ShadowCode's bundled llama.cpp
+    # ships. What the checks above do establish is stated instead.
+    if ships_shadowcode:
+        print(
+            "PASS: no Ollama/Open WebUI/llama.cpp packages, no model weights; the only "
+            f"local model runtime is ShadowCode's, confined to /{shadowcode.RUNTIME_PREFIX}"
+        )
+    else:
+        print("PASS: local AI stack absent; Codex cloud and offline media capabilities")
     passport = squash_cat(squashfs, "usr/bin/shadowfetch-passport")
     recovery_sources = squash_cat(
         squashfs, "usr/share/shadowfetch/apt-recovery/debian.sources"
@@ -809,13 +913,13 @@ def payload_gate(squashfs: Path, inventory: dict[str, str]) -> None:
     expected_profiles = list(RELEASE.section("workbench")["profiles"])
     if [profile.get("id") for profile in profiles] != expected_profiles:
         raise RuntimeError(
-            f"Element Workbench profile allowlist differs from {RELEASE.version}"
+            f"Workbench profile allowlist differs from {RELEASE.version}"
         )
     if 'subprocess.run(["pkexec", str(helper), "install"' not in workbench:
-        raise RuntimeError("Element Workbench bypasses the protected bundle installer")
+        raise RuntimeError("Workbench bypasses the protected bundle installer")
     if "class WorkbenchPage" not in workbench_page:
-        raise RuntimeError("Element Workbench Control Center page is absent")
-    print("PASS: Element Workbench CLI, GUI and four-profile contract are installed")
+        raise RuntimeError("Workbench Control Center page is absent")
+    print("PASS: Workbench CLI, GUI and four-profile contract are installed")
     if "deb-src http://deb.debian.org/debian/ testing " not in recovery_sources:
         raise RuntimeError("Phoenix recovery sources differ from installed-system policy")
     print("PASS: Phoenix source-repair payload matches installed-system policy")
@@ -964,6 +1068,10 @@ def main(argv: list[str] | None = None) -> int:
         f"(data: {RELEASE.path.name})"
     )
 
+    # Refuses a release the ShadowCode pin ships in whose data file does not
+    # declare it, rather than skipping every ShadowCode check below.
+    ships_shadowcode = shadowcode.check_release_linkage(RELEASE.version, RELEASE.document)
+
     artifact_gate(iso, marker)
     boot_gate(iso)
     with mounted_iso(iso) as mountpoint:
@@ -971,6 +1079,8 @@ def main(argv: list[str] | None = None) -> int:
         inventory, _ = squashfs_inventory(squashfs)
         package_gate(squashfs)
         critical_payload_parity_gate(squashfs)
+        if ships_shadowcode:
+            shadowcode_gate(squashfs, inventory)
         drkonqi_gate(squashfs)
         payload_gate(squashfs, inventory)
         identity_and_installer_gate(squashfs, inventory)

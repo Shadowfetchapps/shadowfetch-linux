@@ -23,8 +23,6 @@ DEFAULTS = ROOT / "packages" / "shadowfetch-defaults"
 WELCOME = ROOT / "packages" / "shadowfetch-welcome" / "src" / "shadowfetch-welcome"
 CONTROL = ROOT / "packages" / "shadowfetch-control-center" / "data"
 PASSPORT = DEFAULTS / "data/usr/bin/shadowfetch-passport"
-CODEX = DEFAULTS / "data/usr/bin/shadowfetch-codex"
-CODE_AGENTS = DEFAULTS / "data/usr/bin/shadowfetch-code-agent"
 MIGRATION_HELPER = DEFAULTS / "data/usr/libexec/shadowfetch-migrate-2.1.3-ai"
 MIGRATION_MANIFEST = (
     DEFAULTS / "data/usr/share/shadowfetch/migrations/2.1.3-ai-packages"
@@ -101,9 +99,27 @@ class FireEdition215Tests(unittest.TestCase):
         self.assertIn("dpkg-source -b $$pkg", repo)
         self.assertIn("debsign --no-conf -k$(REPO_KEY_ID)", repo)
 
+    def test_optional_agents_are_named_only_by_their_allowlist(self):
+        """5.0: Hermes and OpenClaw are optional per-user installs, never preinstalled.
+
+        The allowlist is the source gate's, so this test and the release gate
+        cannot disagree about which files may name them.
+        """
+        release = ROOT / "tools" / "release"
+        if str(release) not in sys.path:
+            sys.path.insert(0, str(release))
+        loader = importlib.machinery.SourceFileLoader("fire_source_gate", str(release / "source_gate.py"))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        source_gate = importlib.util.module_from_spec(spec)
+        loader.exec_module(source_gate)
+        self.assertEqual([], source_gate.optional_agent_findings(ROOT))
+        for forbidden in ("live-build/config/package-lists/shadowfetch-apps.list.chroot",
+                          "live-build/config/includes.chroot/etc/skel/.hermes/config.yaml"):
+            self.assertFalse(source_gate.optional_agent_reference_allowed(forbidden))
+
     def test_retired_runtimes_are_absent_from_active_image_source(self):
         retired = re.compile(
-            r"openclaw|\bhermes\b|\bollama\b|open[- ]?webui|llama\.cpp|llama-server",
+            r"\bollama\b|open[- ]?webui|llama\.cpp|llama-server",
             re.IGNORECASE,
         )
         roots = [
@@ -246,123 +262,33 @@ class FireEdition215Tests(unittest.TestCase):
         self.assertIn("/etc/ssh/ssh_host_rsa_key", postinst)
 
 
-    def test_codex_upstream_contract_is_locked(self):
-        lock = json.loads((ROOT / "qa/3.5.0/upstream-codex.json").read_text())
-        helper = CODEX.read_text()
-        self.assertEqual("0.150.1", lock["release"])
-        self.assertEqual(
-            "https://learn.chatgpt.com/docs/codex/cli", lock["documentation"]
-        )
-        self.assertEqual(
-            "https://chatgpt.com/codex/install.sh", lock["installer"]["url"]
-        )
-        self.assertRegex(lock["installer"]["sha256"], r"^[0-9a-f]{64}$")
-        self.assertEqual("desktop-user", lock["installation"]["scope"])
-        self.assertFalse(lock["installation"]["credentials_embedded"])
-        self.assertTrue(
-            lock["installation"]["archive_digest_verified_by_upstream_installer"]
-        )
-        self.assertIn(f'CODEX_VERSION="{lock["release"]}"', helper)
-        self.assertIn(f'INSTALLER_URL="{lock["installer"]["url"]}"', helper)
-        self.assertIn(f'INSTALLER_SHA256="{lock["installer"]["sha256"]}"', helper)
-
-    def test_codex_setup_is_opt_in_verified_and_user_owned(self):
-        helper = CODEX.read_text()
-        welcome = WELCOME.read_text()
-        install_manifest = (
-            DEFAULTS / "debian/shadowfetch-defaults.install"
-        ).read_text()
-        self.assertIn('"label": "OpenAI Codex CLI"', welcome)
-        self.assertIn("checkbox.setChecked(False)", welcome)
-        self.assertIn('self._on_next({"coding_agents": coding_agents})', welcome)
-        self.assertIn("Official Codex installer SHA-256 verified", helper)
-        self.assertIn("sha256sum --check --status", helper)
-        self.assertIn("--proto '=https'", helper)
-        self.assertIn("CODEX_NON_INTERACTIVE=true", helper)
-        self.assertIn("CODEX_INSTALLER_USE_RELEASES_OPENAI_COM=true", helper)
-        self.assertIn('if ((EUID == 0))', helper)
-        self.assertIn('BIN_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"', helper)
-        self.assertIn("No OpenAI credential was stored by Shadowfetch", helper)
-        self.assertNotIn("OPENAI_API_KEY", helper)
-        self.assertNotIn("auth.json", helper)
-        self.assertNotRegex(helper, r"curl[^\n|]*\|\s*(?:ba)?sh\b")
-        self.assertIn("data/usr/bin/shadowfetch-codex", install_manifest)
-        self.assertIn("data/usr/share/doc/shadowfetch/CODEX.md", install_manifest)
-
-
-    def test_additional_coding_agents_are_locked_and_user_owned(self):
-        lock = json.loads(
-            (ROOT / "qa/2.1.5/upstream-coding-agents.json").read_text()
-        )
-        helper = CODE_AGENTS.read_text()
-        expected = {
-            "claude": (
-                "2.1.227",
-                "https://downloads.claude.ai/claude-code-releases/2.1.227/linux-x64/claude",
-                "6832dc3f1797b890b71116e5f2dbbf9a83fd3d0498c235b4b0f9cd0e6e499ad6",
-                "claude",
-            ),
-            "grok": (
-                "1.0.5",
-                "https://x.ai/cli/grok-1.0.5-linux-x86_64",
-                "9ba87444e1819e8f6104adbbf4676a870c204380aa5c3e1c38a926c4ea677238",
-                "grok",
-            ),
-            "cursor": (
-                "2026.08.11-e8db854",
-                "https://downloads.cursor.com/lab/2026.08.11-e8db854/linux/x64/agent-cli-package.tar.gz",
-                "bfff4bf6f4e9dd30c1d0ef0a70b6077b074015dd2948e4c50685d53afdcfce5a",
-                "cursor-agent",
-            ),
-        }
-        self.assertEqual("linux-x86_64", lock["platform"])
-        self.assertEqual("desktop-user", lock["installation"]["scope"])
-        self.assertFalse(lock["installation"]["selected_by_default"])
-        self.assertFalse(lock["installation"]["credentials_embedded"])
-        self.assertFalse(lock["installation"]["credentials_copied_by_shadowfetch"])
-        self.assertFalse(lock["installation"]["failure_blocks_base_setup"])
-        for key, (release, url, digest, command) in expected.items():
-            agent = lock["agents"][key]
-            self.assertEqual(release, agent["release"])
-            self.assertEqual(url, agent["artifact"]["url"])
-            self.assertEqual(digest, agent["artifact"]["sha256"])
-            self.assertEqual(command, agent["command"])
-            self.assertIn(f'VERSION="{release}"', helper)
-            self.assertIn(f'ARTIFACT_URL="{url}"', helper)
-            self.assertIn(f'ARTIFACT_SHA256="{digest}"', helper)
+    def test_shadowcode_owns_the_vendor_clis_and_the_distro_helpers_are_gone(self):
+        """5.0: ShadowCode installs and connects Codex, Claude Code, Cursor and
+        Grok itself, so the distro's own installers are not shipped."""
+        install_manifest = (DEFAULTS / "debian/shadowfetch-defaults.install").read_text()
+        for name in ("shadowfetch-codex", "shadowfetch-code-agent", "CODEX.md", "CODING-AGENTS.md"):
+            self.assertNotIn(name, install_manifest)
+        self.assertFalse((DEFAULTS / "data/usr/bin/shadowfetch-codex").exists())
+        self.assertFalse((DEFAULTS / "data/usr/bin/shadowfetch-code-agent").exists())
 
     def test_coding_agent_choices_are_grouped_verified_and_independent(self):
-        helper = CODE_AGENTS.read_text()
         welcome = WELCOME.read_text()
-        install_manifest = (
-            DEFAULTS / "debian/shadowfetch-defaults.install"
-        ).read_text()
+        # 5.0 offers exactly three optional agents; ShadowCode connects the
+        # vendor coding CLIs.
         for label in (
-            "OpenAI Codex CLI",
-            "Anthropic Claude Code",
-            "xAI Grok Build",
-            "Cursor Agent",
+            "Grok Bot · official native desktop",
+            "Hermes Agent · Nous Research",
+            "OpenClaw · personal AI agent",
         ):
             self.assertIn(label, welcome)
-        self.assertIn("Coding agents", welcome)
-        self.assertIn("Select available agents", welcome)
-        self.assertIn("QGridLayout", welcome)
-        self.assertIn("agent_grid.addWidget(card, index // 2, index % 2)", welcome)
+        for label in ("OpenAI Codex CLI", "Anthropic Claude Code", "xAI Grok Build", "Cursor Agent"):
+            self.assertNotIn(label, welcome)
+        self.assertIn("Optional agents", welcome)
+        self.assertIn("Select all three", welcome)
         self.assertIn("checkbox.setChecked(False)", welcome)
         self.assertIn('"coding_agents": coding_agents', welcome)
         self.assertIn("for agent in CODING_AGENTS", welcome)
         self.assertIn('command.extend(["setup", "--yes", "--no-open"])', welcome)
-        self.assertIn("sha256sum --check --status", helper)
-        self.assertIn("--proto '=https'", helper)
-        self.assertIn('if ((EUID == 0))', helper)
-        self.assertIn('BIN_DIR="${SHADOWFETCH_CODE_AGENT_BIN_DIR:-$HOME/.local/bin}"', helper)
-        self.assertIn("credentials_stored_by_shadowfetch=false", helper)
-        self.assertNotIn("API_KEY", helper)
-        self.assertNotIn("auth.json", helper)
-        self.assertNotRegex(helper, r"curl[^\n|]*\|\s*(?:ba)?sh\b")
-        self.assertNotIn('"$BIN_DIR/agent"', helper)
-        self.assertIn("data/usr/bin/shadowfetch-code-agent", install_manifest)
-        self.assertIn("data/usr/share/doc/shadowfetch/CODING-AGENTS.md", install_manifest)
 
     def test_nvidia_rtx_5080_contract_is_locked(self):
         lock = json.loads((ROOT / "qa/2.1.5/upstream-nvidia.json").read_text())
@@ -440,8 +366,18 @@ class FireEdition215Tests(unittest.TestCase):
             self.assertIn(expected, manifest)
         self.assertNotRegex(
             manifest,
-            re.compile(r"openclaw|hermes|shadowfetch-(?:assistant|llm|ai)(?:\s|\.)", re.I),
+            re.compile(r"shadowfetch-(?:assistant|llm|ai)(?:\s|\.)", re.I),
         )
+        # Hermes/OpenClaw ship ONLY as their optional-install helpers and the
+        # OpenClaw lockfile; never as a runtime, service or launcher.
+        optional = [line.split()[0] for line in manifest.splitlines()
+                    if re.search(r"openclaw|hermes", line, re.I)]
+        self.assertEqual(sorted(optional), sorted([
+            "data/usr/bin/shadowfetch-hermes",
+            "data/usr/bin/shadowfetch-openclaw",
+            "data/usr/share/shadowfetch/openclaw/2026.9.6/package.json",
+            "data/usr/share/shadowfetch/openclaw/2026.9.6/package-lock.json",
+        ]))
         self.assertNotIn("80shadowfetch-snapshot", manifest)
         self.assertNotIn("apt-snapshot.sh", manifest)
         self.assertFalse(
@@ -877,7 +813,7 @@ class FireEdition215Tests(unittest.TestCase):
             }})
             assert page.state.text() == "Ready with notes"
             style = page.state.styleSheet()
-            assert "background: #d8a24a" in style
+            assert "background: #f2b33d" in style
             assert "color: #151515" in style
             page.show()
             app.processEvents()
@@ -944,31 +880,33 @@ class FireEdition215Tests(unittest.TestCase):
             app = module.QApplication([])
 
             submitted = []
-            module.ELEMENT = "fire"
+            recorded = []
+            module.desktop.agent_network = lambda: "online"
+            module.desktop.set_agent_network = recorded.append
             choice = module.AgentSetupPage(submitted.append)
-            assert tuple(choice.coding_agents) == ("grok-bot", "codex", "claude", "grok", "cursor")
+            assert tuple(choice.coding_agents) == ("grok-bot", "hermes", "openclaw")
             assert not any(box.isChecked() for box in choice.coding_agents.values())
             choice.select_all_agents.setChecked(True)
             assert all(box.isChecked() for box in choice.coding_agents.values())
-            choice.coding_agents["grok"].setChecked(False)
+            choice.coding_agents["hermes"].setChecked(False)
             assert not choice.select_all_agents.isChecked()
             choice._submit()
             assert submitted[-1]["coding_agents"] == {{
-                "grok-bot": True, "codex": True, "claude": True, "grok": False, "cursor": True,
+                "grok-bot": True, "hermes": False, "openclaw": True,
             }}
+            assert recorded == ["online"]
 
-            install = module.InstallPage(lambda: None)
+            install = module.InstallPage(lambda _agents: None)
             install.coding_agent_states = {{
-                "grok-bot": "not-requested", "codex": "failed", "claude": "pending",
-                "grok": "pending", "cursor": "pending",
+                "grok-bot": "failed", "hermes": "pending", "openclaw": "pending",
             }}
             started = []
             install._start_coding_agent_setup = lambda agent: started.append(agent["key"])
             install._start_next_ai()
-            assert started == ["claude"]
-            install.coding_agent_states["claude"] = "failed"
+            assert started == ["hermes"]
+            install.coding_agent_states["hermes"] = "failed"
             install._start_next_ai()
-            assert started == ["claude", "grok"]
+            assert started == ["hermes", "openclaw"]
             """
         )
         env = os.environ.copy()

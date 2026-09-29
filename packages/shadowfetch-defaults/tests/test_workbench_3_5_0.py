@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release-specific source gates for the 4.0.0 Element Workbench."""
+"""Release-specific source gates for the Shadowfetch Workbench."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ DEFAULTS = ROOT / "packages/shadowfetch-defaults"
 WELCOME = ROOT / "packages/shadowfetch-welcome"
 CONTROL = ROOT / "packages/shadowfetch-control-center"
 WORKBENCH = DEFAULTS / "data/usr/bin/shadowfetch-workbench"
-ELEMENT = DEFAULTS / "data/usr/bin/shadowfetch-element"
+AGENT_NETWORK = DEFAULTS / "data/usr/bin/shadowfetch-agent-network"
 FIREBREAK = ROOT / "packages/shadowfetch-fireline/data/usr/bin/shadowfetch-firebreak"
 MANIFEST = DEFAULTS / "data/usr/share/shadowfetch/workbench/profiles.json"
 CATALOG = WELCOME / "data/usr/share/shadowfetch/welcome/catalog"
@@ -69,21 +69,23 @@ class Workbench350Tests(unittest.TestCase):
                 continue
             self.assertIn(expected, first, changelog)
 
-    def test_element_and_firebreak_versions_are_stamped_and_home_is_optional(self):
+    def test_agent_network_and_firebreak_versions_are_stamped_and_home_is_optional(self):
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         release = release_version()
         self.assertIn('tools/stamp_version.py "$(VERSION)"', makefile)
-        self.assertIn(release, ELEMENT.read_text(encoding="utf-8"))
+        self.assertIn(release, AGENT_NETWORK.read_text(encoding="utf-8"))
         self.assertIn(f'VERSION = "{release}"',
                       FIREBREAK.read_text(encoding="utf-8"))
 
+        # A 4.x Ice setting still reads as offline after the upgrade.
         env = dict(os.environ, SHADOWFETCH_ELEMENT="ice")
         env.pop("HOME", None)
+        env.pop("SHADOWFETCH_AGENT_NETWORK", None)
         proc = subprocess.run(
-            [str(ELEMENT)], env=env, capture_output=True, text=True, check=False,
+            [str(AGENT_NETWORK)], env=env, capture_output=True, text=True, check=False,
         )
         self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertEqual("ice", proc.stdout.strip())
+        self.assertEqual("offline", proc.stdout.strip())
 
         proc = subprocess.run(
             [str(FIREBREAK), "--version"],
@@ -128,10 +130,10 @@ class Workbench350Tests(unittest.TestCase):
             self.assertTrue(record["packages"])
             self.assertNotIn("url", record)
 
-    def test_ai_profile_is_model_free_and_ice_recommended(self):
+    def test_ai_profile_is_model_free_and_offline_recommended(self):
         data = json.loads(MANIFEST.read_text(encoding="utf-8"))
         profile = next(item for item in data["profiles"] if item["id"] == "ai-lab")
-        self.assertEqual("ice", profile["recommended_element"])
+        self.assertEqual("offline", profile["recommended_agent_network"])
         record = json.loads((CATALOG / "workbench-ai-lab.json").read_text())
         joined = " ".join(record["packages"]).lower()
         self.assertNotRegex(joined, r"openclaw|hermes|ollama|model|weights|safetensors|gguf")
@@ -174,7 +176,7 @@ class Workbench350Tests(unittest.TestCase):
                 SHADOWFETCH_WORKBENCH_ROOT=str(root),
                 SHADOWFETCH_WORKBENCH_MANIFEST=str(MANIFEST),
                 SHADOWFETCH_WORKBENCH_CATALOG=str(CATALOG),
-                SHADOWFETCH_ELEMENT="ice",
+                SHADOWFETCH_AGENT_NETWORK="offline",
             )
             proc = subprocess.run(
                 [sys.executable, str(WORKBENCH), "create", "ai-lab", "Private Lab"],
@@ -187,7 +189,7 @@ class Workbench350Tests(unittest.TestCase):
             self.assertTrue((project / "models/MANIFEST.md").is_file())
             self.assertTrue((project / "pyproject.toml").is_file())
             receipt = json.loads((project / ".shadowfetch/workbench.json").read_text())
-            self.assertEqual("ice", receipt["element"])
+            self.assertEqual("offline", receipt["agent_network"])
             self.assertEqual("none", receipt["network_default"])
             self.assertFalse((project / ".env").exists())
             second = subprocess.run(
@@ -212,11 +214,11 @@ class Workbench350Tests(unittest.TestCase):
                     / "sfcc/pages.py").read_text()
         page = (CONTROL / "data/usr/share/shadowfetch/control-center/sfcc/workbench_page.py").read_text()
         welcome = (WELCOME / "src/shadowfetch-welcome").read_text()
-        self.assertIn('Section("workbench", "Workbench", "Fire & Ice projects"',
+        self.assertIn('Section("workbench", "Workbench", "Production projects"',
                       registry)
         self.assertIn("class WorkbenchPage", page)
         self.assertIn('rec.get("section") == "workbench"', welcome)
-        self.assertIn("Open Element Workbench", welcome)
+        self.assertIn("Open Workbench", welcome)
 
     def test_workbench_actions_fit_the_1366_layout_contract(self):
         page = (CONTROL / "data/usr/share/shadowfetch/control-center/sfcc/workbench_page.py").read_text()
@@ -225,12 +227,6 @@ class Workbench350Tests(unittest.TestCase):
         self.assertIn("actions.addWidget(create, 1, 0)", page)
         self.assertIn("actions.addWidget(plan, 1, 1)", page)
         self.assertIn("self.grid.setContentsMargins(0, 4, 0, 4)", page)
-
-    def test_codex_pin_is_current_for_this_release_and_digest_verified(self):
-        codex = (DEFAULTS / "data/usr/bin/shadowfetch-codex").read_text()
-        self.assertIn('CODEX_VERSION="0.150.1"', codex)
-        self.assertIn('INSTALLER_SHA256="ba92dd27e5c06f0d3bbc58bfa4b9cfb6599cd2742fbb1f92a2765e6c07dedb5a"', codex)
-        self.assertIn("sha256sum --check --status", codex)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Shadowfetch look migration
+Comment=Move a desktop from the retired Fire/Ice look to ShadowCode, once
+Exec=/usr/lib/shadowfetch/look-migrate.sh
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=1
+Terminal=false
+NoDisplay=true

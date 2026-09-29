@@ -93,7 +93,14 @@ PACKAGE_GATE := $(RELEASE_TOOLS)/package_gate.py
 ISO_GATE := $(RELEASE_TOOLS)/iso_gate.py
 ACCEPTANCE_TOOL := $(RELEASE_TOOLS)/acceptance.py
 ACCEPTANCE_MANIFEST := $(ROOT)/qa/$(VERSION)/acceptance.json
-RELEASE_DEBS := $(BUILD_DIR)/*_$(VERSION)-1_all.deb $(BUILD_DIR)/*_$(VERSION)-1_amd64.deb $(BUILD_DIR)/grub-btrfs_*_all.deb
+# ShadowCode is the one PREBUILT package: its .deb is upstream's signed bytes,
+# fetched and authenticated by tools/fetch_shadowcode.py, never built here, so
+# it is not in PACKAGES. The version lives only in tools/release/shadowcode.toml;
+# this asks the tool for the exact build/ path rather than globbing, so a stale
+# previous version can never be picked up.
+SHADOWCODE_FETCH := $(ROOT)/tools/fetch_shadowcode.py
+SHADOWCODE_DEB := $(shell python3 $(SHADOWCODE_FETCH) --print-build-deb 2>/dev/null)
+RELEASE_DEBS := $(BUILD_DIR)/*_$(VERSION)-1_all.deb $(BUILD_DIR)/*_$(VERSION)-1_amd64.deb $(BUILD_DIR)/grub-btrfs_*_all.deb $(SHADOWCODE_DEB)
 PACKAGES_STAMP := $(BUILD_DIR)/.packages-$(VERSION)
 
 R2_BUCKET ?= shadowfetch-linux
@@ -107,7 +114,7 @@ LINUX_HOST ?= shadowfetch-linux
 LINUX_PATH ?= ~/projects/shadowfetch-4.0.0
 
 .PHONY: all help test attacks release-data source-gate package-gate iso-gate acceptance-audit acceptance-gate deps packages repo refresh-index check-index iso sign pre-release-check publish qemu clean distclean \
-        sync-from-linux deploy-worker ship stamp-version
+        sync-from-linux deploy-worker ship stamp-version shadowcode shadowcode-smoke
 
 all: iso
 
@@ -255,7 +262,19 @@ packages: $(PACKAGES_STAMP)
 stamp-version:
 	python3 tools/stamp_version.py "$(VERSION)" --outstanding-ok
 
-$(PACKAGES_STAMP): stamp-version
+# Fetch the pinned ShadowCode release into build/cache/shadowcode/<version>/,
+# authenticate it against the vendored upstream key and the pin, and stage the
+# .deb as build/shadow-code_<version>_amd64.deb. Idempotent, and offline once
+# the cache holds the assets. See vendor/shadowcode/README.md.
+shadowcode:
+	@test -n "$(SHADOWCODE_DEB)" || { echo "tools/release/shadowcode.toml is unreadable; cannot name the ShadowCode .deb" >&2; exit 1; }
+	python3 $(SHADOWCODE_FETCH)
+
+# Host-side smoke of the verified .deb: extract, ldd, --version. No VM, no install.
+shadowcode-smoke: shadowcode
+	python3 $(ROOT)/tools/shadowcode_smoke.py
+
+$(PACKAGES_STAMP): stamp-version shadowcode
 	@mkdir -p $(BUILD_DIR)
 	@for pkg in $(PACKAGES); do \
 		echo ">>> Building $$pkg" ; \
@@ -317,9 +336,18 @@ repo: packages
 	@for dsc in $(BUILD_DIR)/src/*.dsc; do \
 		$(REPREPRO) -b $(REPO_DIR) includedsc $(CODENAME) $$dsc ; \
 	done
-	@for deb in $(RELEASE_DEBS); do \
+	@for deb in $(filter-out $(SHADOWCODE_DEB),$(RELEASE_DEBS)); do \
 		$(REPREPRO) -b $(REPO_DIR) includedeb $(CODENAME) $$deb ; \
 	done
+# ShadowCode's control file has no Section, and reprepro skips such a package
+# ("No section given") rather than guessing, so it is given one here -- the
+# .deb bytes are untouched, only the index record carries Section: devel. It
+# has no .dsc: nothing here builds it. Its release's runtime-sources tarball and
+# signed metadata are published under pool/third-party-source/ instead, which
+# the publisher uploads with the rest of pool/ (vendor/shadowcode/README.md).
+	@python3 $(SHADOWCODE_FETCH) --offline >/dev/null
+	@$(REPREPRO) -b $(REPO_DIR) -S devel -P optional includedeb $(CODENAME) $(SHADOWCODE_DEB) || exit 1
+	@set -o pipefail; python3 $(SHADOWCODE_FETCH) --offline --stage-sources $(REPO_DIR)/pool/third-party-source | tail -n 2
 	@tmp=$$(mktemp -d) ; \
 		trap 'rm -rf -- "$$tmp"' EXIT ; \
 		for deb in $(RELEASE_DEBS); do dpkg-deb -f "$$deb" Package; done | sort -u > "$$tmp/expected-binary" ; \

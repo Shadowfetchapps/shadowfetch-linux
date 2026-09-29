@@ -30,7 +30,7 @@ class ScopeTests(unittest.TestCase):
         self.ws = self.base / "Workspaces" / "project"
         self.ws.mkdir(parents=True)
         (self.ws / "seed.txt").write_text("original")
-        self.env = patch.dict(os.environ, {"SHADOWFETCH_AGENT_WORKSPACES":str(self.ws.parent), "SHADOWFETCH_FIREBREAK_STATE":str(self.base / "state"), "SHADOWFETCH_ELEMENT":"ice"})
+        self.env = patch.dict(os.environ, {"SHADOWFETCH_AGENT_WORKSPACES":str(self.ws.parent), "SHADOWFETCH_FIREBREAK_STATE":str(self.base / "state"), "SHADOWFETCH_AGENT_NETWORK":"offline"})
         self.env.start()
     def tearDown(self):
         self.env.stop()
@@ -307,7 +307,7 @@ class SyscallDescriptorTests(unittest.TestCase):
         self.env = patch.dict(os.environ, {
             "SHADOWFETCH_AGENT_WORKSPACES": str(self.ws.parent),
             "SHADOWFETCH_FIREBREAK_STATE": str(self.base / "state"),
-            "SHADOWFETCH_ELEMENT": "ice"})
+            "SHADOWFETCH_AGENT_NETWORK": "offline"})
         self.env.start()
         self.addCleanup(self.env.stop)
 
@@ -474,7 +474,7 @@ class SyscallFilterSandboxTests(unittest.TestCase):
             environment = dict(os.environ)
             environment["SHADOWFETCH_AGENT_WORKSPACES"] = str(ws.parent)
             environment["SHADOWFETCH_FIREBREAK_STATE"] = str(base / "state")
-            environment["SHADOWFETCH_ELEMENT"] = "ice"
+            environment["SHADOWFETCH_AGENT_NETWORK"] = "offline"
             done = subprocess.run(
                 [sys.executable, str(self.FIREBREAK), "run", "--workspace", "live",
                  "--net", "none", "--no-checkpoint", "--memory-mb", "1024",
@@ -511,6 +511,72 @@ class SyscallFilterSandboxTests(unittest.TestCase):
             capture_output=True, text=True, timeout=60)
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("seccomp", done.stderr.lower())
+
+
+class AgentNetworkTests(unittest.TestCase):
+    """The setting that replaced Fire/Ice decides whether a sandbox gets network."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        base = Path(self.temp.name)
+        self.user = base / "config" / "shadowfetch"
+        self.system = base / "etc" / "shadowfetch"
+        self.user.mkdir(parents=True)
+        self.system.mkdir(parents=True)
+        self.env = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(base / "config")})
+        self.env.start()
+        for name in ("SHADOWFETCH_AGENT_NETWORK", "SHADOWFETCH_ELEMENT"):
+            os.environ.pop(name, None)
+        self.sys_patch = patch.object(fb, "SYSTEM_CONFIG", self.system)
+        self.sys_patch.start()
+
+    def tearDown(self):
+        self.sys_patch.stop()
+        self.env.stop()
+        self.temp.cleanup()
+
+    def net(self, **values):
+        return fb.effective_network(argparse.Namespace(net=values.get("net")))
+
+    def test_nothing_configured_is_online(self):
+        self.assertEqual(fb.agent_network(), "online")
+        self.assertEqual(self.net(), "allow")
+
+    def test_offline_setting_starts_sandboxes_without_network(self):
+        (self.user / "agent-network").write_text("offline\n")
+        self.assertEqual(self.net(), "none")
+
+    def test_an_upgraded_ice_user_stays_offline(self):
+        (self.user / "element").write_text("ice\n")
+        self.assertEqual(fb.agent_network(), "offline")
+        self.assertEqual(self.net(), "none")
+
+    def test_an_upgraded_ice_system_default_stays_offline(self):
+        (self.system / "element").write_text("ice\n")
+        self.assertEqual(self.net(), "none")
+
+    def test_new_setting_beats_legacy_element_at_the_same_level(self):
+        (self.user / "element").write_text("ice\n")
+        (self.user / "agent-network").write_text("online\n")
+        self.assertEqual(fb.agent_network(), "online")
+
+    def test_user_setting_beats_system_setting(self):
+        (self.system / "agent-network").write_text("offline\n")
+        (self.user / "agent-network").write_text("online\n")
+        self.assertEqual(fb.agent_network(), "online")
+
+    def test_environment_beats_files_and_legacy_env_still_works(self):
+        (self.user / "agent-network").write_text("online\n")
+        with patch.dict(os.environ, {"SHADOWFETCH_ELEMENT": "ice"}):
+            self.assertEqual(fb.agent_network(), "offline")
+        with patch.dict(os.environ, {"SHADOWFETCH_AGENT_NETWORK": "offline", "SHADOWFETCH_ELEMENT": "fire"}):
+            self.assertEqual(fb.agent_network(), "offline")
+
+    def test_garbage_is_ignored_and_explicit_flag_wins(self):
+        (self.user / "agent-network").write_text("sideways\n")
+        (self.system / "agent-network").write_text("offline\n")
+        self.assertEqual(fb.agent_network(), "offline")
+        self.assertEqual(self.net(net="allow"), "allow")
 
 
 if __name__ == "__main__":

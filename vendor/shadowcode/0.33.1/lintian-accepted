@@ -1,0 +1,48 @@
+# Lintian errors accepted for the ShadowCode 0.33.1 .deb, one exact line each.
+#
+# The package gate fails on any lintian error in a prebuilt package that is not
+# listed in vendor/shadowcode/<version>/lintian-accepted. The bytes are fixed by
+# the upstream signature, so the fix belongs upstream; this file records that a
+# person reviewed each one. A new version starts with no file: review its
+# errors and write it. Reasons, by tag:
+#   unstripped-binary-or-object     upstream ships debug symbols; size, not safety
+#   shared-library-is-executable    bundled ggml/llama libraries are 0755; harmless
+#   no-copyright-file               LICENSING GAP: fix upstream before 0.34.0
+#   no-changelog                    upstream packaging omission
+#   missing-dependency-on-libc      Depends lacks libc6; every Debian system has it
+#   embedded-library                llama.cpp/ggml bundled by design, pinned commit
+E: shadow-code: embedded-library libyaml [usr/bin/shadowcode]
+E: shadow-code: missing-dependency-on-libc needed by usr/bin/shadowcode and 24 others
+E: shadow-code: no-changelog usr/share/doc/shadow-code/changelog.gz (native package)
+E: shadow-code: no-copyright-file
+E: shadow-code: shared-library-is-executable 0755 [usr/lib/shadowcode/libggml-base.so.0.25.0]
+E: shadow-code: shared-library-is-executable 0755 [usr/lib/shadowcode/libggml.so.0.25.0]
+E: shadow-code: shared-library-is-executable 0755 [usr/lib/shadowcode/libllama-cli-impl.so]
+E: shadow-code: shared-library-is-executable 0755 [usr/lib/shadowcode/libllama-common.so.0.4.1]
+E: shadow-code: shared-library-is-executable 0755 [usr/lib/shadowcode/libllama-server-impl.so]
+E: shadow-code: shared-library-is-executable 0755 [usr/lib/shadowcode/libllama.so.0.4.1]
+E: shadow-code: shared-library-is-executable 0755 [usr/lib/shadowcode/libmtmd.so.0.4.1]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-base.so.0.25.0]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-alderlake.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-cannonlake.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-cascadelake.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-cooperlake.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-haswell.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-icelake.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-ivybridge.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-piledriver.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-sandybridge.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-sapphirerapids.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-skylakex.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-sse42.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-x64.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-cpu-zen4.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml.so.0.25.0]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libggml-vulkan.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libllama-cli-impl.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libllama-common.so.0.4.1]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libllama-server-impl.so]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libllama.so.0.4.1]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/libmtmd.so.0.4.1]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/llama-cli]
+E: shadow-code: unstripped-binary-or-object [usr/lib/shadowcode/llama-server]

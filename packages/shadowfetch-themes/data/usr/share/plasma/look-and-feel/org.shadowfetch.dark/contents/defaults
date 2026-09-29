@@ -16,8 +16,8 @@ ButtonsOnRight=IAX
 
 [kdeglobals][General]
 ColorScheme=ShadowfetchDark
-Name=Shadowfetch Umbra
-AccentColor=216,162,74
+Name=ShadowCode
+AccentColor=242,179,61
 accentColorFromWallpaper=false
 
 [kdeglobals][KDE]
@@ -36,4 +36,4 @@ activeForeground=214,219,225
 name=breeze-dark
 
 [Wallpaper]
-Image=/usr/share/backgrounds/shadowfetch/umbra-4k.jpg
+Image=/usr/share/backgrounds/shadowfetch/shadowcode-4k.jpg

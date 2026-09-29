@@ -3,9 +3,9 @@
   "revision": 1,
   "release": {
     "version": "5.0.0",
-    "edition": "Fire and Ice",
+    "edition": "ShadowCode",
     "codename": "Umbra",
-    "subtitle": "Egress and Syscall Filters"
+    "subtitle": "One Harness. All Models."
   },
   "evidence_root": "work/qa-5.0.0/evidence",
   "artifact": {
@@ -52,7 +52,7 @@
       "id": "FIRE-01",
       "phase": "prepublish",
       "area": "fire",
-      "title": "Fire live desktop and Mission Control render and work",
+      "title": "Live desktop and Mission Control render and work",
       "required": true,
       "status": "pending",
       "evidence": [],
@@ -62,7 +62,7 @@
       "id": "ICE-01",
       "phase": "prepublish",
       "area": "ice",
-      "title": "Ice desktop, task network isolation and offline media/workspaces",
+      "title": "Offline agent network: task network isolation and offline media/workspaces",
       "required": true,
       "status": "pending",
       "evidence": [],
@@ -83,6 +83,16 @@
       "phase": "prepublish",
       "area": "upgrade",
       "title": "Existing 4.1 systems (published ISO, updated from the published APT suite) upgrade to 5.0 with preserved user data and working recovery",
+      "required": true,
+      "status": "pending",
+      "evidence": [],
+      "notes": ""
+    },
+    {
+      "id": "SHADOWCODE-01",
+      "phase": "prepublish",
+      "area": "shadowcode",
+      "title": "Pinned ShadowCode is installed, launches in the live session and survives an open/close soak",
       "required": true,
       "status": "pending",
       "evidence": [],
@@ -172,7 +182,7 @@
       "id": "VISUAL-01",
       "phase": "prepublish",
       "area": "visual",
-      "title": "Fire/Ice, Welcome, Mission Control, Grok Bot, installer and under-load screenshots at both resolutions",
+      "title": "ShadowCode desktop, Welcome, Mission Control, Grok Bot, installer and under-load screenshots at both resolutions",
       "required": true,
       "status": "pending",
       "evidence": [],
@@ -199,5 +209,5 @@
       "notes": ""
     }
   ],
-  "candidate_note": "No candidate yet. Every case is pending and the artifact block carries no digest, because no 5.0.0 image has been built. The case list is carried over from 4.1.0 and every RESULT, waiver and note was dropped rather than copied -- including the four Grok-dependent waivers, which justified 4.1.0 and must be re-argued for 5.0.0 if they are needed at all. Three titles named the previous release and were rewritten: ISO-01, UPGRADE-01 and PUB-01. release.edition and subtitle are PROVISIONAL, carried from 4.1.0 with versions/5.0.0.toml. verify refuses this manifest today, and should."
+  "candidate_note": "No candidate yet. Every case is pending and the artifact block carries no digest, because no 5.0.0 image has been built. The case list is carried over from 4.1.0 and every RESULT, waiver and note was dropped rather than copied -- including the four Grok-dependent waivers, which justified 4.1.0 and must be re-argued for 5.0.0 if they are needed at all. Three titles named the previous release and were rewritten: ISO-01, UPGRADE-01 and PUB-01. verify refuses this manifest today, and should."
 }

@@ -1,4 +1,4 @@
-"""Element Workbench - four honest, installable production profiles."""
+"""Workbench - four honest, installable production profiles."""
 
 import json
 import os
@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from sfcc import busutil, theme
+from sfcc import busutil, desktop
 from sfcc.theme import Card, ProcessDialog, label
 
 
@@ -50,8 +50,8 @@ class ProfileCard(Card):
         heading = QHBoxLayout()
         heading.addWidget(label(profile["name"], "cardTitle"))
         heading.addStretch(1)
-        recommendation = profile.get("recommended_element", "fire").title()
-        heading.addWidget(label(f"{recommendation} recommended", "safety"))
+        recommendation = profile.get("recommended_agent_network", "online")
+        heading.addWidget(label(f"Agent network {recommendation} recommended", "safety"))
         outer.addLayout(heading)
         outer.addWidget(label(profile.get("tagline", ""), "detail", wrap=True))
 
@@ -138,12 +138,12 @@ class WorkbenchPage(QWidget):
         root.setContentsMargins(24, 12, 24, 18)
         root.setSpacing(10)
 
-        element = theme.ELEMENT.title()
+        network = desktop.agent_network()
         posture = ("agent sessions start without network access"
-                   if theme.ELEMENT == "ice"
+                   if network == "offline"
                    else "agent sessions may use the network")
         root.addWidget(label(
-            f"{element} posture: {posture}. Each setup shows disk, network, account "
+            f"Agent network {network}: {posture}. Each setup shows disk, network, account "
             "and accelerator requirements before it changes the system. Create a project, then queue its work in Mission Control.",
             "subtitle", wrap=True))
 

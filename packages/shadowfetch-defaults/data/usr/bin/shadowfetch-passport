@@ -698,11 +698,11 @@ def html_report(document: dict) -> str:
 <style>
 body{margin:0;background:#0b0e12;color:#e6e9ed;font:16px system-ui,sans-serif}
 main{max-width:920px;margin:auto;padding:48px 24px 64px}h1{font-size:36px;margin:8px 0}
-.eyebrow{color:#d8a24a;font-weight:700}.hero{border-bottom:1px solid #2c333b;padding-bottom:28px}
+.eyebrow{color:#f2b33d;font-weight:700}.hero{border-bottom:1px solid #2c333b;padding-bottom:28px}
 .verdict{font-size:21px}.check{background:#141922;border:1px solid #2c333b;border-radius:8px;
 padding:18px;margin:12px 0}.row{display:flex;gap:16px;align-items:center;justify-content:space-between}
 h2{font-size:18px;margin:0}.row span{font-weight:700}.ready .row span{color:#7fb069}
-.attention .row span{color:#e2533b}.note .row span{color:#d8a24a}
+.attention .row span{color:#e2533b}.note .row span{color:#f2b33d}
 .unknown .row span,.not-present .row span,small{color:#9aa3ad}p{line-height:1.5}
 .privacy{margin-top:28px;padding-top:20px;border-top:1px solid #2c333b;color:#9aa3ad}
 </style></head><body><main><header class="hero"><div class="eyebrow">SHADOWFETCH GUIDE</div>

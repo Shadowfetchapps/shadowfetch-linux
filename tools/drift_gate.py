@@ -147,8 +147,8 @@ VERSION_SITES: list[tuple[str, str, str]] = [
      r'(?m)^PRETTY_NAME="Shadowfetch Linux ([0-9.]+) ', "os-release PRETTY_NAME"),
     ("packages/shadowfetch-themes/data/usr/share/sddm/themes/umbra/metadata.desktop",
      r"(?m)^Version=(\S+)\s*$", "SDDM theme metadata"),
-    ("packages/shadowfetch-defaults/data/usr/bin/shadowfetch-element",
-     r'(?m)^VERSION="([^"]+)"', "shadowfetch-element VERSION"),
+    ("packages/shadowfetch-defaults/data/usr/bin/shadowfetch-agent-network",
+     r'(?m)^VERSION="([^"]+)"', "shadowfetch-agent-network VERSION"),
     ("packages/shadowfetch-defaults/data/usr/bin/shadowfetch-grok-bot",
      r"shadowfetch-grok-bot ([0-9]+\.[0-9]+\.[0-9]+)", "grok-bot --version string"),
     ("packages/shadowfetch-fireline/data/usr/bin/shadowfetch-firebreak",
@@ -447,11 +447,23 @@ UNNAMED_TODAY: dict[str, set[str]] = {
     "packages/shadowfetch-control-center/data/usr/share/shadowfetch/control-center/sfcc/theme.py":
         {"#2a2413", "#2a1815", "#101114", "#191b1f", "#33342e", "#302c24"},
     "packages/shadowfetch-welcome/src/shadowfetch-welcome":
-        {"#11161e", "#2a313b", "#11151b", "#333a44", "#6b727b", "#29b6f6", "#9b7ede"},
+        {"#11161e", "#333a44", "#6b727b"},
     "packages/shadowfetch-fireproof/data/usr/bin/shadowfetch-fireproof": set(),
     "packages/shadowfetch-defaults/data/usr/bin/shadowfetch-passport": set(),
     "packages/shadowfetch-control-center/data/usr/share/shadowfetch/control-center/sfcc/guide_page.py":
         set(),
+}
+
+# 5.0.0 retired the Fire/Ice pair for the single ShadowCode look. These are the
+# 4.1 brand literals (Fire gold trio, Ice azure trio, Welcome's Ice-only
+# accents) still written in files outside the look's territory. Unlike
+# UNNAMED_TODAY this is not a ratchet that fails when it goes slack: removing
+# the colours from the file is the whole remedy, and the BLOCKED finding below
+# stops printing that file as soon as it no longer contains them.
+RETIRED_LOOK_LITERALS: dict[str, set[str]] = {
+    "packages/shadowfetch-welcome/src/shadowfetch-welcome":
+        {"#d8a24a", "#e8b65e", "#c28e38", "#4aa2d8", "#5eb9e8", "#3887c2",
+         "#0a0f16", "#121a26", "#182233", "#2c3947"},
 }
 
 SURFACE_OF = {
@@ -488,7 +500,8 @@ def check_palette_literals(_truth: dict) -> list[Finding]:
 
     for rel, surface in SURFACE_OF.items():
         allowed = _surface_values(palette, surface) | {
-            value.lower() for value in UNNAMED_TODAY.get(rel, set())}
+            value.lower() for value in UNNAMED_TODAY.get(rel, set())} | {
+            value.lower() for value in RETIRED_LOOK_LITERALS.get(rel, set())}
         try:
             text = read(rel)
         except OSError as exc:
@@ -521,17 +534,18 @@ def check_palette_literals(_truth: dict) -> list[Finding]:
             "shadowfetch-branding and have sfcc/Welcome/Fireproof import one loader. "
             "That needs a debian/*.install change, which is outside Stage X territory."))
 
-    # Splash.qml and theme.conf embed the element accent by hand.
-    for element, node in palette["elements"].items():
-        rel = SPLASH.format(plugin=node["look_and_feel"])
-        try:
-            text = read(rel)
-        except OSError as exc:
-            findings.append(Finding("DRIFT", "palette", rel, f"unreadable ({exc})"))
-            continue
+    # Splash.qml and theme.conf embed the brand colours by hand.
+    look = generate_theme_assets.brand(palette)
+    rel = SPLASH.format(plugin=look["look_and_feel"])
+    try:
+        text = read(rel)
+    except OSError as exc:
+        findings.append(Finding("DRIFT", "palette", rel, f"unreadable ({exc})"))
+    else:
         seen = {m.group(0).lower() for m in _HEX.finditer(text)}
         expected = {
-            node["accent"].lower(),
+            look["accent"].lower(),
+            look["silver"].lower(),
             palette["surfaces"]["desktop"]["roles"]["mist"].lower(),
             palette["surfaces"]["desktop"]["roles"]["window"].lower(),
             palette["surfaces"]["desktop"]["roles"]["splash_bar"].lower(),
@@ -540,22 +554,42 @@ def check_palette_literals(_truth: dict) -> list[Finding]:
         if strays:
             findings.append(Finding(
                 "DRIFT", "palette", site(rel, strays[0]),
-                f"{element} splash uses {', '.join(strays)}; the desktop palette "
+                f"the splash uses {', '.join(strays)}; the desktop palette "
                 f"expects {', '.join(sorted(expected))}",
                 "correct the QML, or name the colour in palette.json"))
 
-    fire_accent = palette["elements"]["fire"]["accent"]
+    accent = look["accent"]
     try:
         conf = read(THEME_CONF)
     except OSError as exc:
         findings.append(Finding("DRIFT", "palette", THEME_CONF, f"unreadable ({exc})"))
     else:
         match = re.search(r"(?m)^color=(#[0-9a-fA-F]{6})\s*$", conf)
-        if match is None or match.group(1).lower() != fire_accent.lower():
+        if match is None or match.group(1).lower() != accent.lower():
             findings.append(Finding(
                 "DRIFT", "palette", site(THEME_CONF, "color="),
-                f"SDDM accent is {match.group(1) if match else 'absent'}; the Fire "
-                f"accent is {fire_accent}"))
+                f"SDDM accent is {match.group(1) if match else 'absent'}; the "
+                f"ShadowCode accent is {accent}"))
+
+    # Literals of the retired Fire/Ice looks, in files whose owners have not
+    # converted them yet. Tolerated (not DRIFT) and reported (BLOCKED) while any
+    # remain; a colour outside this set still fails as an unnamed stray.
+    lingering = []
+    for rel, colours in RETIRED_LOOK_LITERALS.items():
+        try:
+            text = read(rel).lower()
+        except OSError:
+            continue
+        present = sorted(c for c in colours if c in text)
+        if present:
+            lingering.append(f"{rel} ({', '.join(present)})")
+    if lingering:
+        findings.append(Finding(
+            "BLOCKED", "palette", "tools/drift_gate.py:RETIRED_LOOK_LITERALS",
+            "retired Fire/Ice colours are still written in: " + "; ".join(lingering),
+            "use the ShadowCode roles in tools/truth/palette.json (document surface: "
+            "gold #F2B33D, gold_hover #FFC95E, gold_press #B97E22, silver #BCC0C6), "
+            "then delete the entry here"))
     return findings
 
 
@@ -565,7 +599,8 @@ def check_palette_literals(_truth: dict) -> list[Finding]:
 # ADR-0009: "the Ice look-and-feel declares itself as the Dark package, so
 # choosing Ice installs the Fire splash and reports 'Shadowfetch Dark' as
 # active."  Three keys inside one file decide this and they are copies of the
-# directory name.
+# directory name.  5.0.0 ships one package, org.shadowfetch.dark (display name
+# "ShadowCode"); the check still holds its defaults to palette.json.
 LNF_DEFAULTS = ("packages/shadowfetch-themes/data/usr/share/plasma/look-and-feel/"
                 "{plugin}/contents/defaults")
 
@@ -614,60 +649,138 @@ def check_lookandfeel(_truth: dict) -> list[Finding]:
     return findings
 
 
-ELEMENT_APPLIER = "packages/shadowfetch-defaults/data/usr/bin/shadowfetch-element"
 FIRST_LOGIN = "packages/shadowfetch-defaults/data/usr/lib/shadowfetch/first-login.sh"
+LOOK_MIGRATE = "packages/shadowfetch-defaults/data/usr/lib/shadowfetch/look-migrate.sh"
 SKEL_KDEGLOBALS = "packages/shadowfetch-defaults/data/etc/skel/.config/kdeglobals"
+SKEL_KONSOLE = "packages/shadowfetch-defaults/data/etc/skel/.local/share/konsole/Shadowfetch.profile"
+SKEL_LOCKRC = "packages/shadowfetch-defaults/data/etc/skel/.config/kscreenlockerrc"
+
+# Which palette.json brand keys each place that APPLIES the look must name.
+LOOK_APPLIERS: dict[str, tuple[str, ...]] = {
+    FIRST_LOGIN: ("plasma_color_scheme", "look_and_feel", "wallpaper_image"),
+    SKEL_KDEGLOBALS: ("plasma_color_scheme", "look_and_feel"),
+    SKEL_KONSOLE: ("konsole_scheme",),
+    SKEL_LOCKRC: ("wallpaper_image",),
+    LOOK_MIGRATE: ("plasma_color_scheme", "konsole_scheme", "look_and_feel",
+                   "wallpaper_image"),
+}
+
+# The 4.1 Fire/Ice assets 5.0.0 removed. Nothing may ship them, and nothing may
+# name them -- except look-migrate.sh, whose job is to recognise them.
+RETIRED_LOOK = re.compile(
+    r"ShadowfetchIce|ShadowfetchGlacier|org\.shadowfetch\.ice\b"
+    r"|\bUmbra(?:Fire|Ice|Frost|Drift|Gold|Emblem|Vault)\b"
+    r"|umbra(?:-ice)?-4k\.jpg|slide-(?:fire|ice)\.jpg")
+RETIRED_PAYLOAD = (
+    "packages/shadowfetch-themes/data/usr/share/color-schemes/ShadowfetchIce.colors",
+    "packages/shadowfetch-themes/data/usr/share/konsole/ShadowfetchGlacier.colorscheme",
+    "packages/shadowfetch-themes/data/usr/share/plasma/look-and-feel/org.shadowfetch.ice",
+    "packages/shadowfetch-branding/data/usr/share/backgrounds/shadowfetch/umbra-4k.jpg",
+    "packages/shadowfetch-branding/data/usr/share/backgrounds/shadowfetch/umbra-ice-4k.jpg",
+    *(f"packages/shadowfetch-branding/data/usr/share/wallpapers/Umbra{name}"
+      for name in ("Fire", "Ice", "Frost", "Drift", "Gold", "Emblem", "Vault")),
+    "live-build/config/includes.chroot/etc/calamares/branding/debian/slide-fire.jpg",
+    "live-build/config/includes.chroot/etc/calamares/branding/debian/slide-ice.jpg",
+)
+# Shipped sources a retired name must not appear in. Inside LOOK_TERRITORY a
+# hit is DRIFT (the look's own files); elsewhere it is BLOCKED (another
+# owner's file, reported so the rename is not forgotten).
+LOOK_SCAN_ROOTS = (
+    "packages/shadowfetch-themes/data",
+    "packages/shadowfetch-branding/data",
+    "packages/shadowfetch-defaults/data",
+    "packages/shadowfetch-control-center/data",
+    "packages/shadowfetch-fireline/data",
+    "packages/shadowfetch-fireproof/data",
+    "packages/shadowfetch-welcome/src",
+    "live-build/config/includes.chroot",
+    "live-build/config/hooks",
+    "live-build/config/grub-theme",
+)
+LOOK_TERRITORY = (
+    "packages/shadowfetch-themes/",
+    "packages/shadowfetch-branding/",
+    "packages/shadowfetch-defaults/data/etc/skel/",
+    FIRST_LOGIN,
+    "live-build/config/includes.chroot/etc/calamares/branding/",
+    "live-build/config/includes.chroot/usr/share/grub/themes/",
+    "live-build/config/grub-theme/",
+)
 
 
-def check_element_assets(_truth: dict) -> list[Finding]:
-    """The element->asset map agrees with palette.json, and is complete.
+def check_look_assets(_truth: dict) -> list[Finding]:
+    """The one look is applied everywhere, and the retired Fire/Ice assets are gone.
 
-    shadowfetch-element:46-48 restates, in bash, which colour scheme, wallpaper
-    and Konsole scheme each element uses. palette.json is the source; this holds
-    the copy to it and notices what the copy leaves out.
+    Until 4.1 this was the element->asset map in shadowfetch-element. 5.0.0 has
+    one look, so the question is no longer "does each element's branch name its
+    assets" but "does every place that applies the look name the ShadowCode
+    assets, and does anything still ship or name an asset 5.0.0 removed".
     """
     palette = generate_theme_assets.load_palette()
+    look = generate_theme_assets.brand(palette)
     findings: list[Finding] = []
-    try:
-        applier = read(ELEMENT_APPLIER)
-    except OSError as exc:
-        return [Finding("DRIFT", "element-assets", ELEMENT_APPLIER, f"unreadable ({exc})")]
 
-    for element, node in palette["elements"].items():
-        for key in ("plasma_color_scheme", "konsole_scheme", "wallpaper_package"):
-            if node[key] not in applier:
-                findings.append(Finding(
-                    "DRIFT", "element-assets", site(ELEMENT_APPLIER, "apply_session"),
-                    f"the {element} branch does not name {key} {node[key]!r}; "
-                    f"tools/truth/palette.json says it should",
-                    "keep the bash map and palette.json in step"))
-
-    # An element whose look-and-feel package nothing applies is a package that
-    # ships and never runs: choosing Ice leaves the Fire splash installed.
-    applied: list[str] = []
-    for rel in (ELEMENT_APPLIER, FIRST_LOGIN, SKEL_KDEGLOBALS):
+    for rel, keys in LOOK_APPLIERS.items():
         try:
-            applied.append(read(rel))
-        except OSError:
-            applied.append("")
-    everywhere = "\n".join(applied)
-    unreachable = [
-        element for element, node in palette["elements"].items()
-        if node["look_and_feel"] not in everywhere
-    ]
-    if unreachable:
+            text = read(rel)
+        except OSError as exc:
+            findings.append(Finding("DRIFT", "look-assets", rel, f"unreadable ({exc})"))
+            continue
+        for key in keys:
+            if look[key] not in text:
+                findings.append(Finding(
+                    "DRIFT", "look-assets", rel,
+                    f"does not name {key} {look[key]!r}; tools/truth/palette.json "
+                    f"says the look uses it",
+                    "keep the file and palette.json in step"))
+
+    for rel in RETIRED_PAYLOAD:
+        if (ROOT / rel).exists():
+            findings.append(Finding(
+                "DRIFT", "look-assets", rel,
+                "a retired Fire/Ice asset is back in the tree",
+                "git rm it; look-migrate.sh moves upgraded desktops off it"))
+
+    for install in sorted(ROOT.glob("packages/*/debian/*.install")):
+        rel = str(install.relative_to(ROOT))
+        for number, line in enumerate(install.read_text(encoding="utf-8").splitlines(), 1):
+            if RETIRED_LOOK.search(line):
+                findings.append(Finding(
+                    "DRIFT", "look-assets", f"{rel}:{number}",
+                    f"installs a retired Fire/Ice asset: {line.strip()}"))
+
+    elsewhere: list[str] = []
+    for root in LOOK_SCAN_ROOTS:
+        base = ROOT / root
+        paths = [base] if base.is_file() else sorted(base.rglob("*"))
+        for path in paths:
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            rel = str(path.relative_to(ROOT))
+            if rel == LOOK_MIGRATE:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            hits = [n for n, line in enumerate(text.splitlines(), 1)
+                    if RETIRED_LOOK.search(line)]
+            if not hits:
+                continue
+            if rel.startswith(LOOK_TERRITORY):
+                findings.append(Finding(
+                    "DRIFT", "look-assets", f"{rel}:{hits[0]}",
+                    f"names a retired Fire/Ice asset on line(s) "
+                    f"{', '.join(map(str, hits[:8]))}",
+                    "point it at the ShadowCode asset in tools/truth/palette.json"))
+            else:
+                elsewhere.append(f"{rel}:{','.join(map(str, hits[:8]))}")
+    if elsewhere:
         findings.append(Finding(
-            "BLOCKED", "element-assets", site(FIRST_LOGIN, "plasma-apply-lookandfeel"),
-            f"no code path applies the look-and-feel package for: "
-            f"{', '.join(unreachable)}. first-login.sh applies "
-            f"{palette['elements']['fire']['look_and_feel']} unconditionally and "
-            f"etc/skel/.config/kdeglobals hard-codes it, while shadowfetch-element "
-            f"switches only the colour scheme, wallpaper and Konsole scheme. The "
-            f"splash and window-decoration half of the element never switches.",
-            "shadowfetch-element's apply_session() gains "
-            "'plasma-apply-lookandfeel -a <package>' and first-login.sh reads the "
-            "chosen element. Both files are shipped tools outside Stage X "
-            "territory, so this is DETECTED, not fixed."))
+            "BLOCKED", "look-assets", "tools/drift_gate.py:RETIRED_LOOK",
+            "retired Fire/Ice asset names are still written in files outside the "
+            "look's territory: " + "; ".join(elsewhere),
+            "replace them with the ShadowCode assets named in tools/truth/palette.json"))
     return findings
 
 
@@ -1832,7 +1945,7 @@ CHECKS = (
     ("theme-assets", check_theme_assets),
     ("palette", check_palette_literals),
     ("look-and-feel", check_lookandfeel),
-    ("element-assets", check_element_assets),
+    ("look-assets", check_look_assets),
     ("workspace-name", check_workspace_name),
     ("desktop-helpers", check_desktop_helpers),
     ("release-pointer", check_release_pointer),

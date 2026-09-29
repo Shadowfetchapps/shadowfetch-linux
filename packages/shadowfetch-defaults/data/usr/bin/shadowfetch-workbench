@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan, verify and create Shadowfetch Element Workbench environments."""
+"""Plan, verify and create Shadowfetch Workbench environments."""
 
 from __future__ import annotations
 
@@ -52,21 +52,32 @@ def profile_by_id(data: dict, profile_id: str) -> dict:
     raise SystemExit(f"Unknown profile '{profile_id}'. Choose: {choices}")
 
 
-def configured_element() -> str:
+# 5.0 retired Fire/Ice; an upgraded Ice setting must keep meaning offline.
+LEGACY_ELEMENT_NETWORK = {"ice": "offline", "fire": "online"}
+SYSTEM_CONFIG = Path("/etc/shadowfetch")
+
+
+def agent_network() -> str:
+    """online or offline, resolved exactly as /usr/bin/shadowfetch-agent-network does."""
+    value = os.environ.get("SHADOWFETCH_AGENT_NETWORK", "").strip().lower()
+    if value in ("online", "offline"):
+        return value
     value = os.environ.get("SHADOWFETCH_ELEMENT", "").strip().lower()
-    candidates = (
-        Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
-        / "shadowfetch" / "element",
-        Path("/etc/shadowfetch/element"),
-    )
-    for path in candidates:
-        if value:
-            break
-        try:
-            value = path.read_text(encoding="utf-8").strip().lower()
-        except OSError:
-            continue
-    return value if value in {"fire", "ice"} else "fire"
+    if value in LEGACY_ELEMENT_NETWORK:
+        return LEGACY_ELEMENT_NETWORK[value]
+    config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shadowfetch"
+    for directory in (config, SYSTEM_CONFIG):
+        for name, table in (("agent-network", None), ("element", LEGACY_ELEMENT_NETWORK)):
+            try:
+                with open(directory / name, encoding="utf-8") as handle:
+                    value = handle.readline().strip().lower()
+            except OSError:
+                continue
+            if table is None and value in ("online", "offline"):
+                return value
+            if table is not None and value in table:
+                return table[value]
+    return "online"
 
 
 def package_record(catalog_id: str) -> dict:
@@ -111,13 +122,13 @@ def plan_for(profile: dict) -> dict:
     package_state = installed_packages(record["packages"])
     command_state = {command: shutil.which(command) is not None
                      for command in profile.get("commands", [])}
-    element = configured_element()
+    network = agent_network()
     return {
         "profile": profile["id"],
         "name": profile["name"],
-        "element": element,
-        "recommended_element": profile["recommended_element"],
-        "element_matches_recommendation": element == profile["recommended_element"],
+        "agent_network": network,
+        "recommended_agent_network": profile["recommended_agent_network"],
+        "agent_network_matches_recommendation": network == profile["recommended_agent_network"],
         "catalog_id": profile["catalog_id"],
         "installed_disk_gb": profile["installed_disk_gb"],
         "network": profile["network"],
@@ -130,8 +141,8 @@ def plan_for(profile: dict) -> dict:
 
 
 def print_plan(plan: dict) -> None:
-    print(f"{plan['name']} on {plan['element'].title()}")
-    print(f"  Recommended element: {plan['recommended_element'].title()}")
+    print(f"{plan['name']} with agent network {plan['agent_network']}")
+    print(f"  Recommended agent network: {plan['recommended_agent_network']}")
     print(f"  Installed footprint target: about {plan['installed_disk_gb']} GB before projects/models")
     print(f"  Network: {plan['network']}")
     print(f"  Accounts: {plan['accounts']}")
@@ -160,8 +171,8 @@ def workspace_root() -> Path:
 
 def common_files(profile: dict, display_name: str) -> dict[str, str]:
     profile_id = profile["id"]
-    element = configured_element()
-    network_default = "none" if element == "ice" else "allow"
+    network = agent_network()
+    network_default = "none" if network == "offline" else "allow"
     return {
         "README.md": (
             f"# {display_name}\n\n"
@@ -180,7 +191,7 @@ def common_files(profile: dict, display_name: str) -> dict[str, str]:
             "- Review diffs and run relevant tests before accepting agent output.\n"
             "- Record commands, evidence, and remaining risks in JOURNAL.md.\n\n"
             "## Agent launch\n\n"
-            f"This workspace was created in {element.title()} mode. Firebreak's element "
+            f"This workspace was created with the agent network {network}. Firebreak's "
             f"network default is `{network_default}`. Use `shadowfetch-firebreak -- <command>` "
             "for project-only write access and an explicit session banner.\n"
         ),
@@ -191,7 +202,7 @@ def common_files(profile: dict, display_name: str) -> dict[str, str]:
         ".shadowfetch/workbench.json": json.dumps({
             "schema_version": 1,
             "profile": profile_id,
-            "element": element,
+            "agent_network": network,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "network_default": network_default,
         }, indent=2) + "\n",
@@ -268,15 +279,15 @@ def command_list(args: argparse.Namespace) -> int:
         "id": profile["id"],
         "name": profile["name"],
         "tagline": profile["tagline"],
-        "recommended_element": profile["recommended_element"],
+        "recommended_agent_network": profile["recommended_agent_network"],
     } for profile in data["profiles"]]
     if args.json:
         print(json.dumps(rows, indent=2))
     else:
-        element = configured_element()
-        print(f"Shadowfetch Element Workbench ({element.title()})")
+        network = agent_network()
+        print(f"Shadowfetch Workbench (agent network {network})")
         for row in rows:
-            marker = "recommended" if row["recommended_element"] == element else "available"
+            marker = "recommended" if row["recommended_agent_network"] == network else "available"
             print(f"  {row['id']:<20} {row['name']:<18} {marker}")
             print(f"    {row['tagline']}")
     return 0
@@ -351,7 +362,7 @@ def command_open(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="shadowfetch-workbench",
-        description="Plan, verify and create Fire and Ice production workspaces.",
+        description="Plan, verify and create verified production workspaces.",
     )
     parser.add_argument("--version", action="store_true", help="show version and exit")
     sub = parser.add_subparsers(dest="command")

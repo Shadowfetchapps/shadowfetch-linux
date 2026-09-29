@@ -30,7 +30,7 @@ NATIVE = Path("/opt/Grok Bot/grok-bot")
 DESKTOP = Path("/usr/share/applications/grok-bot.desktop")
 SYSTEM_STATE = Path("/var/lib/shadowfetch/grok-bot")
 LOCK = SYSTEM_STATE / "setup.lock"
-SYSTEM_ELEMENT = Path("/etc/shadowfetch/element")
+SYSTEM_CONFIG = Path("/etc/shadowfetch")
 PINNED_FILES = {
     "/opt/Grok Bot/grok-bot": "6d2a2ce754b755637076692a502cd29165d80d1b773d5b5482f4bfccf76a2acf",
     "/opt/Grok Bot/resources/app.asar": "77fa229a29ef03799fec31e1b30f4d03823461ca4c60d9c02dd0a2297de4edef",
@@ -68,21 +68,37 @@ def digest(path):
     return value.hexdigest()
 
 
-def element():
+# 5.0 retired Fire/Ice; an upgraded Ice setting must keep meaning offline.
+LEGACY_ELEMENT_NETWORK = {"ice": "offline", "fire": "online"}
+
+
+def agent_network():
+    """online or offline, resolved exactly as /usr/bin/shadowfetch-agent-network does."""
+    value = os.environ.get("SHADOWFETCH_AGENT_NETWORK", "").strip().lower()
+    if value in ("online", "offline"):
+        return value
     value = os.environ.get("SHADOWFETCH_ELEMENT", "").strip().lower()
-    for source in (Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shadowfetch/element", SYSTEM_ELEMENT):
-        if value:
-            break
-        try:
-            value = source.read_text().strip().lower()
-        except OSError:
-            pass
-    return value if value in ("fire", "ice") else "fire"
+    if value in LEGACY_ELEMENT_NETWORK:
+        return LEGACY_ELEMENT_NETWORK[value]
+    config = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shadowfetch"
+    for directory in (config, SYSTEM_CONFIG):
+        for name, table in (("agent-network", None), ("element", LEGACY_ELEMENT_NETWORK)):
+            try:
+                with open(directory / name, encoding="utf-8") as handle:
+                    value = handle.readline().strip().lower()
+            except OSError:
+                continue
+            if table is None and value in ("online", "offline"):
+                return value
+            if table is not None and value in table:
+                return table[value]
+    return "online"
 
 
-def require_fire():
-    if element() == "ice":
-        raise SetupError("Grok Bot uses cloud services. Switch to Fire before installing or opening it.")
+def require_online():
+    if agent_network() == "offline":
+        raise SetupError("Grok Bot uses cloud services. Turn the agent network on "
+                         "(shadowfetch-agent-network set online) before installing or opening it.")
 
 
 def require_platform():
@@ -134,13 +150,14 @@ def integrity(version):
 def status():
     version = installed_package()
     verified, verification = integrity(version)
-    in_ice = element() == "ice"
+    network = agent_network()
+    offline = network == "offline"
     return {
         "name": "Grok Bot", "version": VERSION, "installed": bool(version),
         "installed_version": version, "verified": verified,
-        "launchable": verified and not in_ice,
+        "launchable": verified and not offline,
         "state": "ready" if verified else "needs-repair" if version else "not-installed",
-        "verification": verification, "element": element(), "blocked_by_ice": in_ice,
+        "verification": verification, "agent_network": network, "blocked_by_offline": offline,
         "authentication": "sign-in-in-native-app", "authenticated": None,
         "cloud": True, "requires_account": True, "requires_subscription": True,
         "download_bytes": DOWNLOAD_BYTES, "artifact_sha256": SHA256,
@@ -226,7 +243,7 @@ def system_install():
 
 def open_app():
     require_platform()
-    require_fire()
+    require_online()
     if os.geteuid() == 0:
         raise SetupError("Open Grok Bot from your desktop account, not as root.")
     current = status()
@@ -252,7 +269,7 @@ def open_app():
 
 def setup(args):
     require_platform()
-    require_fire()
+    require_online()
     print(CONSENT, flush=True)
     if not args.yes:
         if not sys.stdin.isatty():
@@ -289,8 +306,8 @@ def main(argv=None):
         if args.command == "setup":
             setup(args)
         elif args.command == "_install":
-            # The public setup path already checks the requesting user's Fire/Ice
-            # choice. Root does not read that user's home or accept caller paths.
+            # The public setup path already checks the requesting user's agent
+            # network setting. Root does not read that user's home or accept caller paths.
             system_install()
         elif args.command in ("open", "launch"):
             open_app()
@@ -303,8 +320,9 @@ def main(argv=None):
             else:
                 print(f"Grok Bot: {current['state']}; installed version: {current['installed_version'] or 'none'}; integrity: {current['verification']}.")
                 print("Account sign-in and subscription access are checked in the native app.")
-                if current["blocked_by_ice"]:
-                    print("Cloud launch is paused in Ice. Switch to Fire to open Grok Bot.")
+                if current["blocked_by_offline"]:
+                    print("Cloud launch is paused while the agent network is offline. "
+                          "Run shadowfetch-agent-network set online to open Grok Bot.")
             return 0 if args.command == "status" or current["verified"] else 1
         return 0
     except (SetupError, OSError, subprocess.SubprocessError) as exc:

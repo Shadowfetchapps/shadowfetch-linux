@@ -13,23 +13,22 @@ hand.  They are now DERIVED.  Edit tools/truth/palette.json and re-run:
 `--check` (the default) renders in memory and diffs against the tree, so
 tools/drift_gate.py can fail the moment a generated file is hand-edited.
 
-The defect this caught on its first run
----------------------------------------
-The Ice assets had been produced by applying the Fire->Ice R/B mirror
-(#D8A24A -> #4AA2D8) to EVERY value in the file, including the semantic ones.
-So on an Ice desktop:
+One element
+-----------
+5.0.0 collapsed the Fire and Ice pair into ONE look, ShadowCode.  The palette
+has exactly one entry under "elements" (ELEMENT below) and this generator
+refuses any other shape, so a second element cannot creep back in through a
+palette edit without the generator, the drift gate and their tests changing
+with it.  The file names are unchanged (ShadowfetchDark.colors,
+ShadowfetchUmbra.colorscheme) so installed configurations that name them keep
+working across the upgrade; only their display names say "ShadowCode".
 
-    ShadowfetchIce.colors   ForegroundNegative = 75,72,224   (error text: blue)
-                            ForegroundNeutral  = 58,163,224  (warning:    blue)
-    ShadowfetchGlacier      Color1             = 75,72,224   (ANSI red:   blue)
-
-That contradicts the contract sfcc/theme.py:29-31 writes down in prose --
-"Semantic colors (GREEN/AMBER/ORANGE/RED) keep their meanings in both elements
--- a warning must stay warning-colored on a cold desktop" -- and it means a
-compiler error, a failed unit test and a `git diff` deletion all render blue,
-in the same hue family as the accent, in a terminal on Ice.  palette.json
-declares semantic roles element-invariant and this generator therefore emits
-the corrected values.  See STAGE_X notes in the drift-gate docstring.
+The defect this caught on its first run (4.1.0)
+-----------------------------------------------
+The old Ice assets had been produced by applying the Fire->Ice R/B mirror to
+EVERY value, semantic ones included, so error text and ANSI red rendered blue.
+palette.json still declares semantic roles element-invariant, and this
+generator still takes them from "semantic", never from the brand.
 """
 
 from __future__ import annotations
@@ -49,23 +48,37 @@ def load_palette(path: Path = PALETTE) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+ELEMENT = "shadowcode"
+
+
+def brand(palette: dict) -> dict:
+    """The one element's brand node; any other palette shape is an error."""
+    elements = palette["elements"]
+    if list(elements) != [ELEMENT]:
+        raise ValueError(
+            f"palette.json must declare exactly one element, {ELEMENT!r}; "
+            f"found {sorted(elements)}")
+    return elements[ELEMENT]
+
+
 def rgb(value: str) -> str:
-    """'#D8A24A' -> '216,162,74', the only spelling KDE config files accept."""
+    """'#F2B33D' -> '242,179,61', the only spelling KDE config files accept."""
     text = value.lstrip("#")
     if len(text) != 6:
         raise ValueError(f"not a #rrggbb colour: {value!r}")
     return "{},{},{}".format(*(int(text[i:i + 2], 16) for i in (0, 2, 4)))
 
 
-def _roles(palette: dict, element: str) -> dict[str, str]:
-    """Every colour the desktop surface names, resolved for one element."""
+def _roles(palette: dict) -> dict[str, str]:
+    """Every colour the desktop surface names, resolved."""
     surface = palette["surfaces"]["desktop"]["roles"]
-    brand = palette["elements"][element]
+    look = brand(palette)
     semantic = {k: v for k, v in palette["semantic"].items() if not k.startswith("_")}
     resolved = {}
     resolved.update({k: rgb(v) for k, v in surface.items()})
     resolved.update({k: rgb(v) for k, v in semantic.items()})
-    resolved.update({k: rgb(brand[k]) for k in ("accent", "accent_bright", "accent_deep")})
+    resolved.update({k: rgb(look[k])
+                     for k in ("accent", "accent_bright", "accent_deep", "silver")})
     return resolved
 
 
@@ -87,9 +100,9 @@ def _standard_group(c: dict[str, str]) -> list[str]:
     ]
 
 
-def render_colors(palette: dict, element: str) -> str:
-    c = _roles(palette, element)
-    brand = palette["elements"][element]
+def render_colors(palette: dict) -> str:
+    c = _roles(palette)
+    look = brand(palette)
     lines: list[str] = []
 
     lines += [
@@ -159,8 +172,8 @@ def render_colors(palette: dict, element: str) -> str:
         f"BackgroundNormal={c['window']}",
         "",
         "[General]",
-        f"ColorScheme={brand['plasma_color_scheme']}",
-        f"Name={brand['plasma_scheme_name']}",
+        f"ColorScheme={look['plasma_color_scheme']}",
+        f"Name={look['plasma_scheme_name']}",
         "shadeSortColumn=true",
         "",
         "[KDE]",
@@ -177,11 +190,11 @@ def render_colors(palette: dict, element: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_konsole(palette: dict, element: str) -> str:
-    c = _roles(palette, element)
-    brand = palette["elements"][element]
-    # ANSI slot 3 ("yellow") is deliberately the brand accent -- gold on Fire,
-    # azure on Ice.  Slots 1/2 (red/green) are semantic and never mirror.
+def render_konsole(palette: dict) -> str:
+    c = _roles(palette)
+    look = brand(palette)
+    # ANSI slot 3 ("yellow") is deliberately the brand accent, ShadowCode gold.
+    # Slots 1/2 (red/green) are semantic and come from "semantic", never brand.
     pairs = [
         ("Background", c["ink"]),
         ("BackgroundIntense", c["abyss"]),
@@ -211,7 +224,7 @@ def render_konsole(palette: dict, element: str) -> str:
         "[General]",
         "Blur=true",
         "ColorRandomization=false",
-        f"Description={brand['konsole_description']}",
+        f"Description={look['konsole_description']}",
         "Opacity=0.96",
         "Wallpaper=",
     ]
@@ -220,14 +233,11 @@ def render_konsole(palette: dict, element: str) -> str:
 
 def generated(palette: dict) -> dict[Path, str]:
     """Every file this generator owns, keyed by absolute path."""
-    out: dict[Path, str] = {}
-    for element in ("fire", "ice"):
-        brand = palette["elements"][element]
-        out[COLOR_SCHEME_DIR / f"{brand['plasma_color_scheme']}.colors"] = \
-            render_colors(palette, element)
-        out[KONSOLE_DIR / f"{brand['konsole_scheme']}.colorscheme"] = \
-            render_konsole(palette, element)
-    return out
+    look = brand(palette)
+    return {
+        COLOR_SCHEME_DIR / f"{look['plasma_color_scheme']}.colors": render_colors(palette),
+        KONSOLE_DIR / f"{look['konsole_scheme']}.colorscheme": render_konsole(palette),
+    }
 
 
 def check(palette: dict) -> list[tuple[Path, str]]:
@@ -257,8 +267,11 @@ def check(palette: dict) -> list[tuple[Path, str]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--write", action="store_true",
-                        help="write the generated files into the tree")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--write", action="store_true",
+                      help="write the generated files into the tree")
+    mode.add_argument("--check", action="store_true",
+                      help="diff the tree against the palette (the default)")
     args = parser.parse_args(argv)
     palette = load_palette()
 

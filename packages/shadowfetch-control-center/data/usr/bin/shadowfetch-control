@@ -2,7 +2,7 @@
 """Shadowfetch Control Center - one window runs the machine.
 
 Mission Control: persistent missions, featured Grok Bot, Guide,
-Element Workbench, Ignite, Watch, Recover, Workspaces, Drivers, and
+Workbench, Ignite, Watch, Recover, Workspaces, Drivers, and
 Software & Updates.
 The system tools (Safe Update, System Health, Workspaces,
 First-run Setup, Graphics & Recovery) all remain reachable inside their

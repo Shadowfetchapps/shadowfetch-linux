@@ -381,11 +381,28 @@ class LibraryRules(unittest.TestCase):
                 self.assertTrue(path.startswith("/"), path)
                 self.assertIn(trust, ("system", "shadowfetch"))
 
-    def test_the_element_tool_welcome_launches_is_in_the_table(self):
-        """Welcome ran it as a bare name, so the session's PATH decided which
-        program rewrote the user's Plasma configuration."""
-        self.assertEqual("/usr/bin/shadowfetch-element",
-                         self.lib.PROGRAMS["shadowfetch-element"][0])
+    def test_the_agent_network_tool_is_in_the_table_and_the_element_one_is_gone(self):
+        self.assertEqual("/usr/bin/shadowfetch-agent-network",
+                         self.lib.PROGRAMS["shadowfetch-agent-network"][0])
+        self.assertNotIn("shadowfetch-element", self.lib.PROGRAMS)
+
+    def test_agent_network_reads_the_setting_and_keeps_an_upgraded_ice_offline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "config"
+            system = Path(folder) / "etc"
+            system.mkdir()
+            env = {"XDG_CONFIG_HOME": str(config), "SHADOWFETCH_AGENT_NETWORK": "",
+                   "SHADOWFETCH_ELEMENT": ""}
+            with patch.dict(os.environ, env), \
+                    patch.object(self.lib, "SYSTEM_CONFIG", system):
+                self.assertEqual("online", self.lib.agent_network())
+                (system / "element").write_text("ice\n")
+                self.assertEqual("offline", self.lib.agent_network())
+                self.lib.set_agent_network("online")
+                self.assertEqual("online", self.lib.agent_network())
+                self.assertEqual("online\n", (config / "shadowfetch/agent-network").read_text())
+                with self.assertRaises(ValueError):
+                    self.lib.set_agent_network("ice")
 
 
 # --------------------------------------------------------------------------- #

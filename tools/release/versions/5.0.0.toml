@@ -4,20 +4,32 @@
 # release means adding one of these, not copying source_gate/package_gate/
 # iso_gate/verify_acceptance and editing version strings inside each copy.
 #
-# WHY THE MAJOR DIGIT MOVED: NOT YET DECIDED. This file was cut from
-# versions/4.1.0.toml to open the 5.0 line, and every key below is still the
-# 4.1.0 value unless it says otherwise. The comments beneath [packages] and
-# after it describe 4.1.0 and are inherited, not re-checked. Before 5.0.0 is
-# gated, write down here what breaks for a working 4.1.0 setup -- a major bump
-# with no stated break is the same lie as a minor bump with one.
+# WHY THE MAJOR DIGIT MOVED. 5.0.0 changes what a working 4.1.0 setup sees and
+# depends on:
+#   * The distro is rebuilt around ShadowCode, preinstalled from its signed
+#     upstream package: the desktop's coding agent, reaching the models of the
+#     subscriptions, API keys and local runtime the person already has.
+#   * Fire and Ice are gone. There is one look, ShadowCode (gold and steel on
+#     black). The Ice colour scheme, Glacier Konsole scheme, org.shadowfetch.ice
+#     look-and-feel and the Fire/Ice wallpapers are removed; a one-time login
+#     migration moves a desktop that pointed at them.
+#   * The Fire/Ice switch's security half survives as a separate setting,
+#     shadowfetch-agent-network online|offline. shadowfetch-element is removed;
+#     an upgraded Ice machine reads as offline, so no sandbox gains network.
+#   * First-run Welcome offers exactly three optional agents -- Grok Bot,
+#     Hermes and OpenClaw -- and then hands the person to ShadowCode to connect
+#     their services. The Codex/Claude Code/Grok Build/Cursor CLI installers
+#     are no longer offered there.
+#   * Buzz is gone completely, including the 4.x retirement helper.
+# The comments beneath [packages] and after it were inherited from 4.1.0;
+# re-check each before 5.0.0 is gated.
 
 [release]
 version = "5.0.0"
-edition = "Fire and Ice"  # PROVISIONAL: carried from 4.1.0, a 5.0 decision
-# PROVISIONAL: carried from 4.1.0. Must state what 5.0 actually adds, and
-# tools/drift_gate.py compares it against qa/5.0.0/acceptance.json and the
-# README fact table, so all three are settled together.
-subtitle = "Egress and Syscall Filters"
+edition = "ShadowCode"
+# The ShadowCode tagline. tools/drift_gate.py compares it against
+# qa/5.0.0/acceptance.json, so the two are settled together.
+subtitle = "One Harness. All Models."
 # APT suite name, lower case. Appears in dists/<codename>/ and sources.list.
 # PROVISIONAL: umbra was "permanent for this line" -- the 4.x line. Keeping it
 # means 4.1 systems receive 5.0 from the suite they already track; a new
@@ -125,6 +137,7 @@ smoke_install = [
     "shadowfetch-phoenix",
     "shadowfetch-missions",
     "shadowfetch-welcome",
+    "shadow-code",
 ]
 
 # Published in the APT repository but deliberately NOT installed into the
@@ -143,10 +156,19 @@ grub-btrfs = "4.14-2"
 
 # Commands run inside the container after the smoke install. A release that
 # retires a command changes this list rather than a copied shell heredoc.
+# Prebuilt third-party packages shipped from a signed upstream release rather
+# than built here. The version lives only in the pin file; shadow-code is not
+# in third_party or sources because nothing here builds it.
+[packages.prebuilt]
+shadow-code = "tools/release/shadowcode.toml"
+
 [packages.container_smoke]
 present = [
     "/usr/bin/shadowfetch-missions --json capabilities",
-    "/usr/bin/shadowfetch-codex --help",
+    "/usr/bin/shadowfetch-agent-network --version",
+    # NEW in 5.0.0: the flagship, preinstalled from its signed upstream .deb.
+    "/usr/bin/shadowcode --version",
+    "/usr/lib/shadowcode/llama-server --version",
     "/usr/bin/shadowfetch-gpu --help",
     "/usr/bin/shadowfetch-update --help",
     # NEW in 4.1.0, and it is a REPLACEMENT for what the line above used to
@@ -190,6 +212,29 @@ absent = [
     # packages/shadowfetch-fireproof/tests/test_single_update_authority.py
     # and the VM upgrade case, not this gate.
     "/etc/apt/apt.conf.d/52shadowfetch-unattended.conf",
+    # NEW in 5.0.0. Every one of these shipped in 4.1.0. Fire/Ice became one
+    # look plus the agent network setting; ShadowCode connects the vendor
+    # CLIs itself; Buzz is gone completely. That dpkg removes them on UPGRADE
+    # is proven by the packages' tests and the VM upgrade case, not here.
+    "/usr/bin/shadowfetch-element",
+    "/usr/lib/shadowfetch/element-boot.sh",
+    "/usr/lib/shadowfetch/element-session.sh",
+    "/usr/lib/systemd/system/shadowfetch-element-boot.service",
+    "/etc/xdg/autostart/shadowfetch-element-session.desktop",
+    "/usr/libexec/shadowfetch-retire-buzz",
+    "/etc/xdg/autostart/shadowfetch-retire-buzz.desktop",
+    "/usr/bin/shadowfetch-codex",
+    "/usr/bin/shadowfetch-code-agent",
+    "/usr/share/color-schemes/ShadowfetchIce.colors",
+    "/usr/share/konsole/ShadowfetchGlacier.colorscheme",
+    "/usr/share/plasma/look-and-feel/org.shadowfetch.ice",
+    "/usr/share/wallpapers/UmbraIce",
+    "/usr/share/wallpapers/UmbraFire",
+    "/usr/share/wallpapers/UmbraFrost",
+    "/usr/share/wallpapers/UmbraDrift",
+    "/usr/share/wallpapers/UmbraGold",
+    "/usr/share/backgrounds/shadowfetch/umbra-ice-4k.jpg",
+    "/usr/share/backgrounds/shadowfetch/umbra-4k.jpg",
 ]
 
 [stamps]
@@ -204,13 +249,14 @@ mcp_server = ['SERVER_VERSION = "{version}"']
 # does NOT touch show.qml, it is one of the hand-maintained sites.
 installer_slideshow = [
     "Shadowfetch Linux {version}",
-    "Element Workbench",
-    "Mission Control brings plans, scoped work and results together",
-    "Meet Grok Bot after installation",
-    "Choose its verified native installation",
+    "One harness. All models.",
+    "ShadowCode is the desktop's coding agent",
+    "Agents only if you choose them",
+    "Grok Bot, Hermes and OpenClaw are optional",
+    "Agent sandboxes can start offline.",
     "Built to come back",
-    'source: "slide-fire.jpg"',
-    'source: "slide-ice.jpg"',
+    'source: "slide-shadowcode.jpg"',
+    'source: "slide-agents.jpg"',
 ]
 
 [identity]
@@ -225,28 +271,29 @@ os_release_id = "shadowfetch"
 apt_source_line = "deb [signed-by=/usr/share/keyrings/shadowfetch.gpg] https://www.shadowfetch.com/linux/apt umbra main"
 
 [workbench]
-# Element Workbench profile allowlist. Adding a profile is a release decision.
+# Workbench profile allowlist. Adding a profile is a release decision.
 # packages/shadowfetch-defaults/data/usr/share/shadowfetch/workbench/
 # profiles.json still declares exactly these four.
 profiles = ["software-studio", "ai-lab", "production-ops", "creative-ai"]
 
 [pinned_artifacts]
-# Third-party binaries the packages download at USER runtime. Each is pinned by
-# version and SHA-256 inside the setup script; the package gate asserts the
-# pins are present so a release cannot silently float them. Neither setup
-# script changed between v4.0.0 and this tree, so every token below is still
-# the literal that is in it.
-codex = [
-    'CODEX_VERSION="0.150.1"',
-    'INSTALLER_SHA256="ba92dd27e5c06f0d3bbc58bfa4b9cfb6599cd2742fbb1f92a2765e6c07dedb5a"',
-    'BIN_DIR="${CODEX_INSTALL_DIR:-$HOME/.local/bin}"',
+# Third-party software the helpers install at USER request into the user's
+# home, never into the image. Each is pinned inside its helper; the package
+# gate asserts the pins so a release cannot silently float them. Pinned
+# 2026-09-28 to the then-latest upstream releases; each helper's `update`
+# resolves, shows and verifies a newer upstream release before installing it.
+# The codex and code_agent pins are gone: ShadowCode connects the vendor CLIs.
+hermes = [
+    'HERMES_VERSION = "0.21.5"',
+    'HERMES_TAG = "v2026.9.24"',
+    'HERMES_COMMIT = "f97608f178d1ffeca59860195ab7da295f7c8e5f"',
+    'INSTALLER_SHA256 = "2017ddf0cc7bc6cfb70d40dc9fba1d916f47dbcccf5fe73bdee2cf93a11262af"',
+    'INSTALLER_GIT_BLOB = "4e68442551a510573d9997ed678091e83b225773"',
 ]
-code_agent = [
-    'VERSION="2.1.227"',
-    'VERSION="1.0.5"',
-    'VERSION="2026.08.11-e8db854"',
-    'ARTIFACT_SHA256="6832dc3f1797b890b71116e5f2dbbf9a83fd3d0498c235b4b0f9cd0e6e499ad6"',
-    'ARTIFACT_SHA256="9ba87444e1819e8f6104adbbf4676a870c204380aa5c3e1c38a926c4ea677238"',
-    'ARTIFACT_SHA256="bfff4bf6f4e9dd30c1d0ef0a70b6077b074015dd2948e4c50685d53afdcfce5a"',
-    'BIN_DIR="${SHADOWFETCH_CODE_AGENT_BIN_DIR:-$HOME/.local/bin}"',
+openclaw = [
+    'OPENCLAW_VERSION = "2026.9.6"',
+    'OPENCLAW_INTEGRITY = "sha512-Ie0kyQSCVfFqixsgVg39vevUDq01Ch5u3+7Yu5Y3qARczmdAe+lzp8bVnO9925rHiW/+CFp70zfORCyPmCH31g=="',
+    'LOCKFILE_SHA256 = "2b1e30810868145325858823e8b3db993d09a4a2489187c5401bae6a241b0972"',
+    'PACKAGE_JSON_SHA256 = "34ba47aaea351ab4686dec08eec48153a9be8cf413b70e6767227edbab938662"',
+    'NODE_ENGINES = ">=24.16.0 <25 || >=26.1.0"',
 ]

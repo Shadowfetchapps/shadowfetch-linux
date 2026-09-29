@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / "packages/shadowfetch-control-center/data/usr/shar
 from PyQt6.QtCore import QEventLoop, QObject, QTimer, Qt, pyqtSignal
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
-from sfcc import theme
+from sfcc import desktop, theme
 from sfcc.mission_client import JsonCommand, workspace_path
 from sfcc.missions_page import NewMissionDialog, MissionsPage
 from sfcc.grok_bot_page import GrokBotPage
@@ -387,7 +387,7 @@ class PageStateTests(unittest.TestCase):
             APP.processEvents()
 
     def test_grok_never_claims_authenticated(self):
-        with patch("sfcc.grok_bot_page.MissionClient", FakeClient), patch.object(theme, "ELEMENT", "fire"):
+        with patch("sfcc.grok_bot_page.MissionClient", FakeClient), patch.object(desktop, "agent_network", return_value="online"):
             page = GrokBotPage(lambda _: None)
             page._status({"verified": True, "launchable": True, "installed": True, "installed_version": "0.43.0", "authenticated": None}, None)
             self.assertTrue(page.launch.isEnabled())
@@ -396,8 +396,8 @@ class PageStateTests(unittest.TestCase):
             page.deleteLater()
             APP.processEvents()
 
-    def test_ice_blocks_grok_even_if_installed(self):
-        with patch("sfcc.grok_bot_page.MissionClient", FakeClient), patch.object(theme, "ELEMENT", "ice"):
+    def test_offline_blocks_grok_even_if_installed(self):
+        with patch("sfcc.grok_bot_page.MissionClient", FakeClient), patch.object(desktop, "agent_network", return_value="offline"):
             page = GrokBotPage(lambda _: None)
             page._status({"verified": True, "launchable": True, "installed": True, "installed_version": "0.43.0"}, None)
             self.assertFalse(page.launch.isEnabled())
@@ -506,23 +506,42 @@ class WelcomeTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def test_grok_is_distinct_and_featured(self):
+    def test_welcome_offers_exactly_grok_bot_hermes_and_openclaw(self):
         agents = self.welcome.CODING_AGENT_BY_KEY
+        self.assertEqual(["grok-bot", "hermes", "openclaw"], list(agents))
         self.assertEqual("shadowfetch-grok-bot", agents["grok-bot"]["helper"])
-        self.assertEqual("Grok Build", agents["grok"]["name"])
-        page = self.welcome.AgentSetupPage(lambda _: None)
-        self.assertIn("grok-bot", page.coding_agents)
+        self.assertEqual("shadowfetch-hermes", agents["hermes"]["helper"])
+        self.assertEqual("shadowfetch-openclaw", agents["openclaw"]["helper"])
+        with patch.object(self.welcome.desktop, "agent_network", return_value="online"):
+            page = self.welcome.AgentSetupPage(lambda _: None)
+        self.assertEqual(set(agents), set(page.coding_agents))
         page.deleteLater()
 
-    def test_ice_select_all_does_not_enable_grok_download(self):
+    def test_offline_select_all_downloads_nothing_and_records_the_choice(self):
         values = []
-        with patch.object(self.welcome, "ELEMENT", "ice"):
+        with patch.object(self.welcome.desktop, "agent_network", return_value="offline"), \
+                patch.object(self.welcome.desktop, "set_agent_network") as record:
             page = self.welcome.AgentSetupPage(values.append)
-            self.assertFalse(hasattr(page, "choice"))
             page._toggle_all_agents(True)
             page._submit()
-            self.assertFalse(values[0]["coding_agents"]["grok-bot"])
-            page.deleteLater()
+        record.assert_called_once_with("offline")
+        self.assertEqual("offline", values[0]["agent_network"])
+        self.assertFalse(any(values[0]["coding_agents"].values()))
+        page.deleteLater()
+
+    def test_choosing_offline_on_the_page_unchecks_and_pauses_the_agents(self):
+        values = []
+        with patch.object(self.welcome.desktop, "agent_network", return_value="online"), \
+                patch.object(self.welcome.desktop, "set_agent_network") as record:
+            page = self.welcome.AgentSetupPage(values.append)
+            page._toggle_all_agents(True)
+            self.assertTrue(all(box.isChecked() for box in page.coding_agents.values()))
+            page.network_choice["offline"].setChecked(True)
+            self.assertFalse(any(box.isEnabled() for box in page.coding_agents.values()))
+            page._submit()
+        record.assert_called_once_with("offline")
+        self.assertFalse(any(values[0]["coding_agents"].values()))
+        page.deleteLater()
 
     def test_profile_disclosures_remain_readable_at_minimum_window(self):
         submitted = []
@@ -545,34 +564,32 @@ class WelcomeTests(unittest.TestCase):
         page.close()
         page.deleteLater()
 
-    def test_all_wallpaper_choices_are_reachable_without_overlap(self):
-        wallpapers = [f"/usr/share/wallpapers/Umbra{i}/contents/images/3840x2160.jpg" for i in range(11)]
-        with patch("glob.glob", return_value=wallpapers):
-            page = self.welcome.AccentPage(lambda *_: None)
-        page.resize(940, 680)
-        page.show()
-        QTest.qWait(100)
-        self.assertLessEqual(page.width(), 940)
-        self.assertLessEqual(page.height(), 680)
-        for left, right in zip(page._wp_btns, page._wp_btns[1:]):
-            self.assertLess(left.geometry().right(), right.geometry().left())
-        scrollbar = page.wallpaper_scroll.horizontalScrollBar()
-        self.assertGreater(scrollbar.maximum(), 0)
-        scrollbar.setValue(scrollbar.maximum())
-        last = page._wp_btns[-1]
-        viewport = page.wallpaper_scroll.viewport()
-        origin = last.mapTo(viewport, last.rect().topLeft())
-        self.assertGreaterEqual(origin.x(), 0)
-        self.assertLessEqual(origin.x() + last.width(), viewport.width())
-        with patch.object(self.welcome.subprocess, "Popen"):
-            QTest.mouseClick(last, Qt.MouseButton.LeftButton)
-        self.assertTrue(last.isChecked())
-        self.assertEqual(1, sum(button.isChecked() for button in page._wp_btns))
-        page.close()
+    def test_setup_ends_on_shadowcode_and_says_so_when_it_cannot_open(self):
+        closed = []
+        page = self.welcome.ShadowCodePage(lambda: closed.append(True))
+        page.show_ready_agents([self.welcome.CODING_AGENT_BY_KEY["hermes"]])
+        self.assertIn("Hermes", page.agents_line.text())
+        with patch.object(self.welcome, "open_shadowcode", return_value=False):
+            page._open()
+        self.assertFalse(closed)
+        self.assertIn("could not be started", page.error.text())
+        with patch.object(self.welcome, "open_shadowcode", return_value=True):
+            page._open()
+        self.assertEqual([True], closed)
         page.deleteLater()
 
+    def test_shadowcode_keeps_the_session_path_for_the_vendor_clis(self):
+        with patch.object(self.welcome.desktop, "trusted_program", return_value="/usr/bin/shadowcode"), \
+                patch.dict(os.environ, {"PATH": "/home/u/.local/bin:/usr/bin"}), \
+                patch.object(self.welcome.subprocess, "Popen") as popen:
+            self.assertTrue(self.welcome.open_shadowcode())
+        argv = popen.call_args.args[0]
+        self.assertEqual(["/usr/bin/shadowcode"], argv)
+        self.assertEqual("/home/u/.local/bin:/usr/bin", popen.call_args.kwargs["env"]["PATH"])
+
     def test_welcome_and_agents_fit_laptop(self):
-        for page in (self.welcome.WelcomePage(lambda: None), self.welcome.AgentSetupPage(lambda _: None)):
+        for page in (self.welcome.WelcomePage(lambda: None), self.welcome.AgentSetupPage(lambda _: None),
+                     self.welcome.ShadowCodePage(lambda: None)):
             page.resize(1080, 690)
             page.show()
             APP.processEvents()

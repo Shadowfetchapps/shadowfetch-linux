@@ -103,11 +103,16 @@ PROGRAMS = {
                                    "shadowfetch"),
     "shadowfetch-missions": ("/usr/bin/shadowfetch-missions", "shadowfetch"),
     "shadowfetch-grok-bot": ("/usr/bin/shadowfetch-grok-bot", "shadowfetch"),
+    # Optional agents, installed per user only after consent. Their status
+    # JSON decides what the Control Center tells a person is installed.
+    "shadowfetch-hermes": ("/usr/bin/shadowfetch-hermes", "shadowfetch"),
+    "shadowfetch-openclaw": ("/usr/bin/shadowfetch-openclaw", "shadowfetch"),
     "shadowfetch-welcome": ("/usr/bin/shadowfetch-welcome", "shadowfetch"),
-    # Repaints the running session when the element changes. Welcome launched
-    # it by a bare name, so the session's PATH decided which program got to
-    # rewrite the user's Plasma configuration.
-    "shadowfetch-element": ("/usr/bin/shadowfetch-element", "shadowfetch"),
+    # The desktop's coding agent: preinstalled from its signed upstream package.
+    "shadowcode": ("/usr/bin/shadowcode", "system"),
+    # Reports and sets whether agent sandboxes start with network access.
+    "shadowfetch-agent-network": ("/usr/bin/shadowfetch-agent-network",
+                                  "shadowfetch"),
     "shadowfetch-agent-workspace": ("/usr/bin/shadowfetch-agent-workspace",
                                     "shadowfetch"),
     "shadowfetch-update": ("/usr/bin/shadowfetch-update", "shadowfetch"),
@@ -143,6 +148,62 @@ PROFILE_DIR = "/usr/share/shadowfetch/ember/profiles"
 OVERLAY_MARKER = "/run/phoenix-overlay"
 SNAPPER_DEFAULTS = "/etc/default/snapper"
 VERSION_FILE = "/usr/share/shadowfetch/version"
+SYSTEM_CONFIG = Path("/etc/shadowfetch")
+
+# ----------------------------------------------------------- agent network --
+
+# 5.0 retired Fire/Ice; an upgraded Ice setting must keep meaning offline.
+LEGACY_ELEMENT_NETWORK = {"ice": "offline", "fire": "online"}
+AGENT_NETWORK_VALUES = ("online", "offline")
+
+
+def _user_config() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "shadowfetch"
+
+
+def agent_network() -> str:
+    """online or offline, resolved exactly as /usr/bin/shadowfetch-agent-network does.
+
+    Read on every call rather than once at import, so a page reflects a change
+    made in another window without a restart.
+    """
+    value = os.environ.get("SHADOWFETCH_AGENT_NETWORK", "").strip().lower()
+    if value in AGENT_NETWORK_VALUES:
+        return value
+    value = os.environ.get("SHADOWFETCH_ELEMENT", "").strip().lower()
+    if value in LEGACY_ELEMENT_NETWORK:
+        return LEGACY_ELEMENT_NETWORK[value]
+    for directory in (_user_config(), SYSTEM_CONFIG):
+        for name, table in (("agent-network", None), ("element", LEGACY_ELEMENT_NETWORK)):
+            try:
+                with open(directory / name, encoding="utf-8") as handle:
+                    value = handle.readline().strip().lower()
+            except OSError:
+                continue
+            if table is None and value in AGENT_NETWORK_VALUES:
+                return value
+            if table is not None and value in table:
+                return table[value]
+    return "online"
+
+
+def agent_network_offline() -> bool:
+    """True when agent sandboxes start without network and cloud agents pause."""
+    return agent_network() == "offline"
+
+
+def set_agent_network(value: str) -> None:
+    """Record the desktop user's own choice. Raises ValueError or OSError."""
+    if value not in AGENT_NETWORK_VALUES:
+        raise ValueError(f"agent network must be online or offline, not {value!r}")
+    directory = _user_config()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "agent-network").write_text(value + "\n", encoding="utf-8")
+    # A leftover 4.x element file would otherwise keep speaking for this level.
+    try:
+        (directory / "element").unlink()
+    except FileNotFoundError:
+        pass
 
 
 class UnknownProgram(KeyError):

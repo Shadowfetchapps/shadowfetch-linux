@@ -1,0 +1,784 @@
+#!/usr/bin/python3
+"""Optional, user-consented installer and launcher for Nous Research Hermes Agent.
+
+Nothing here runs as root and nothing is preinstalled. Setup downloads the
+official installer that shipped WITH the pinned release (scripts/install.sh at
+the release commit, so its bytes cannot move under the pin), verifies its
+SHA-256, and runs it as the desktop user pinned to the release commit. Update
+resolves the latest GitHub release, cross-checks the commit and installer with
+the GitHub API, shows old -> new, and installs only after consent.
+"""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from urllib.parse import quote
+
+HELPER_VERSION = "5.0.0"
+HERMES_VERSION = "0.21.5"
+HERMES_TAG = "v2026.9.24"
+HERMES_COMMIT = "f97608f178d1ffeca59860195ab7da295f7c8e5f"
+INSTALLER_URL = "https://raw.githubusercontent.com/NousResearch/hermes-agent/f97608f178d1ffeca59860195ab7da295f7c8e5f/scripts/install.sh"
+INSTALLER_SHA256 = "2017ddf0cc7bc6cfb70d40dc9fba1d916f47dbcccf5fe73bdee2cf93a11262af"
+INSTALLER_GIT_BLOB = "4e68442551a510573d9997ed678091e83b225773"
+INSTALLER_BYTES = 175101
+REPO = "NousResearch/hermes-agent"
+API = "https://api.github.com/repos/NousResearch/hermes-agent"
+RAW = "https://raw.githubusercontent.com/NousResearch/hermes-agent"
+DOCS_URL = "https://hermes-agent.nousresearch.com/docs"
+LICENSE = "MIT"
+MIN_FREE_BYTES = 3 * 1024 ** 3
+AGENT_NETWORK = Path("/usr/bin/shadowfetch-agent-network")
+SYSTEM_CONFIG = Path("/etc/shadowfetch")
+# Programs are looked up here and only here -- never through the caller's PATH.
+TOOL_DIRS = ("/usr/bin", "/bin")
+# Installer escalation paths are replaced by refusing stubs during setup
+# (names only: these are shadowed, never executed).
+ESCALATORS = tuple("sudo pkexec doas su run0".split())
+LEGACY_ELEMENT_NETWORK = {"ice": "offline", "fire": "online"}
+PINNED_RELEASE = {
+    "version": HERMES_VERSION, "tag": HERMES_TAG, "commit": HERMES_COMMIT,
+    "installer_url": INSTALLER_URL, "installer_sha256": INSTALLER_SHA256,
+    "installer_git_blob": INSTALLER_GIT_BLOB, "installer_bytes": INSTALLER_BYTES,
+    "source": "shadowfetch-release-pin",
+}
+
+
+class SetupError(RuntimeError):
+    pass
+
+
+class Cancelled(RuntimeError):
+    pass
+
+
+# ------------------------------------------------------------------ paths --
+
+def home():
+    return Path(os.environ.get("HOME") or Path.home())
+
+
+def hermes_home():
+    value = os.environ.get("HERMES_HOME", "").strip()
+    return Path(value).expanduser() if value else home() / ".hermes"
+
+
+def install_dir():
+    return hermes_home() / "hermes-agent"
+
+
+def state_dir():
+    return Path(os.environ.get("XDG_STATE_HOME") or home() / ".local/state") / "shadowfetch/hermes"
+
+
+def receipt_path():
+    return state_dir() / "installation.json"
+
+
+def launcher_path():
+    return Path(os.environ.get("XDG_DATA_HOME") or home() / ".local/share") / "applications/hermes-agent.desktop"
+
+
+def link_path():
+    return home() / ".local/bin/hermes"
+
+
+# ---------------------------------------------------------------- helpers --
+
+def tool(name):
+    for directory in TOOL_DIRS:
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def need(name):
+    path = tool(name)
+    if not path:
+        raise SetupError(f"{name} is missing. Install Debian's {name} package and retry.")
+    return path
+
+
+def child_env(**extra):
+    keep = ("HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LANGUAGE", "TERM", "NO_COLOR", "SHELL",
+            "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
+            "http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE")
+    env = {key: os.environ[key] for key in keep if key in os.environ}
+    env["PATH"] = ":".join(TOOL_DIRS)
+    env.update({key: str(value) for key, value in extra.items()})
+    return env
+
+
+def run(argv, **kwargs):
+    kwargs.setdefault("env", child_env())
+    return subprocess.run([str(part) for part in argv], check=False, **kwargs)
+
+
+def run_streaming(argv, env, cwd=None):
+    """Run a long step in its own session, visible output, cancellable as a unit.
+
+    Its own session: the child cannot open our controlling terminal, so the
+    upstream installer's /dev/tty prompts (setup wizard, gateway service, sudo
+    for optional packages) are skipped instead of asked behind a progress view.
+    """
+    child = subprocess.Popen([str(part) for part in argv], stdin=subprocess.DEVNULL, env=env,
+                             cwd=str(cwd) if cwd else None, start_new_session=True)
+    cancelled = []
+
+    def forward(signum, _frame):
+        cancelled.append(signum)
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except OSError:
+            pass
+    previous = {sig: signal.signal(sig, forward) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+    try:
+        code = child.wait()
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    if cancelled:
+        raise Cancelled("Setup was cancelled; the step in progress was stopped.")
+    return code
+
+
+def sha256_file(path):
+    value = hashlib.sha256()
+    with open(path, "rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def git_blob_sha(path):
+    data = Path(path).read_bytes()
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def curl_args():
+    return [need("curl"), "--proto", "=https", "--proto-redir", "=https", "--tlsv1.2", "--fail",
+            "--location", "--silent", "--show-error", "--retry", "2", "--connect-timeout", "15"]
+
+
+def fetch(url, accept="application/vnd.github+json"):
+    result = run([*curl_args(), "--max-time", "60", "-H", f"Accept: {accept}",
+                  "-H", "X-GitHub-Api-Version: 2022-11-28", url], capture_output=True, text=True, timeout=90)
+    if result.returncode != 0:
+        raise SetupError(f"Could not reach {url.split('/')[2]} ({result.stderr.strip()[-200:] or 'curl ' + str(result.returncode)}).")
+    return result.stdout
+
+
+def fetch_json(url):
+    try:
+        data = json.loads(fetch(url))
+    except ValueError:
+        raise SetupError(f"GitHub returned an unreadable answer for {url}.") from None
+    if not isinstance(data, dict):
+        raise SetupError(f"GitHub returned an unexpected answer for {url}.")
+    return data
+
+
+def download(url, target, max_bytes=2 * 1024 * 1024):
+    result = run([*curl_args(), "--max-time", "120", "--max-filesize", str(max_bytes), url, "--output", target])
+    if result.returncode != 0:
+        raise SetupError("The download did not finish. Check the connection and retry.")
+
+
+def within_home(path):
+    try:
+        resolved = Path(path).resolve()
+        base = home().resolve()
+        return resolved != base and base in resolved.parents
+    except OSError:
+        return False
+
+
+# ------------------------------------------------------------ agent network --
+
+def agent_network():
+    """online or offline, as /usr/bin/shadowfetch-agent-network reports it.
+
+    The shipped tool is asked first; anything it prints other than the two
+    words counts as offline. When it is not installed (a source tree), the same
+    resolution order is applied in-process, so the answer cannot be widened by
+    the tool's absence.
+    """
+    if os.path.isfile(AGENT_NETWORK) and os.access(AGENT_NETWORK, os.X_OK):
+        try:
+            result = run([AGENT_NETWORK], capture_output=True, text=True, timeout=10,
+                         env=child_env(SHADOWFETCH_AGENT_NETWORK=os.environ.get("SHADOWFETCH_AGENT_NETWORK", ""),
+                                       SHADOWFETCH_ELEMENT=os.environ.get("SHADOWFETCH_ELEMENT", "")))
+            value = result.stdout.strip().lower()
+            return value if result.returncode == 0 and value in ("online", "offline") else "offline"
+        except (OSError, subprocess.SubprocessError):
+            return "offline"
+    value = os.environ.get("SHADOWFETCH_AGENT_NETWORK", "").strip().lower()
+    if value in ("online", "offline"):
+        return value
+    value = os.environ.get("SHADOWFETCH_ELEMENT", "").strip().lower()
+    if value in LEGACY_ELEMENT_NETWORK:
+        return LEGACY_ELEMENT_NETWORK[value]
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home() / ".config") / "shadowfetch"
+    for directory in (config, SYSTEM_CONFIG):
+        for name, table in (("agent-network", None), ("element", LEGACY_ELEMENT_NETWORK)):
+            try:
+                with open(directory / name, encoding="utf-8") as handle:
+                    value = handle.readline().strip().lower()
+            except OSError:
+                continue
+            if table is None and value in ("online", "offline"):
+                return value
+            if table is not None and value in table:
+                return table[value]
+    return "online"
+
+
+def require_online(action):
+    if agent_network() == "offline":
+        raise SetupError(f"Hermes Agent is a cloud-connected agent and the agent network is offline. "
+                         f"Turn it on deliberately (shadowfetch-agent-network set online) before you {action}.")
+
+
+def require_user():
+    if os.geteuid() == 0:
+        raise SetupError("Hermes Agent is installed and run by the desktop user, never as root.")
+    if not os.environ.get("HOME") or os.environ["HOME"] in ("/", "/root"):
+        raise SetupError("A writable desktop-user home directory is required.")
+
+
+def require_platform():
+    if platform.system() != "Linux" or platform.machine() not in ("x86_64", "amd64"):
+        raise SetupError("This Shadowfetch release supports x86_64 Linux only.")
+
+
+def preflight():
+    require_user()
+    require_platform()
+    for name in ("curl", "git", "bash", "tar"):
+        need(name)
+    target = home()
+    free = shutil.disk_usage(target).free
+    if free < MIN_FREE_BYTES:
+        raise SetupError("Hermes Agent setup needs at least 3 GiB free in your home folder.")
+
+
+# ------------------------------------------------------------------ state --
+
+def read_receipt():
+    try:
+        data = json.loads(receipt_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def write_receipt(release, channel, options):
+    state_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+    receipt = {
+        "name": "Hermes Agent", "version": release["version"], "tag": release["tag"],
+        "commit": release["commit"], "installer_url": release["installer_url"],
+        "installer_sha256": release.get("installer_sha256_observed") or release.get("installer_sha256"),
+        "installer_git_blob": release.get("installer_git_blob"), "source": release["source"],
+        "install_dir": str(install_dir()), "hermes_home": str(hermes_home()),
+        "update_channel": channel, "options": options,
+        "installed_at": datetime.now(timezone.utc).isoformat(),
+        "installed_as_uid": os.geteuid(),
+        "credentials_stored_by_shadowfetch": False,
+        "gateway_service_installed_by_shadowfetch": False,
+    }
+    with tempfile.NamedTemporaryFile("w", dir=state_dir(), delete=False, prefix=".receipt-") as output:
+        json.dump(receipt, output, indent=2)
+        output.write("\n")
+    os.chmod(output.name, 0o600)
+    os.replace(output.name, receipt_path())
+    return receipt
+
+
+def checkout_head():
+    if not (install_dir() / ".git").exists() or not tool("git"):
+        return None
+    try:
+        result = run([tool("git"), "-C", install_dir(), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = result.stdout.strip()
+    return value if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", value) else None
+
+
+def owned_launcher(path):
+    """True for ~/.local/bin/hermes when it belongs to this Hermes checkout.
+
+    Upstream writes it as a small wrapper script naming the checkout; newer
+    installers may publish a symlink instead. Anything else is not Hermes's.
+    """
+    path = Path(path)
+    try:
+        if path.is_symlink():
+            target = path.resolve()
+            return any(root == target or root in target.parents
+                       for root in (install_dir().resolve(), hermes_home().resolve()))
+        if path.is_file() and path.stat().st_size < 8192:
+            return str(install_dir()) in path.read_text(errors="replace")
+    except OSError:
+        pass
+    return False
+
+
+def hermes_command():
+    """The hermes launcher, only if it belongs to Hermes's own folders."""
+    link = link_path()
+    if owned_launcher(link) and os.access(link, os.X_OK) and link.resolve().is_file():
+        return str(link)
+    for candidate in (install_dir() / "venv/bin/hermes", install_dir() / ".hermes/bin/hermes"):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
+def status():
+    network = agent_network()
+    offline = network == "offline"
+    receipt = read_receipt()
+    head = checkout_head()
+    command = hermes_command()
+    installed = bool(head and command)
+    managed = bool(receipt and head and receipt.get("commit") == head)
+    if not head and not command:
+        state = "not-installed"
+    elif not installed:
+        state = "needs-repair"
+    elif not receipt:
+        state = "unmanaged"
+    elif managed:
+        state = "ready"
+    else:
+        state = "drifted"
+    return {
+        "name": "Hermes Agent", "helper_version": HELPER_VERSION,
+        "version": HERMES_VERSION, "pinned_version": HERMES_VERSION, "pinned_tag": HERMES_TAG,
+        "pinned_commit": HERMES_COMMIT, "installed": installed,
+        "installed_version": (receipt or {}).get("version") if managed else None,
+        "installed_tag": (receipt or {}).get("tag") if managed else None,
+        "installed_commit": head, "receipt_commit": (receipt or {}).get("commit"),
+        "verified": state == "ready", "state": state,
+        "launchable": installed and not offline,
+        "agent_network": network, "blocked_by_offline": offline,
+        "update_channel": (receipt or {}).get("update_channel"),
+        "cloud": True, "requires_account": True, "authentication": "hermes setup (your own provider account or API key)",
+        "credentials_stored_by_shadowfetch": False, "gateway_service_installed_by_shadowfetch": False,
+        "install_dir": str(install_dir()), "hermes_home": str(hermes_home()), "command": command,
+        "installer_url": INSTALLER_URL, "installer_sha256": INSTALLER_SHA256,
+        "update_source": f"https://github.com/{REPO}/releases/latest", "docs_url": DOCS_URL,
+        "license": LICENSE, "runs_as_root": False,
+    }
+
+
+# ---------------------------------------------------------------- releases --
+
+def resolve_latest():
+    """Latest non-draft, non-prerelease GitHub release, cross-checked with the API."""
+    release = fetch_json(API + "/releases/latest")
+    if release.get("draft") or release.get("prerelease"):
+        raise SetupError("GitHub's latest Hermes release is marked draft or prerelease; refusing it.")
+    tag = str(release.get("tag_name", ""))
+    if not re.fullmatch(r"v[0-9][0-9A-Za-z.\-]{0,40}", tag):
+        raise SetupError("GitHub returned an unexpected Hermes release tag.")
+    match = re.search(r"\bv?(\d+\.\d+\.\d+)\b", str(release.get("name", "")))
+    version = match.group(1) if match else tag.lstrip("v")
+    commit = fetch(f"{API}/commits/{quote(tag)}", accept="application/vnd.github.sha").strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise SetupError("GitHub did not return a full commit for the release tag.")
+    compare = fetch_json(f"{API}/compare/{commit}...main")
+    if compare.get("status") not in ("ahead", "identical"):
+        raise SetupError("The release commit is not on Hermes's main branch; refusing it.")
+    contents = fetch_json(f"{API}/contents/scripts/install.sh?ref={commit}")
+    blob, size = contents.get("sha"), contents.get("size")
+    if not (isinstance(blob, str) and re.fullmatch(r"[0-9a-f]{40}", blob) and isinstance(size, int)):
+        raise SetupError("GitHub did not describe the release installer.")
+    pinned = commit == HERMES_COMMIT
+    return {
+        "version": version, "tag": tag, "commit": commit,
+        "installer_url": f"{RAW}/{commit}/scripts/install.sh",
+        "installer_sha256": INSTALLER_SHA256 if pinned else None,
+        "installer_git_blob": blob, "installer_bytes": size,
+        "published_at": release.get("published_at"),
+        "source": "shadowfetch-release-pin" if pinned else "github-latest-release",
+    }
+
+
+def verify_installer(path, release):
+    data = Path(path).read_bytes()
+    if release.get("installer_bytes") is not None and len(data) != release["installer_bytes"]:
+        raise SetupError("The Hermes installer has an unexpected size. Nothing was installed.")
+    if not (release.get("installer_sha256") or release.get("installer_git_blob")):
+        raise SetupError("No digest is known for this Hermes installer. Nothing was installed.")
+    observed = sha256_file(path)
+    if release.get("installer_sha256") and observed != release["installer_sha256"]:
+        raise SetupError("The Hermes installer failed its release-pinned SHA-256 check. Nothing was installed.")
+    if release.get("installer_git_blob") and git_blob_sha(path) != release["installer_git_blob"]:
+        raise SetupError("The Hermes installer does not match the file GitHub records at the release commit. Nothing was installed.")
+    text = data.decode("utf-8", "replace")
+    first = text.splitlines()[0] if text else ""
+    if first not in ("#!/bin/bash", "#!/usr/bin/env bash") or "--commit" not in text \
+            or "--non-interactive" not in text or "hermes-agent" not in text:
+        raise SetupError("The downloaded file is not the expected Hermes installer. Nothing was installed.")
+    release["installer_sha256_observed"] = observed
+    return text
+
+
+def installer_argv(installer, text, release, with_browser, with_computer_use):
+    argv = [need("bash"), installer, "--commit", release["commit"], "--non-interactive",
+            "--dir", str(install_dir()), "--hermes-home", str(hermes_home())]
+    # The release's own installer decides which flags exist; only offer what it parses.
+    if "--skip-setup" in text:
+        argv.append("--skip-setup")
+    if "--force-commit" in text:
+        # A re-run over an existing checkout first fast-forwards it to main;
+        # without this, the pin would be ignored as a "rollback".
+        argv.append("--force-commit")
+    if not with_browser:
+        argv.append("--skip-browser")
+    if not with_computer_use:
+        argv.append("--skip-computer-use")
+    return argv
+
+
+def escalation_stubs(folder):
+    stubs = Path(folder) / "no-root"
+    stubs.mkdir(mode=0o700)
+    for name in ESCALATORS:
+        stub = stubs / name
+        stub.write_text("#!/bin/sh\necho \"Shadowfetch: $(basename \"$0\") is disabled while Hermes installs "
+                        "for your user. Install optional system packages yourself if Hermes asks.\" >&2\nexit 1\n")
+        stub.chmod(0o700)
+    return stubs
+
+
+def set_stable_channel(command):
+    """Keep `hermes update` on published releases when this Hermes supports it."""
+    try:
+        probe = run([command, "update", "--help"], capture_output=True, text=True, timeout=60, env=dict(os.environ))
+        if "--set-channel" not in (probe.stdout + probe.stderr):
+            return "main (this release predates update channels; use shadowfetch-hermes update)"
+        result = run([command, "update", "--set-channel", "stable"], stdin=subprocess.DEVNULL,
+                     capture_output=True, text=True, timeout=120, env=dict(os.environ))
+        return "stable" if result.returncode == 0 else "unknown (setting the stable channel failed)"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown (hermes did not answer)"
+
+
+def install_release(release, with_browser, with_computer_use):
+    preflight()
+    state_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+    with open(state_dir() / "setup.lock", "w") as lock:
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SetupError("Another Hermes setup is already running for this user.") from None
+        with tempfile.TemporaryDirectory(prefix="install-", dir=state_dir()) as folder:
+            installer = os.path.join(folder, "install.sh")
+            print(f"Downloading the official Hermes installer for {release['tag']}...", flush=True)
+            download(release["installer_url"], installer)
+            text = verify_installer(installer, release)
+            print(f"Installer verified (SHA-256 {release['installer_sha256_observed']}).", flush=True)
+            stubs = escalation_stubs(folder)
+            env = child_env(HERMES_HOME=hermes_home())
+            env["PATH"] = f"{stubs}:{env['PATH']}"
+            argv = installer_argv(installer, text, release, with_browser, with_computer_use)
+            print(f"Installing Hermes Agent {release['version']} at commit {release['commit'][:12]} for this user...", flush=True)
+            code = run_streaming(argv, env, cwd=home())
+            if code != 0:
+                raise SetupError(f"The Hermes installer stopped with status {code}. Read its message above and retry.")
+        head = checkout_head()
+        if head != release["commit"]:
+            raise SetupError(f"Hermes installed, but its checkout is at {head or 'no commit'}, not the verified "
+                             f"release commit {release['commit']}. Run shadowfetch-hermes doctor.")
+        command = hermes_command()
+        if not command:
+            raise SetupError("The Hermes installer finished without a usable hermes command.")
+        channel = set_stable_channel(command)
+        write_receipt(release, channel, {"browser_tools": with_browser, "computer_use": with_computer_use})
+        write_launcher()
+    print(f"Hermes Agent {release['version']} ({release['tag']}, commit {release['commit'][:12]}) is installed and verified.")
+    print("No API key was stored by Shadowfetch. Run `hermes setup` (or open Hermes) to choose a provider.")
+
+
+def write_launcher():
+    path = launcher_path()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_text("[Desktop Entry]\nType=Application\nName=Hermes Agent\n"
+                    "Comment=Open Nous Research Hermes Agent in a terminal\n"
+                    "Exec=/usr/bin/shadowfetch-hermes open\nIcon=utilities-terminal\nTerminal=false\n"
+                    "Categories=Development;Utility;\nKeywords=AI;agent;terminal;\nStartupNotify=true\n")
+    path.chmod(0o600)
+
+
+# --------------------------------------------------------------- commands --
+
+def consent_text(release, with_browser=False, with_computer_use=False):
+    skipped = []
+    if not with_browser:
+        skipped.append("browser tools (Playwright/Chromium; add --with-browser)")
+    if not with_computer_use:
+        skipped.append("the computer-use driver (add --with-computer-use)")
+    return f"""Hermes Agent is an optional open-source AI agent by Nous Research (MIT licence).
+Shadowfetch downloads the official installer that shipped with Hermes {release['version']}
+({release['tag']}) from raw.githubusercontent.com, verifies it, and runs it as you,
+never as root. The installer will:
+  - clone github.com/{REPO} into {install_dir()} pinned to commit {release['commit'][:12]}
+  - download uv (astral.sh), a private Python if Debian's is outside Hermes's range,
+    and Hermes's hash-locked Python dependencies (PyPI); Node.js from nodejs.org only
+    if Debian's Node is too old for Hermes
+  - write {hermes_home()} (config.yaml, .env for your API keys, sessions, logs, skills),
+    link ~/.local/bin/hermes and add ~/.local/bin to PATH in your shell startup files
+Plan for about 2 GB of downloads and disk. Skipped: {', '.join(skipped) or 'nothing'}.
+No messaging gateway service is installed and no setup wizard runs during install.
+Hermes is a cloud-connected agent: it needs your own model provider account or API
+key, entered in `hermes setup`. Provider charges and data handling apply. Hermes can
+run commands and edit files as you. Shadowfetch does not store your keys.
+Keep it current with `shadowfetch-hermes update` (verified latest release).
+Docs: {DOCS_URL}
+"""
+
+
+def confirm(args, question):
+    if args.yes:
+        return True
+    if not sys.stdin.isatty():
+        raise SetupError("Review the text above, then choose Install in Welcome or the Control Center, or rerun with --yes.")
+    return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+
+
+def cmd_setup(args):
+    require_user()
+    require_platform()
+    require_online("install it")
+    release = resolve_latest() if args.latest else dict(PINNED_RELEASE)
+    print(consent_text(release, args.with_browser, args.with_computer_use), flush=True)
+    current = status()
+    if current["state"] in ("unmanaged", "drifted") and current["installed_commit"] != release["commit"]:
+        print(f"Note: the existing Hermes checkout at {install_dir()} (commit {current['installed_commit'][:12]}) "
+              f"will be moved to {release['commit'][:12]}.", flush=True)
+    if current["state"] == "ready" and (current["installed_commit"] == release["commit"] or not args.latest):
+        # Never roll a verified newer release back to the older pin.
+        print(f"Hermes Agent {current['installed_version']} is already installed and verified. "
+              "Use shadowfetch-hermes update for newer releases.")
+    else:
+        if not confirm(args, "Install Hermes Agent?"):
+            print("Installation skipped.")
+            return 0
+        install_release(release, args.with_browser, args.with_computer_use)
+    if not args.no_open:
+        return cmd_open(args)
+    return 0
+
+
+def cmd_update(args):
+    require_user()
+    require_platform()
+    require_online("update it")
+    current = status()
+    latest = resolve_latest()
+    installed = current["installed_commit"]
+    old = f"{current['installed_version'] or 'unknown'} ({current['installed_tag'] or 'untracked'}, commit {(installed or 'none')[:12]})"
+    new = f"{latest['version']} ({latest['tag']}, commit {latest['commit'][:12]})"
+    available = current["installed"] and installed != latest["commit"]
+    if args.check:
+        report = {"installed": current["installed"], "installed_version": current["installed_version"],
+                  "installed_commit": installed, "latest_version": latest["version"], "latest_tag": latest["tag"],
+                  "latest_commit": latest["commit"], "latest_installer_url": latest["installer_url"],
+                  "latest_installer_git_blob": latest["installer_git_blob"],
+                  "published_at": latest.get("published_at"), "update_available": bool(available),
+                  "agent_network": current["agent_network"]}
+        print(json.dumps(report, sort_keys=True) if args.json else
+              (f"Hermes Agent update available: {old} -> {new}" if available else f"Hermes Agent is current: {new}"))
+        return 0
+    if not current["installed"]:
+        raise SetupError("Hermes Agent is not installed. Run shadowfetch-hermes setup first.")
+    if args.expect and args.expect not in (latest["version"], latest["tag"], latest["commit"]):
+        raise SetupError(f"The latest release changed to {new} since it was shown. Review it again.")
+    if not available:
+        print(f"Hermes Agent is already at the latest release: {new}.")
+        return 0
+    print(f"Hermes Agent update: {old} -> {new}")
+    print(f"Installer: {latest['installer_url']}")
+    print(f"Verified against GitHub's record of the file at that commit (git blob {latest['installer_git_blob']}).")
+    print("This release was published upstream after this Shadowfetch release, so Shadowfetch has not reviewed it.")
+    print("Your config, keys and sessions in ~/.hermes are kept. Hermes may take a snapshot and migrate config.")
+    if not confirm(args, "Update Hermes Agent?"):
+        print("Update skipped.")
+        return 0
+    options = (read_receipt() or {}).get("options") or {}
+    install_release(latest, bool(options.get("browser_tools")), bool(options.get("computer_use")))
+    return 0
+
+
+def cmd_open(_args=None):
+    require_user()
+    require_online("open it")
+    current = status()
+    if not current["installed"]:
+        raise SetupError("Hermes Agent is not installed. Run shadowfetch-hermes setup, or doctor for details.")
+    command = current["command"]
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        os.execv(command, [command])
+    konsole = tool("konsole")
+    if not konsole:
+        raise SetupError(f"Konsole is missing. Open a terminal and run: {command}")
+    subprocess.Popen([konsole, "--workdir", str(home()), "-e", command], stdin=subprocess.DEVNULL,
+                     start_new_session=True)
+    print("Opened Hermes Agent in a terminal. Run `hermes setup` there to choose a provider.")
+    return 0
+
+
+def cmd_doctor(args):
+    current = status()
+    problems = []
+    if os.geteuid() == 0:
+        problems.append("running as root; run this as the desktop user")
+    for name in ("curl", "git", "bash"):
+        if not tool(name):
+            problems.append(f"{name} is missing")
+    if current["state"] == "not-installed":
+        problems.append("Hermes Agent is not installed (shadowfetch-hermes setup)")
+    elif current["state"] == "needs-repair":
+        problems.append("the Hermes checkout or its command is missing; run setup again")
+    elif current["state"] == "unmanaged":
+        problems.append("Hermes was installed outside Shadowfetch; run setup to verify it at a release")
+    elif current["state"] == "drifted":
+        problems.append(f"the checkout moved to {current['installed_commit'][:12]}, away from the verified "
+                        f"release {str(current['receipt_commit'])[:12]} (hermes update tracks main); "
+                        "run shadowfetch-hermes update to return to a verified release")
+    if current["blocked_by_offline"]:
+        problems.append("the agent network is offline, so Hermes stays paused")
+    if args.json:
+        print(json.dumps({**current, "problems": problems}, sort_keys=True))
+    else:
+        for problem in problems:
+            print(f" !! {problem}")
+        if not problems:
+            print(f" OK Hermes Agent {current['installed_version']} at the verified commit {current['installed_commit'][:12]}.")
+    return 0 if current["verified"] else 1
+
+
+def remove_tree(path):
+    if Path(path).exists() and within_home(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def cmd_uninstall(args):
+    require_user()
+    current = status()
+    print(f"""This removes Hermes Agent for your user:
+  - Hermes's own uninstaller (`hermes uninstall --yes{' --full' if args.purge_data else ''}`): its code in
+    {install_dir()}, the hermes command, its PATH lines and any gateway service
+  - Shadowfetch's launcher and receipt ({state_dir()})
+{'  - ALL Hermes data in ' + str(hermes_home()) + ' (config, API keys, sessions, memories)' if args.purge_data
+ else '  Your config, API keys and sessions in ' + str(hermes_home()) + ' are kept (add --purge-data to remove them).'}
+""", flush=True)
+    if current["state"] == "not-installed" and not receipt_path().exists() and not launcher_path().exists():
+        print("Hermes Agent is not installed.")
+        return 0
+    if not confirm(args, "Uninstall Hermes Agent?"):
+        print("Uninstall skipped.")
+        return 0
+    command = current["command"]
+    delegated = False
+    if command:
+        argv = [command, "uninstall", "--yes"] + (["--full"] if args.purge_data else [])
+        env = dict(os.environ)
+        env["HERMES_HOME"] = str(hermes_home())
+        try:
+            delegated = run_streaming(argv, env, cwd=home()) == 0
+        except OSError:
+            delegated = False
+        if not delegated:
+            print(" !! Hermes's uninstaller did not finish; removing its files directly.", flush=True)
+    # Whatever the upstream step left behind, remove only what is Hermes's.
+    link = link_path()
+    if owned_launcher(link):
+        link.unlink()
+    git_config = install_dir() / ".git/config"
+    if git_config.is_file() and "hermes-agent" in git_config.read_text(errors="replace"):
+        remove_tree(install_dir())
+    if args.purge_data:
+        remove_tree(hermes_home())
+    try:
+        launcher_path().unlink()
+    except FileNotFoundError:
+        pass
+    remove_tree(state_dir())
+    print("Hermes Agent was removed." if not hermes_command() else " !! Some Hermes files remain; see the messages above.")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="shadowfetch-hermes",
+                                     description="Install, verify, update and open Nous Research Hermes Agent for this user.",
+                                     epilog="Hermes needs your own model provider account or API key. Nothing here runs as root.")
+    parser.add_argument("--version", action="version",
+                        version=f"shadowfetch-hermes {HELPER_VERSION}; Hermes Agent {HERMES_VERSION} ({HERMES_TAG}, {HERMES_COMMIT[:12]})")
+    commands = parser.add_subparsers(dest="command", required=True)
+    setup = commands.add_parser("setup", help="Review and install the pinned Hermes release")
+    setup.add_argument("--yes", "-y", action="store_true", help="Confirm the displayed download and installation")
+    setup.add_argument("--no-open", action="store_true")
+    setup.add_argument("--latest", action="store_true", help="Install the latest GitHub release instead of the pin")
+    setup.add_argument("--with-browser", action="store_true", help="Also install Hermes's browser tools")
+    setup.add_argument("--with-computer-use", action="store_true", help="Also install the computer-use driver")
+    update = commands.add_parser("update", help="Show and install the latest verified GitHub release")
+    update.add_argument("--yes", "-y", action="store_true")
+    update.add_argument("--check", action="store_true", help="Only report what the latest release is")
+    update.add_argument("--json", action="store_true")
+    update.add_argument("--expect", metavar="VERSION", help="Refuse unless the latest release is still this one")
+    uninstall = commands.add_parser("uninstall", help="Remove Hermes Agent for this user")
+    uninstall.add_argument("--yes", "-y", action="store_true")
+    uninstall.add_argument("--purge-data", action="store_true", help="Also remove ~/.hermes (config, keys, sessions)")
+    for name in ("status", "doctor"):
+        commands.add_parser(name).add_argument("--json", action="store_true")
+    commands.add_parser("open")
+    commands.add_parser("info")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "setup":
+            return cmd_setup(args)
+        if args.command == "update":
+            return cmd_update(args)
+        if args.command == "uninstall":
+            return cmd_uninstall(args)
+        if args.command == "open":
+            return cmd_open(args)
+        if args.command == "doctor":
+            return cmd_doctor(args)
+        if args.command == "info":
+            print(consent_text(dict(PINNED_RELEASE)))
+            return 0
+        current = status()
+        if args.json:
+            print(json.dumps(current, sort_keys=True))
+        else:
+            print(f"Hermes Agent: {current['state']}; installed: {current['installed_version'] or 'none'}"
+                  f" (commit {(current['installed_commit'] or 'none')[:12]}); pinned: {HERMES_VERSION} ({HERMES_TAG}).")
+            if current["blocked_by_offline"]:
+                print("The agent network is offline; Hermes setup, update and launch are paused.")
+        return 0
+    except Cancelled as exc:
+        print(f"Hermes Agent: {exc}", file=sys.stderr)
+        return 130
+    except (SetupError, OSError, subprocess.SubprocessError) as exc:
+        print(f"Hermes Agent: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,940 @@
+#!/usr/bin/python3
+"""Optional, user-consented, hardened installer and launcher for OpenClaw.
+
+OpenClaw's security-advisory record forbids a bare one-click install, so this
+helper keeps four promises:
+
+  * no root, no sudo, no NodeSource: Debian's own nodejs/npm run the install
+    into ~/.local/share/shadowfetch/openclaw/<version>, as the desktop user;
+  * reproducible bytes: `npm ci` from a package-lock.json that Shadowfetch
+    generated and ships, so every tarball is pinned by SHA-512; the top-level
+    integrity, npm registry signatures and the installed tree are checked
+    BEFORE any package script runs, and then only OpenClaw's own script runs;
+  * no listening service: the Gateway/daemon is never installed by setup, and
+    `gateway enable` binds it to loopback only;
+  * contained launch: `open` runs `openclaw chat` (local embedded mode, no
+    Gateway) inside shadowfetch-firebreak, with a private home and one
+    writable workspace.
+"""
+import argparse
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+
+HELPER_VERSION = "5.0.0"
+OPENCLAW_VERSION = "2026.9.6"
+OPENCLAW_INTEGRITY = "sha512-Ie0kyQSCVfFqixsgVg39vevUDq01Ch5u3+7Yu5Y3qARczmdAe+lzp8bVnO9925rHiW/+CFp70zfORCyPmCH31g=="
+OPENCLAW_TARBALL = "https://registry.npmjs.org/openclaw/-/openclaw-2026.9.6.tgz"
+LOCKFILE_SHA256 = "2b1e30810868145325858823e8b3db993d09a4a2489187c5401bae6a241b0972"
+PACKAGE_JSON_SHA256 = "34ba47aaea351ab4686dec08eec48153a9be8cf413b70e6767227edbab938662"
+NODE_ENGINES = ">=24.16.0 <25 || >=26.1.0"
+MIN_SQLITE = (3, 51, 3)
+UNPACKED_BYTES = 311400001
+REGISTRY = "https://registry.npmjs.org/"
+DATA_DIR = Path("/usr/share/shadowfetch/openclaw")
+FIREBREAK = Path("/usr/bin/shadowfetch-firebreak")
+AGENT_NETWORK = Path("/usr/bin/shadowfetch-agent-network")
+SYSTEM_CONFIG = Path("/etc/shadowfetch")
+DOCS_URL = "https://docs.openclaw.ai"
+SECURITY_URL = "https://github.com/openclaw/openclaw/security/advisories"
+LICENSE = "MIT"
+MIN_FREE_BYTES = 2 * 1024 ** 3
+# Programs are looked up here and only here -- never through the caller's PATH.
+TOOL_DIRS = ("/usr/bin", "/bin")
+LEGACY_ELEMENT_NETWORK = {"ice": "offline", "fire": "online"}
+VERSION_RE = re.compile(r"^\d{4}\.\d{1,2}\.\d{1,2}(?:-[0-9A-Za-z.]+)?$")
+# Sandbox limits for an interactive session: a long-lived agent needs more
+# CPU time than Firebreak's 15-minute task default.
+SANDBOX_LIMITS = ("--memory-mb", "4096", "--cpu-seconds", "86400", "--processes", "256")
+
+
+class SetupError(RuntimeError):
+    pass
+
+
+class Cancelled(RuntimeError):
+    pass
+
+
+# ------------------------------------------------------------------ paths --
+
+def home():
+    return Path(os.environ.get("HOME") or Path.home())
+
+
+def data_home():
+    return Path(os.environ.get("XDG_DATA_HOME") or home() / ".local/share")
+
+
+def prefix_root():
+    return data_home() / "shadowfetch/openclaw"
+
+
+def version_dir(version):
+    if not VERSION_RE.match(version):
+        raise SetupError(f"Unexpected OpenClaw version string: {version!r}")
+    return prefix_root() / version
+
+
+def state_dir():
+    return Path(os.environ.get("XDG_STATE_HOME") or home() / ".local/state") / "shadowfetch/openclaw"
+
+
+def receipt_path():
+    return state_dir() / "installation.json"
+
+
+def launcher_path():
+    return data_home() / "applications/openclaw.desktop"
+
+
+def link_path():
+    return home() / ".local/bin/openclaw"
+
+
+def workspace_root():
+    return Path(os.environ.get("SHADOWFETCH_AGENT_WORKSPACES") or home() / "Workspaces").expanduser()
+
+
+def workspace():
+    return workspace_root() / "openclaw"
+
+
+def openclaw_state():
+    """OpenClaw's config, sessions and keys: inside its sandbox workspace."""
+    return workspace() / ".openclaw"
+
+
+def entrypoint(version):
+    return version_dir(version) / "node_modules/openclaw/openclaw.mjs"
+
+
+# ---------------------------------------------------------------- helpers --
+
+def tool(name):
+    for directory in TOOL_DIRS:
+        candidate = os.path.join(directory, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def child_env(**extra):
+    keep = ("HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LANGUAGE", "TERM", "NO_COLOR",
+            "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
+            "DBUS_SESSION_BUS_ADDRESS", "http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY",
+            "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE")
+    env = {key: os.environ[key] for key in keep if key in os.environ}
+    env["PATH"] = ":".join(TOOL_DIRS)
+    env.update({key: str(value) for key, value in extra.items()})
+    return env
+
+
+def run(argv, **kwargs):
+    kwargs.setdefault("env", child_env())
+    return subprocess.run([str(part) for part in argv], check=False, **kwargs)
+
+
+def run_streaming(argv, env, cwd=None):
+    child = subprocess.Popen([str(part) for part in argv], stdin=subprocess.DEVNULL, env=env,
+                             cwd=str(cwd) if cwd else None, start_new_session=True)
+    cancelled = []
+
+    def forward(signum, _frame):
+        cancelled.append(signum)
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except OSError:
+            pass
+    previous = {sig: signal.signal(sig, forward) for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+    try:
+        code = child.wait()
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    if cancelled:
+        raise Cancelled("Setup was cancelled; the step in progress was stopped.")
+    return code
+
+
+def sha256_file(path):
+    value = hashlib.sha256()
+    with open(path, "rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def within(path, root):
+    try:
+        resolved, base = Path(path).resolve(), Path(root).resolve()
+        return resolved != base and base in resolved.parents
+    except OSError:
+        return False
+
+
+def remove_tree(path, root):
+    if Path(path).exists() and within(path, root):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+# ------------------------------------------------------------- versions --
+
+def parse_version(text):
+    match = re.match(r"^\s*v?(\d+)(?:\.(\d+|x|\*))?(?:\.(\d+|x|\*))?", str(text))
+    if not match:
+        return None
+    return tuple(int(part) if part and part.isdigit() else None for part in match.groups())
+
+
+def _full(parts):
+    return tuple(0 if part is None else part for part in parts)
+
+
+def satisfies(version, spec):
+    """npm-style range check for the shapes `engines.node` uses (>=, <, ^, ~, x, ||)."""
+    have = _full(parse_version(version) or (0, 0, 0))
+    for alternative in spec.split("||"):
+        tokens = alternative.replace(">= ", ">=").replace("<= ", "<=").replace("> ", ">").replace("< ", "<").split()
+        if not tokens:
+            return True
+        ok = True
+        for token in tokens:
+            op = re.match(r"^(>=|<=|>|<|=|\^|~)?(.*)$", token)
+            operator, rest = op.group(1) or "=", op.group(2)
+            parts = parse_version(rest)
+            if parts is None:
+                ok = False
+                break
+            want = _full(parts)
+            if operator == ">=":
+                ok = have >= want
+            elif operator == ">":
+                ok = have > want
+            elif operator == "<=":
+                ok = have <= want
+            elif operator == "<":
+                ok = have < want
+            elif operator == "^":
+                upper = (want[0] + 1, 0, 0) if want[0] else (0, want[1] + 1, 0)
+                ok = want <= have < upper
+            elif operator == "~":
+                ok = want <= have < (want[0], want[1] + 1, 0)
+            else:
+                ok = all(p is None or p == h for p, h in zip(parts, have))
+            if not ok:
+                break
+        if ok:
+            return True
+    return False
+
+
+def runtime():
+    """Debian's node/npm, checked against OpenClaw's engines and SQLite floor."""
+    node, npm = tool("node"), tool("npm")
+    if not node or not npm:
+        raise SetupError("OpenClaw needs Debian's Node.js and npm. Install them with:\n"
+                         "    sudo apt install nodejs npm\nthen run this setup again. "
+                         "Shadowfetch never adds NodeSource or other third-party Node repositories.")
+    node_version = run([node, "--version"], capture_output=True, text=True, timeout=30).stdout.strip()
+    npm_version = run([npm, "--version"], capture_output=True, text=True, timeout=60).stdout.strip()
+    sqlite = run([node, "-p", "process.versions.sqlite || ''"], capture_output=True, text=True, timeout=30).stdout.strip()
+    return {"node": node, "npm": npm, "node_version": node_version, "npm_version": npm_version,
+            "sqlite_version": sqlite}
+
+
+def check_runtime(info, engines):
+    if not satisfies(info["node_version"], engines):
+        raise SetupError(f"OpenClaw needs Node.js {engines}; this system has {info['node_version'] or 'an unreadable version'}. "
+                         "Update Debian (sudo apt update && sudo apt full-upgrade) and retry.")
+    sqlite = parse_version(info["sqlite_version"])
+    if not sqlite or _full(sqlite) < MIN_SQLITE:
+        raise SetupError(f"OpenClaw needs SQLite {'.'.join(map(str, MIN_SQLITE))} or newer inside Node.js; "
+                         f"this Node.js reports {info['sqlite_version'] or 'none'}. Update Debian and retry.")
+    if not parse_version(info["npm_version"]):
+        raise SetupError("npm did not report its version. Reinstall Debian's npm package.")
+
+
+# ------------------------------------------------------------ agent network --
+
+def agent_network():
+    """online or offline, as /usr/bin/shadowfetch-agent-network reports it (fails closed)."""
+    if os.path.isfile(AGENT_NETWORK) and os.access(AGENT_NETWORK, os.X_OK):
+        try:
+            result = run([AGENT_NETWORK], capture_output=True, text=True, timeout=10,
+                         env=child_env(SHADOWFETCH_AGENT_NETWORK=os.environ.get("SHADOWFETCH_AGENT_NETWORK", ""),
+                                       SHADOWFETCH_ELEMENT=os.environ.get("SHADOWFETCH_ELEMENT", "")))
+            value = result.stdout.strip().lower()
+            return value if result.returncode == 0 and value in ("online", "offline") else "offline"
+        except (OSError, subprocess.SubprocessError):
+            return "offline"
+    value = os.environ.get("SHADOWFETCH_AGENT_NETWORK", "").strip().lower()
+    if value in ("online", "offline"):
+        return value
+    value = os.environ.get("SHADOWFETCH_ELEMENT", "").strip().lower()
+    if value in LEGACY_ELEMENT_NETWORK:
+        return LEGACY_ELEMENT_NETWORK[value]
+    config = Path(os.environ.get("XDG_CONFIG_HOME") or home() / ".config") / "shadowfetch"
+    for directory in (config, SYSTEM_CONFIG):
+        for name, table in (("agent-network", None), ("element", LEGACY_ELEMENT_NETWORK)):
+            try:
+                with open(directory / name, encoding="utf-8") as handle:
+                    value = handle.readline().strip().lower()
+            except OSError:
+                continue
+            if table is None and value in ("online", "offline"):
+                return value
+            if table is not None and value in table:
+                return table[value]
+    return "online"
+
+
+def require_online(action):
+    if agent_network() == "offline":
+        raise SetupError(f"OpenClaw is a cloud-connected agent and the agent network is offline. "
+                         f"Turn it on deliberately (shadowfetch-agent-network set online) before you {action}.")
+
+
+def require_user():
+    if os.geteuid() == 0:
+        raise SetupError("OpenClaw is installed and run by the desktop user, never as root.")
+    if not os.environ.get("HOME") or os.environ["HOME"] in ("/", "/root"):
+        raise SetupError("A writable desktop-user home directory is required.")
+
+
+def require_platform():
+    if platform.system() != "Linux" or platform.machine() not in ("x86_64", "amd64"):
+        raise SetupError("This Shadowfetch release supports x86_64 Linux only.")
+
+
+# ------------------------------------------------------------------ state --
+
+def read_receipt():
+    try:
+        data = json.loads(receipt_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def write_receipt(values):
+    state_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+    with tempfile.NamedTemporaryFile("w", dir=state_dir(), delete=False, prefix=".receipt-") as output:
+        json.dump(values, output, indent=2, sort_keys=True)
+        output.write("\n")
+    os.chmod(output.name, 0o600)
+    os.replace(output.name, receipt_path())
+
+
+def installed_tree(version):
+    """(ok, reason) for the installed tree against its receipt."""
+    root = version_dir(version)
+    hidden = root / "node_modules/.package-lock.json"
+    try:
+        manifest = json.loads((root / "node_modules/openclaw/package.json").read_text(encoding="utf-8"))
+        lock = json.loads(hidden.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, "missing-files"
+    if manifest.get("version") != version:
+        return False, "version-mismatch"
+    entry = (lock.get("packages") or {}).get("node_modules/openclaw") or {}
+    receipt = read_receipt() or {}
+    if entry.get("integrity") != receipt.get("integrity") or entry.get("version") != version:
+        return False, "integrity-mismatch"
+    if not entrypoint(version).is_file():
+        return False, "missing-entrypoint"
+    return True, "receipt-integrity-and-tree"
+
+
+def gateway_bind(info=None):
+    """The configured gateway.bind (None when unset = OpenClaw's loopback default)."""
+    receipt = read_receipt() or {}
+    version = receipt.get("version")
+    if not version or not entrypoint(version).is_file():
+        return None
+    info = info or {"node": tool("node")}
+    if not info.get("node"):
+        return None
+    result = run([info["node"], entrypoint(version), "config", "get", "gateway.bind"], capture_output=True,
+                 text=True, timeout=60, env=child_env(OPENCLAW_STATE_DIR=openclaw_state()))
+    value = result.stdout.strip().strip('"').strip("'")
+    return value if result.returncode == 0 and value else None
+
+
+def status():
+    network = agent_network()
+    offline = network == "offline"
+    receipt = read_receipt()
+    version = (receipt or {}).get("version")
+    if version is not None and not (isinstance(version, str) and VERSION_RE.match(version)):
+        receipt, version = None, None
+    verified, verification = installed_tree(version) if version else (False, "not-installed")
+    installed = bool(version and version_dir(version).exists())
+    state = "ready" if verified else "needs-repair" if installed or receipt else "not-installed"
+    sandbox = os.path.isfile(FIREBREAK) and os.access(FIREBREAK, os.X_OK)
+    return {
+        "name": "OpenClaw", "helper_version": HELPER_VERSION,
+        "version": OPENCLAW_VERSION, "pinned_version": OPENCLAW_VERSION, "pinned_integrity": OPENCLAW_INTEGRITY,
+        "installed": installed, "installed_version": version, "integrity": (receipt or {}).get("integrity"),
+        "verified": verified, "verification": verification, "state": state,
+        "launchable": verified and not offline and sandbox,
+        "agent_network": network, "blocked_by_offline": offline,
+        "sandbox": "shadowfetch-firebreak" if sandbox else "unavailable",
+        "gateway_enabled": bool((receipt or {}).get("gateway_enabled")),
+        "gateway_bind_required": "loopback",
+        "cloud": True, "requires_account": True,
+        "authentication": "openclaw onboarding inside the sandbox (your own provider account or API key)",
+        "credentials_stored_by_shadowfetch": False,
+        "install_dir": str(version_dir(version)) if version else str(prefix_root()),
+        "workspace": str(workspace()), "state_dir": str(openclaw_state()),
+        "command": str(link_path()) if link_path().is_symlink() else None,
+        "update_source": "npm dist-tags.latest", "registry": REGISTRY,
+        "download_bytes": None, "unpacked_bytes": UNPACKED_BYTES,
+        "docs_url": DOCS_URL, "security_advisories_url": SECURITY_URL,
+        "license": LICENSE, "runs_as_root": False,
+    }
+
+
+# ---------------------------------------------------------------- releases --
+
+def npm_view(info, spec, *fields):
+    result = run([info["npm"], "view", spec, *fields, "--json", "--registry", REGISTRY,
+                  "--userconfig", empty_npmrc()], capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise SetupError(f"The npm registry did not answer for {spec}: {result.stderr.strip()[-300:]}")
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        raise SetupError("The npm registry returned an unreadable answer.") from None
+
+
+def resolve_latest(info):
+    latest = npm_view(info, "openclaw", "dist-tags.latest")
+    if not isinstance(latest, str) or not VERSION_RE.match(latest):
+        raise SetupError("npm returned an unexpected OpenClaw version for dist-tags.latest.")
+    meta = npm_view(info, f"openclaw@{latest}", "dist.integrity", "engines", "dist.tarball")
+    integrity = meta.get("dist.integrity") if isinstance(meta, dict) else None
+    engines = ((meta.get("engines") or {}).get("node") if isinstance(meta, dict) else None) or NODE_ENGINES
+    if not isinstance(integrity, str) or not integrity.startswith("sha512-"):
+        raise SetupError("npm did not return a SHA-512 integrity for the latest OpenClaw.")
+    return {"version": latest, "integrity": integrity, "engines": engines,
+            "tarball": meta.get("dist.tarball") if isinstance(meta, dict) else None}
+
+
+def empty_npmrc():
+    """A user npmrc that says nothing: a scoped registry in ~/.npmrc must not redirect this install."""
+    state_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = state_dir() / "npmrc"
+    if not path.exists() or path.stat().st_size:
+        path.write_text("")
+        path.chmod(0o600)
+    return str(path)
+
+
+def npm_env():
+    return child_env(npm_config_update_notifier="false", npm_config_fund="false", npm_config_audit="false")
+
+
+def shipped_lock(version):
+    """The distro lock for the pinned version, verified against its literal pins."""
+    folder = DATA_DIR / version
+    lock, manifest = folder / "package-lock.json", folder / "package.json"
+    if not lock.is_file() or not manifest.is_file():
+        raise SetupError("The Shadowfetch OpenClaw lockfile is missing. Repair shadowfetch-defaults.")
+    if sha256_file(lock) != LOCKFILE_SHA256 or sha256_file(manifest) != PACKAGE_JSON_SHA256:
+        raise SetupError("The Shadowfetch OpenClaw lockfile failed its SHA-256 check. Repair shadowfetch-defaults.")
+    return manifest, lock
+
+
+def check_lock(lock_path, version, integrity):
+    data = json.loads(Path(lock_path).read_text(encoding="utf-8"))
+    packages = data.get("packages") or {}
+    root = packages.get("") or {}
+    entry = packages.get("node_modules/openclaw") or {}
+    if (root.get("dependencies") or {}).get("openclaw") != version:
+        raise SetupError("The OpenClaw lockfile does not pin the expected version.")
+    if entry.get("version") != version or entry.get("integrity") != integrity:
+        raise SetupError("OpenClaw's top-level integrity does not match. Nothing was installed.")
+    if entry.get("resolved") != f"https://registry.npmjs.org/openclaw/-/openclaw-{version}.tgz":
+        raise SetupError("The OpenClaw lockfile resolves outside registry.npmjs.org. Nothing was installed.")
+    for key, value in packages.items():
+        resolved = value.get("resolved")
+        if resolved and not resolved.startswith("https://registry.npmjs.org/"):
+            raise SetupError(f"{key} resolves outside registry.npmjs.org. Nothing was installed.")
+        if key and not value.get("link") and not value.get("inBundle") and not value.get("integrity"):
+            raise SetupError(f"{key} has no integrity in the lockfile. Nothing was installed.")
+    return packages
+
+
+def verify_tree(staging, version, integrity, locked):
+    hidden = staging / "node_modules/.package-lock.json"
+    try:
+        tree = json.loads(hidden.read_text(encoding="utf-8")).get("packages") or {}
+        manifest = json.loads((staging / "node_modules/openclaw/package.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise SetupError("npm finished without an installed OpenClaw tree.") from None
+    entry = tree.get("node_modules/openclaw") or {}
+    if manifest.get("version") != version or entry.get("integrity") != integrity:
+        raise SetupError("The installed OpenClaw package does not match its pinned integrity.")
+    for key, value in tree.items():
+        if value.get("integrity") and (locked.get(key) or {}).get("integrity") != value["integrity"]:
+            raise SetupError(f"Installed {key} does not match the lockfile. Nothing was activated.")
+
+
+def install_version(info, version, integrity, generated_from=None):
+    """Stage, verify, activate. Returns the receipt."""
+    require_user()
+    require_platform()
+    if shutil.disk_usage(home()).free < MIN_FREE_BYTES:
+        raise SetupError("OpenClaw setup needs at least 2 GiB free in your home folder.")
+    state_dir().mkdir(parents=True, exist_ok=True, mode=0o700)
+    prefix_root().mkdir(parents=True, exist_ok=True, mode=0o700)
+    npm, node = info["npm"], info["node"]
+    common = ["--registry", REGISTRY, "--userconfig", empty_npmrc(), "--cache", str(state_dir() / "npm-cache"),
+              "--no-fund", "--no-audit", "--no-update-notifier"]
+    with open(state_dir() / "setup.lock", "w") as lock_handle:
+        try:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SetupError("Another OpenClaw setup is already running for this user.") from None
+        staging = Path(tempfile.mkdtemp(prefix=f".staging-{version}-", dir=prefix_root()))
+        try:
+            if generated_from is None:
+                manifest, lock = shipped_lock(version)
+                shutil.copyfile(manifest, staging / "package.json")
+                shutil.copyfile(lock, staging / "package-lock.json")
+                lock_source, lock_sha = "shadowfetch-release-lockfile", LOCKFILE_SHA256
+            else:
+                (staging / "package.json").write_text(json.dumps({
+                    "name": "shadowfetch-openclaw", "version": version, "private": True,
+                    "description": "Shadowfetch Linux user-home install of the official OpenClaw npm package",
+                    "license": "MIT", "dependencies": {"openclaw": version}}, indent=2) + "\n")
+                print("Resolving OpenClaw's dependencies into a new lockfile (no package scripts run)...", flush=True)
+                if run_streaming([npm, "install", "--package-lock-only", "--ignore-scripts", "--save-exact",
+                                  *common], npm_env(), cwd=staging) != 0:
+                    raise SetupError("npm could not resolve OpenClaw's dependencies.")
+                lock_source, lock_sha = "generated-at-update", sha256_file(staging / "package-lock.json")
+            locked = check_lock(staging / "package-lock.json", version, integrity)
+            print(f"Downloading OpenClaw {version} and its locked dependencies from registry.npmjs.org...", flush=True)
+            if run_streaming([npm, "ci", "--ignore-scripts", *common], npm_env(), cwd=staging) != 0:
+                raise SetupError("npm ci failed; a download or SHA-512 integrity check did not pass. Nothing was activated.")
+            verify_tree(staging, version, integrity, locked)
+            print("Verifying npm registry signatures...", flush=True)
+            if run_streaming([npm, "audit", "signatures", "--registry", REGISTRY, "--userconfig", empty_npmrc()],
+                             npm_env(), cwd=staging) != 0:
+                raise SetupError("npm registry signatures did not verify. Nothing was activated.")
+            print("Signatures verified. Running OpenClaw's own install script (no other package scripts)...", flush=True)
+            rebuild = [npm, "rebuild", "openclaw", "--foreground-scripts", *common]
+            if _full(parse_version(info["npm_version"]) or (0, 0, 0)) >= (11, 16, 0):
+                rebuild.append("--allow-scripts=openclaw")
+            if run_streaming(rebuild, npm_env(), cwd=staging) != 0:
+                raise SetupError("OpenClaw's install script failed. Nothing was activated.")
+            reported = run([node, staging / "node_modules/openclaw/openclaw.mjs", "--version"], capture_output=True,
+                           text=True, timeout=120, env=child_env(OPENCLAW_STATE_DIR=openclaw_state()))
+            if reported.returncode != 0 or version not in reported.stdout:
+                raise SetupError(f"The staged OpenClaw did not report version {version}. Nothing was activated.")
+            target = version_dir(version)
+            backup = None
+            if target.exists():
+                backup = prefix_root() / f".previous-{version}-{os.getpid()}"
+                os.replace(target, backup)
+            try:
+                os.replace(staging, target)
+            except OSError:
+                if backup:
+                    os.replace(backup, target)
+                raise
+            if backup:
+                shutil.rmtree(backup, ignore_errors=True)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+        link_command(version)
+        previous = (read_receipt() or {}).get("version")
+        receipt = {
+            "name": "OpenClaw", "version": version, "integrity": integrity,
+            "lockfile_source": lock_source, "lockfile_sha256": lock_sha,
+            "registry": REGISTRY, "registry_signatures": "verified (npm audit signatures)",
+            "package_scripts_run": ["openclaw"], "node_version": info["node_version"],
+            "npm_version": info["npm_version"], "sqlite_version": info["sqlite_version"],
+            "install_dir": str(version_dir(version)), "sandbox": "shadowfetch-firebreak",
+            "gateway_enabled": bool((read_receipt() or {}).get("gateway_enabled")),
+            "installed_at": datetime.now(timezone.utc).isoformat(), "installed_as_uid": os.geteuid(),
+            "credentials_stored_by_shadowfetch": False,
+        }
+        write_receipt(receipt)
+        prune_versions(keep={version, previous})
+        write_launcher()
+    print(f"OpenClaw {version} is installed and verified ({integrity[:24]}...).")
+    return receipt
+
+
+def link_command(version):
+    link = link_path()
+    link.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if link.exists() and not link.is_symlink():
+        raise SetupError(f"Refusing to replace the existing non-symlink at {link}.")
+    target = version_dir(version) / "node_modules/.bin/openclaw"
+    if not target.exists():
+        target = entrypoint(version)
+    temporary = link.with_name(".openclaw.new")
+    if temporary.is_symlink() or temporary.exists():
+        temporary.unlink()
+    temporary.symlink_to(target)
+    os.replace(temporary, link)
+
+
+def prune_versions(keep):
+    for child in prefix_root().iterdir():
+        if child.is_dir() and VERSION_RE.match(child.name) and child.name not in keep:
+            remove_tree(child, prefix_root())
+
+
+def write_launcher():
+    path = launcher_path()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_text("[Desktop Entry]\nType=Application\nName=OpenClaw\n"
+                    "Comment=Open OpenClaw in a Firebreak sandbox\n"
+                    "Exec=/usr/bin/shadowfetch-openclaw open\nIcon=utilities-terminal\nTerminal=false\n"
+                    "Categories=Development;Utility;\nKeywords=AI;agent;terminal;\nStartupNotify=true\n")
+    path.chmod(0o600)
+
+
+# --------------------------------------------------------------- commands --
+
+def consent_text(version=OPENCLAW_VERSION, integrity=OPENCLAW_INTEGRITY, generated=False):
+    lock = ("a lockfile npm generates now (dependencies resolved today; not reviewed by Shadowfetch)" if generated
+            else "the package-lock.json Shadowfetch generated and ships for this release")
+    return f"""OpenClaw is an optional personal AI agent from the OpenClaw Foundation (MIT licence).
+
+SECURITY NOTE: OpenClaw has a long security-advisory record (700+ GitHub advisories
+since early 2026, including critical ones, and new ones every month). Shadowfetch
+therefore never starts its Gateway or daemon (only `shadowfetch-openclaw gateway
+enable` does, bound to loopback), opens it only inside a Firebreak sandbox, and
+recommends `shadowfetch-openclaw update` often: a pinned release ages fast.
+Advisories: {SECURITY_URL}
+
+Setup downloads openclaw@{version} (about 311 MB unpacked) and roughly 370 npm
+dependencies from registry.npmjs.org using {lock}; every tarball is checked by
+SHA-512 (openclaw: {integrity[:30]}...), npm registry signatures are verified, and
+only OpenClaw's own install script runs, after verification. No root, no sudo,
+no NodeSource: it uses Debian's nodejs ({NODE_ENGINES}, SQLite >= 3.51.3) and npm.
+It writes (about 1 GB):
+  - {prefix_root()}/{version} and the ~/.local/bin/openclaw link
+  - {state_dir()} (receipt and npm cache)
+  - {workspace()} (the sandbox workspace; its .openclaw folder holds OpenClaw's
+    config, sessions and the API keys you enter)
+OpenClaw is cloud-connected: it needs your own model provider account or API key,
+entered during its onboarding. Provider charges and data handling apply.
+Shadowfetch does not store your keys. Docs: {DOCS_URL}
+"""
+
+
+def confirm(args, question):
+    if args.yes:
+        return True
+    if not sys.stdin.isatty():
+        raise SetupError("Review the text above, then choose Install in Welcome or the Control Center, or rerun with --yes.")
+    return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
+
+
+def cmd_setup(args):
+    require_user()
+    require_platform()
+    require_online("install it")
+    info = runtime()
+    current = status()
+    if current["state"] == "ready" and not args.latest:
+        print(f"OpenClaw {current['installed_version']} is already installed and verified. "
+              "Use shadowfetch-openclaw update for newer releases.")
+    else:
+        if args.latest:
+            latest = resolve_latest(info)
+            version, integrity, engines = latest["version"], latest["integrity"], latest["engines"]
+        else:
+            version, integrity, engines = OPENCLAW_VERSION, OPENCLAW_INTEGRITY, NODE_ENGINES
+        generated = version != OPENCLAW_VERSION
+        check_runtime(info, engines)
+        print(consent_text(version, integrity, generated), flush=True)
+        if current["state"] == "ready" and current["installed_version"] == version:
+            print(f"OpenClaw {version} is already installed and verified.")
+        else:
+            if not confirm(args, "Install OpenClaw?"):
+                print("Installation skipped.")
+                return 0
+            install_version(info, version, integrity, generated_from="latest" if generated else None)
+    if not args.no_open:
+        return cmd_open(args)
+    return 0
+
+
+def cmd_update(args):
+    require_user()
+    require_platform()
+    require_online("update it")
+    info = runtime()
+    current = status()
+    latest = resolve_latest(info)
+    old = current["installed_version"]
+    available = bool(current["installed"] and old != latest["version"])
+    if args.check:
+        report = {"installed": current["installed"], "installed_version": old,
+                  "installed_integrity": current["integrity"], "latest_version": latest["version"],
+                  "latest_integrity": latest["integrity"], "latest_engines": latest["engines"],
+                  "update_available": available, "agent_network": current["agent_network"],
+                  "runtime_ok": satisfies(info["node_version"], latest["engines"])}
+        print(json.dumps(report, sort_keys=True) if args.json else
+              (f"OpenClaw update available: {old} -> {latest['version']}" if available
+               else f"OpenClaw is current: {latest['version']}"))
+        return 0
+    if not current["installed"]:
+        raise SetupError("OpenClaw is not installed. Run shadowfetch-openclaw setup first.")
+    if args.expect and args.expect != latest["version"]:
+        raise SetupError(f"The latest OpenClaw changed to {latest['version']} since it was shown. Review it again.")
+    if not available:
+        print(f"OpenClaw is already at the latest release: {latest['version']}.")
+        return 0
+    check_runtime(info, latest["engines"])
+    generated = latest["version"] != OPENCLAW_VERSION
+    print(f"OpenClaw update: {old} ({str(current['integrity'])[:30]}...) -> {latest['version']} ({latest['integrity'][:30]}...)")
+    print(consent_text(latest["version"], latest["integrity"], generated), flush=True)
+    print("Your OpenClaw config, sessions and keys in the workspace are kept. The previous version is kept until the next update.")
+    if not confirm(args, "Update OpenClaw?"):
+        print("Update skipped.")
+        return 0
+    install_version(info, latest["version"], latest["integrity"], generated_from="latest" if generated else None)
+    receipt = read_receipt() or {}
+    if receipt.get("gateway_enabled"):
+        print("The loopback Gateway service is enabled; restart it with: shadowfetch-openclaw gateway enable --yes")
+    return 0
+
+
+def sandbox_argv(version, node):
+    # First open: onboarding (provider and key) runs inside the sandbox too.
+    # Afterwards: `chat`, OpenClaw's local embedded mode with no Gateway.
+    action = "chat" if (openclaw_state() / "openclaw.json").exists() else "onboard"
+    return [str(FIREBREAK), "run", "--workspace", workspace().name, "--net", "allow",
+            "--read", str(version_dir(version)), *SANDBOX_LIMITS, "--",
+            "/usr/bin/env", f"OPENCLAW_STATE_DIR={openclaw_state()}", node, str(entrypoint(version)), action]
+
+
+def cmd_open(_args=None):
+    require_user()
+    require_online("open it")
+    current = status()
+    if not current["verified"]:
+        raise SetupError("OpenClaw is not ready. Run shadowfetch-openclaw setup, or doctor for details.")
+    if current["sandbox"] != "shadowfetch-firebreak":
+        raise SetupError("shadowfetch-firebreak is missing, and OpenClaw is only opened inside it. "
+                         "Repair shadowfetch-fireline.")
+    node = tool("node")
+    if not node:
+        raise SetupError("Node.js is missing. Install it with: sudo apt install nodejs npm")
+    workspace_root().mkdir(parents=True, exist_ok=True, mode=0o700)
+    workspace().mkdir(exist_ok=True, mode=0o700)
+    openclaw_state().mkdir(exist_ok=True, mode=0o700)
+    argv = sandbox_argv(current["installed_version"], node)
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        os.execv(argv[0], argv)
+    konsole = tool("konsole")
+    if not konsole:
+        raise SetupError("Konsole is missing. Open a terminal and run: shadowfetch-openclaw open")
+    subprocess.Popen([konsole, "--workdir", str(workspace()), "-e", *argv], stdin=subprocess.DEVNULL,
+                     start_new_session=True)
+    print("Opened OpenClaw (local chat, no Gateway) in a Firebreak sandbox.")
+    return 0
+
+
+def cmd_gateway(args):
+    require_user()
+    receipt = read_receipt() or {}
+    version = receipt.get("version")
+    if not version or not installed_tree(version)[0]:
+        raise SetupError("OpenClaw is not installed and verified.")
+    node = tool("node")
+    if not node:
+        raise SetupError("Node.js is missing. Install it with: sudo apt install nodejs npm")
+    env = child_env(OPENCLAW_STATE_DIR=openclaw_state())
+    cli = [node, entrypoint(version)]
+    if args.action == "status":
+        bind = gateway_bind({"node": node})
+        print(json.dumps({"gateway_enabled": bool(receipt.get("gateway_enabled")),
+                          "gateway_bind": bind or "loopback (default)",
+                          "loopback_only": bind in (None, "loopback")}, sort_keys=True))
+        return 0
+    if args.action == "disable":
+        code = run_streaming([*cli, "gateway", "uninstall"], env, cwd=workspace())
+        receipt["gateway_enabled"] = False
+        write_receipt(receipt)
+        print("OpenClaw Gateway service removed." if code == 0 else " !! openclaw gateway uninstall reported a problem.")
+        return 0 if code == 0 else 1
+    require_online("enable its Gateway")
+    print("The OpenClaw Gateway is a long-running service that runs OUTSIDE the Firebreak sandbox,\n"
+          "as your user, with the same access to your files that you have. Shadowfetch binds it to\n"
+          "127.0.0.1 only (gateway.bind = loopback) so nothing on your network can reach it.\n"
+          "Remote access, LAN or tailnet binds stay off; change them yourself only after reading\n"
+          f"{DOCS_URL}/gateway/security.")
+    if not confirm(args, "Enable the loopback-only OpenClaw Gateway?"):
+        print("Gateway not enabled.")
+        return 0
+    openclaw_state().parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    openclaw_state().mkdir(exist_ok=True, mode=0o700)
+    if run_streaming([*cli, "config", "set", "gateway.bind", "loopback"], env, cwd=workspace()) != 0 \
+            or gateway_bind({"node": node}) != "loopback":
+        raise SetupError("Could not pin gateway.bind to loopback, so the Gateway was not enabled.")
+    if run_streaming([*cli, "gateway", "install", "--runtime-path", node, "--force"], env, cwd=workspace()) != 0:
+        raise SetupError("openclaw gateway install failed.")
+    if gateway_bind({"node": node}) != "loopback":
+        run_streaming([*cli, "gateway", "uninstall"], env, cwd=workspace())
+        raise SetupError("The Gateway configuration left loopback; the service was removed again.")
+    receipt["gateway_enabled"] = True
+    write_receipt(receipt)
+    print("OpenClaw Gateway service installed, bound to 127.0.0.1. Disable it with: shadowfetch-openclaw gateway disable")
+    return 0
+
+
+def cmd_doctor(args):
+    current = status()
+    problems = []
+    if os.geteuid() == 0:
+        problems.append("running as root; run this as the desktop user")
+    try:
+        check_runtime(runtime(), NODE_ENGINES)
+    except SetupError as exc:
+        problems.append(str(exc).splitlines()[0])
+    if current["state"] == "not-installed":
+        problems.append("OpenClaw is not installed (shadowfetch-openclaw setup)")
+    elif not current["verified"]:
+        problems.append(f"the installed tree failed verification ({current['verification']}); run setup again")
+    if current["sandbox"] != "shadowfetch-firebreak":
+        problems.append("shadowfetch-firebreak is missing, so OpenClaw cannot be opened")
+    if current["verified"]:
+        bind = gateway_bind()
+        if bind not in (None, "loopback"):
+            problems.append(f"gateway.bind is {bind!r}; Shadowfetch supports loopback only "
+                            "(shadowfetch-openclaw gateway enable resets it)")
+    if current["installed_version"] and current["installed_version"] == OPENCLAW_VERSION:
+        problems.append("still on the release pin; run shadowfetch-openclaw update --check for security fixes")
+    if current["blocked_by_offline"]:
+        problems.append("the agent network is offline, so OpenClaw stays paused")
+    if args.json:
+        print(json.dumps({**current, "problems": problems}, sort_keys=True))
+    else:
+        for problem in problems:
+            print(f" !! {problem}")
+        if current["verified"]:
+            print(f" OK OpenClaw {current['installed_version']} matches its receipt integrity.")
+    return 0 if current["verified"] else 1
+
+
+def cmd_uninstall(args):
+    require_user()
+    receipt = read_receipt() or {}
+    version = receipt.get("version")
+    print(f"""This removes OpenClaw for your user:
+  - `openclaw uninstall {'--all' if args.purge_data else '--service'}`: {'its Gateway service, state and workspaces' if args.purge_data else 'its Gateway service, if any'}
+  - {prefix_root()}, the ~/.local/bin/openclaw link, the launcher and {state_dir()}
+{'  - OpenClaw state in ' + str(openclaw_state()) + ' (config, sessions, API keys)' if args.purge_data
+ else '  OpenClaw config, sessions and keys in ' + str(openclaw_state()) + ' are kept (add --purge-data to remove them).'}
+  Your own files in {workspace()} are never removed.
+""", flush=True)
+    if not version and not prefix_root().exists() and not link_path().is_symlink():
+        print("OpenClaw is not installed.")
+        return 0
+    if not confirm(args, "Uninstall OpenClaw?"):
+        print("Uninstall skipped.")
+        return 0
+    node = tool("node")
+    if version and node and entrypoint(version).is_file():
+        scope = ["--all"] if args.purge_data else ["--service"]
+        code = run_streaming([node, entrypoint(version), "uninstall", *scope, "--yes", "--non-interactive"],
+                             child_env(OPENCLAW_STATE_DIR=openclaw_state()), cwd=home())
+        if code != 0:
+            print(" !! OpenClaw's uninstaller reported a problem; removing its files directly.", flush=True)
+    link = link_path()
+    if link.is_symlink() and (within(link.resolve(), prefix_root()) or not link.exists()):
+        link.unlink()
+    remove_tree(prefix_root(), data_home())
+    if args.purge_data:
+        remove_tree(openclaw_state(), home())
+    try:
+        launcher_path().unlink()
+    except FileNotFoundError:
+        pass
+    remove_tree(state_dir(), home())
+    print("OpenClaw was removed.")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="shadowfetch-openclaw",
+                                     description="Install, verify, update and open OpenClaw for this user, sandboxed.",
+                                     epilog="OpenClaw needs your own model provider account or API key. Nothing here runs as root.")
+    parser.add_argument("--version", action="version",
+                        version=f"shadowfetch-openclaw {HELPER_VERSION}; OpenClaw {OPENCLAW_VERSION}")
+    commands = parser.add_subparsers(dest="command", required=True)
+    setup = commands.add_parser("setup", help="Review and install the pinned OpenClaw release")
+    setup.add_argument("--yes", "-y", action="store_true", help="Confirm the displayed download and installation")
+    setup.add_argument("--no-open", action="store_true")
+    setup.add_argument("--latest", action="store_true", help="Install npm's latest release instead of the pin")
+    update = commands.add_parser("update", help="Show and install npm's latest OpenClaw after verification")
+    update.add_argument("--yes", "-y", action="store_true")
+    update.add_argument("--check", action="store_true", help="Only report what the latest release is")
+    update.add_argument("--json", action="store_true")
+    update.add_argument("--expect", metavar="VERSION", help="Refuse unless the latest release is still this one")
+    uninstall = commands.add_parser("uninstall", help="Remove OpenClaw for this user")
+    uninstall.add_argument("--yes", "-y", action="store_true")
+    uninstall.add_argument("--purge-data", action="store_true", help="Also remove OpenClaw's config, sessions and keys")
+    gateway = commands.add_parser("gateway", help="Opt in to (or out of) the loopback-only Gateway service")
+    gateway.add_argument("action", choices=("enable", "disable", "status"))
+    gateway.add_argument("--yes", "-y", action="store_true")
+    for name in ("status", "doctor"):
+        commands.add_parser(name).add_argument("--json", action="store_true")
+    commands.add_parser("open")
+    commands.add_parser("info")
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "setup":
+            return cmd_setup(args)
+        if args.command == "update":
+            return cmd_update(args)
+        if args.command == "uninstall":
+            return cmd_uninstall(args)
+        if args.command == "gateway":
+            return cmd_gateway(args)
+        if args.command == "open":
+            return cmd_open(args)
+        if args.command == "doctor":
+            return cmd_doctor(args)
+        if args.command == "info":
+            print(consent_text())
+            return 0
+        current = status()
+        if args.json:
+            print(json.dumps(current, sort_keys=True))
+        else:
+            print(f"OpenClaw: {current['state']}; installed: {current['installed_version'] or 'none'}; "
+                  f"pinned: {OPENCLAW_VERSION}; sandbox: {current['sandbox']}.")
+            if current["blocked_by_offline"]:
+                print("The agent network is offline; OpenClaw setup, update and launch are paused.")
+        return 0
+    except Cancelled as exc:
+        print(f"OpenClaw: {exc}", file=sys.stderr)
+        return 130
+    except (SetupError, OSError, subprocess.SubprocessError, ValueError) as exc:
+        print(f"OpenClaw: {exc}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

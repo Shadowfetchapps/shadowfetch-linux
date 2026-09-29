@@ -2,6 +2,15 @@ shadowfetch-branding (5.0.0-1) umbra; urgency=medium
 
   * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
     follow once the 5.0 scope is decided.
+  * ShadowCode: new default wallpaper, the ShadowCode wallpaper set and
+    /usr/share/backgrounds/shadowfetch/shadowcode-4k.jpg; the gold and steel
+    emblem in the logos, icons and Plymouth splash, whose wordmark is now
+    two-tone (SHADOWFETCH gold, LINUX silver) on near-black.
+  * Remove the Fire/Ice-era wallpapers UmbraFire, UmbraIce, UmbraFrost,
+    UmbraDrift and UmbraGold, and umbra-4k.jpg and umbra-ice-4k.jpg; delete
+    the never-shipped UmbraEmblem and UmbraVault sets and with them
+    debian/not-installed. UmbraContour, UmbraDusk, UmbraEmber and
+    UmbraGraphite stay as extras.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

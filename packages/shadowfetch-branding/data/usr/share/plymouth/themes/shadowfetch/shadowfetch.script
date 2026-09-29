@@ -1,8 +1,9 @@
-# Shadowfetch Linux Plymouth boot splash (Umbra v2).
-# Graphite ink background, centered emblem, warm gold scanner dots.
+# Shadowfetch Linux Plymouth boot splash (ShadowCode, 5.0).
+# Near-black background, centered gold/steel emblem, two-tone wordmark,
+# gold scanner dots. Colours are tools/truth/palette.json roles.
 
-Window.SetBackgroundTopColor(0.039, 0.051, 0.067);     # #0a0d11 ink
-Window.SetBackgroundBottomColor(0.055, 0.071, 0.094);  # #0e1218 slight gradient
+Window.SetBackgroundTopColor(0.031, 0.043, 0.059);     # #080b0f emblem backdrop
+Window.SetBackgroundBottomColor(0.039, 0.051, 0.067);  # #0a0d11 ink
 
 # --- Emblem ---
 logo.image = Image("logo.png");
@@ -16,12 +17,16 @@ logo.x = Window.GetX() + Window.GetWidth()  / 2 - logo.image.GetWidth()  / 2;
 logo.y = Window.GetY() + Window.GetHeight() / 2 - logo.image.GetHeight() / 2 - 40;
 logo.sprite.SetPosition(logo.x, logo.y, 0);
 
-# --- Wordmark (warm off-white) ---
-brand.image = Image.Text("SHADOWFETCH  LINUX", 0.90, 0.86, 0.74, 1, "Sans Bold 14");
+# --- Wordmark: SHADOWFETCH in gold (#f2b33d), LINUX in silver (#bcc0c6) ---
+brand.image = Image.Text("SHADOWFETCH", 0.949, 0.702, 0.239, 1, "Sans Bold 14");
+brand.tail.image = Image.Text("  LINUX", 0.737, 0.753, 0.776, 1, "Sans Bold 14");
+brand.width = brand.image.GetWidth() + brand.tail.image.GetWidth();
 brand.sprite = Sprite(brand.image);
-brand.x = Window.GetWidth() / 2 - brand.image.GetWidth() / 2;
+brand.tail.sprite = Sprite(brand.tail.image);
+brand.x = Window.GetWidth() / 2 - brand.width / 2;
 brand.y = logo.y + logo.image.GetHeight() + 24;
 brand.sprite.SetPosition(brand.x, brand.y, 0);
+brand.tail.sprite.SetPosition(brand.x + brand.image.GetWidth(), brand.y, 0);
 
 # --- Gold scanner dots ---
 dot_count = 7;
@@ -64,7 +69,7 @@ Plymouth.SetRefreshFunction(refresh_callback);
 
 # --- Encrypted-drive unlock dialogue ---
 password.title.image = Image.Text(
-    "UNLOCK ENCRYPTED DRIVE", 0.90, 0.69, 0.30, 1, "Sans Bold 13"
+    "UNLOCK ENCRYPTED DRIVE", 0.949, 0.702, 0.239, 1, "Sans Bold 13"
 );
 password.title.sprite = Sprite(password.title.image);
 password.title.x = Window.GetWidth() / 2 - password.title.image.GetWidth() / 2;
@@ -74,7 +79,7 @@ password.title.sprite.SetOpacity(0);
 
 password.hint.image = Image.Text(
     "Enter your disk passphrase, then press Enter",
-    0.86, 0.84, 0.79, 1, "Sans 11"
+    0.839, 0.859, 0.882, 1, "Sans 11"
 );
 password.hint.sprite = Sprite(password.hint.image);
 password.hint.x = Window.GetWidth() / 2 - password.hint.image.GetWidth() / 2;

@@ -29,69 +29,53 @@ Presentation
         onTriggered: presentation.goToNextSlide()
     }
 
+    // ShadowCode (5.0.0): gold / brushed dark steel on near-black. Colours are
+    // tools/truth/palette.json roles: ink #0A0D11, accent #F2B33D, silver #BCC0C6.
+
     Slide {
-        Rectangle { anchors.fill: parent; color: "#090B0E" }
+        Rectangle { anchors.fill: parent; color: "#0A0D11" }
         Image {
             anchors.fill: parent
-            source: "slide-fire.jpg"
+            source: "slide-shadowcode.jpg"
             fillMode: Image.PreserveAspectCrop
-            opacity: 0.82
         }
-        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E60A0C10" }
+        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E60A0D11" }
         Text {
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
             anchors.margins: 24; height: 82
             color: "#FFFFFF"; wrapMode: Text.WordWrap; textFormat: Text.RichText
             font.pixelSize: 17; horizontalAlignment: Text.AlignLeft
-            text: qsTr("<b>Shadowfetch Linux 5.0.0</b><br/>Mission Control brings plans, scoped work and results together. Fire keeps connected production work close. Ice starts agent sessions offline. Both retain the same KDE desktop and recovery tools.")
+            text: qsTr("<b>Shadowfetch Linux 5.0.0</b> &mdash; <font color=\"#F2B33D\">One harness. All models.</font><br/>ShadowCode is the desktop's coding agent. Pick a model from a subscription you already have, an API key, or one that runs on this computer.")
         }
     }
 
     Slide {
-        Rectangle { anchors.fill: parent; color: "#071014" }
+        Rectangle { anchors.fill: parent; color: "#0A0D11" }
         Image {
             anchors.fill: parent
-            source: "slide-ice.jpg"
+            source: "slide-agents.jpg"
             fillMode: Image.PreserveAspectCrop
-            opacity: 0.78
         }
-        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E6070C11" }
         Text {
-            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-            anchors.margins: 24; height: 82
+            anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+            anchors.rightMargin: 40
+            width: parent.width * 0.46
             color: "#FFFFFF"; wrapMode: Text.WordWrap; textFormat: Text.RichText
-            font.pixelSize: 17; horizontalAlignment: Text.AlignLeft
-            text: qsTr("<b>Element Workbench</b><br/>Create a Software Studio, AI Lab, Production Ops desk or Creative AI workspace. Install only the signed tools you choose.")
+            font.pixelSize: 19; horizontalAlignment: Text.AlignLeft
+            lineHeight: 1.2
+            text: qsTr("<b><font color=\"#F2B33D\">Agents only if you choose them</font></b><br/><br/>Grok Bot, Hermes and OpenClaw are optional. Nothing is installed until you pick it after installation.<br/><br/><font color=\"#BCC0C6\">Agent sandboxes can start offline.</font>")
         }
     }
 
     Slide {
-        Rectangle { anchors.fill: parent; color: "#090B0E" }
+        Rectangle { anchors.fill: parent; color: "#0A0D11" }
         Image {
             anchors.fill: parent
-            source: "slide-fire.jpg"
+            source: "slide-shadowcode.jpg"
             fillMode: Image.PreserveAspectCrop
-            opacity: 0.68
+            opacity: 0.55
         }
-        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E60A0C10" }
-        Text {
-            anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-            anchors.margins: 24; height: 82
-            color: "#FFFFFF"; wrapMode: Text.WordWrap; textFormat: Text.RichText
-            font.pixelSize: 17; horizontalAlignment: Text.AlignLeft
-            text: qsTr("<b>Meet Grok Bot after installation</b><br/>Welcome features the official Grok Bot desktop alongside coding agents. Choose its verified native installation, then sign in with an eligible account and plan. Ice keeps this cloud setup paused.")
-        }
-    }
-
-    Slide {
-        Rectangle { anchors.fill: parent; color: "#071014" }
-        Image {
-            anchors.fill: parent
-            source: "slide-ice.jpg"
-            fillMode: Image.PreserveAspectCrop
-            opacity: 0.68
-        }
-        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E6070C11" }
+        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E60A0D11" }
         Text {
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
             anchors.margins: 24; height: 82

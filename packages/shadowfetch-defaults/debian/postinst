@@ -43,12 +43,23 @@ if [ "$1" = "configure" ] && command -v ufw >/dev/null 2>&1; then
     ufw limit OpenSSH >/dev/null 2>&1 || ufw limit 22/tcp >/dev/null 2>&1 || true
 fi
 
-# Retire only the previous distro relay for logged-in users. Offline users run
-# the same idempotent helper at their next desktop login. Keep failures visible
-# without breaking the unrelated package transaction.
-if [ "$1" = "configure" ] && [ -n "${2:-}" ]; then
-    /usr/libexec/shadowfetch-retire-buzz --all-users || \
-        echo "Shadowfetch relay retirement is pending; next desktop login retries." >&2
+# 5.0 replaced the Fire/Ice element with the agent network setting. Carry the
+# system default across so an Ice machine stays offline, and drop the enable
+# link of the renamed boot unit, whose file dpkg has already removed.
+if [ "$1" = "configure" ] && [ -n "${2:-}" ] \
+    && dpkg --compare-versions "$2" lt '5.0.0~'; then
+    if [ -f /etc/shadowfetch/element ] && [ ! -f /etc/shadowfetch/agent-network ]; then
+        case "$(head -1 /etc/shadowfetch/element | tr -d '[:space:]')" in
+            ice) printf 'offline\n' > /etc/shadowfetch/agent-network ;;
+            fire) printf 'online\n' > /etc/shadowfetch/agent-network ;;
+        esac
+    fi
+    if [ -f /etc/shadowfetch/agent-network ]; then
+        rm -f /etc/shadowfetch/element
+    fi
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+        deb-systemd-helper purge shadowfetch-element-boot.service >/dev/null 2>&1 || true
+    fi
 fi
 
 #DEBHELPER#

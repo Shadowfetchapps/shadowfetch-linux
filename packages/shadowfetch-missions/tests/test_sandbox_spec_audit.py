@@ -477,7 +477,7 @@ def throwaway_workspace():
         env = dict(os.environ,
                    SHADOWFETCH_AGENT_WORKSPACES=str(base / "Workspaces"),
                    XDG_STATE_HOME=str(base / "state"),
-                   SHADOWFETCH_ELEMENT="fire")
+                   SHADOWFETCH_AGENT_NETWORK="online")
         yield base, ws, env
 
 
