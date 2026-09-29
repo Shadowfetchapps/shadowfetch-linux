@@ -42,7 +42,7 @@ Depends:
 # built from this tree, so it is a floor rather than (= ${binary:Version}). The
 # floor is the pinned version in tools/release/shadowcode.toml and is rewritten
 # only by tools/bump_shadowcode.py; the package gate checks that they agree.
- shadow-code (>= 0.33.1),
+ shadow-code (>= 0.34.2),
  kde-plasma-desktop,
  sddm,
  pipewire,

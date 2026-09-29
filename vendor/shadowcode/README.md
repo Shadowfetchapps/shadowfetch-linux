@@ -15,7 +15,7 @@ signed, for the version we pinned" is checked, not assumed, at every step.
 | `upstream/verify-native-release.sh`, `upstream/native-release-auth-lib.sh` | upstream's offline verifier, byte for byte. Checks the Ed25519 signature over `RELEASE-AUTH` (`openssl pkeyutl -verify -rawin`), the key interval, the manifest and checksum digests, and an asset's size and SHA-256 |
 | `<version>/RELEASE-AUTH`, `RELEASE-AUTH.sig`, `SHA256SUMS`, `RELEASE-MANIFEST.json` | the four signed metadata files of that release |
 
-Reviewed trust commit: `e15c4480e65db5650af012bb2a9773dbe89acf84`
+Reviewed trust commit: `3f81044e1fe3d8f24cc1293e8efde79db5533213`
 
 That is the ShadowCode commit tagged `v0.33.1` (published). `trust/` and
 `upstream/` are copies of `release/trust/` and `scripts/` at that commit:
