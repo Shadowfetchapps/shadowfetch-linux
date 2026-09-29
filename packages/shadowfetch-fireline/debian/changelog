@@ -1,7 +1,15 @@
 shadowfetch-fireline (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * shadowfetch-firebreak: the default sandbox network follows the agent
+    network setting instead of the retired Fire/Ice element. Offline means
+    --net none, online means allow. Resolution: $SHADOWFETCH_AGENT_NETWORK,
+    then ~/.config/shadowfetch, then /etc/shadowfetch; at each level
+    agent-network wins over a legacy element file, and a legacy "ice" still
+    reads as offline. An explicit --net always wins.
+  * Firebreak and the MCP server report version 5.0.0.
+  * debian/copyright: Source is github.com/Shadowfetchapps/shadowfetch-linux.
+  * tests: the live-containment shell test skips cleanly when
+    `systemd-run --user` is unavailable.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

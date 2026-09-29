@@ -97,7 +97,7 @@ class EvidenceBundleTests(unittest.TestCase):
             manifest["cases"].append({
                 "id": "GROK-01", "phase": "prepublish", "required": True,
                 "status": "waived", "evidence": [],
-                "waiver": {"approver": "R. Corbin", "reason": "Grok Bot needs an eligible vendor account absent from QA."}})
+                "waiver": {"approver": "release-maintainer", "reason": "Grok Bot needs an eligible vendor account absent from QA."}})
             (root / f"qa/{V}/acceptance.json").write_text(json.dumps(manifest))
             result = bundle.package(root, f"work/release-{V}", "approved.json")
             self.assertIn("sha256", result)

@@ -90,7 +90,7 @@ root-owned manifest.
 - Required sidecars: SHA-256, detached GPG signature, source packages, SBOM,
   package manifest and evidence bundle.
 - Source branch: `release/3.5.0`
-- Build lane: `/home/rtx5060ti/projects/shadowfetch-3.5.0`
+- Build lane: `~/projects/shadowfetch-3.5.0`
 
 The 3.1.0 source tree and ISO are immutable inputs, not build destinations.
 

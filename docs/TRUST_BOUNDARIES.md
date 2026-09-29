@@ -2,8 +2,8 @@
 
 Who can change what, and whether the change would be noticed.
 
-Measured on the release/4.0.0 branch at 822d5bb, on shadowfetch-linux
-(Pop!_OS, kernel `pop-os`, machine `a75ce2fd…`), 2026-09-09. Every claim below
+Measured on the release/4.0.0 branch at 822d5bb, on the build host,
+2026-09-09. Every claim below
 was checked by running the thing named beside it. Where the box disagrees with
 the branch, the box is reported too — see **Deployment discrepancies**.
 
@@ -30,7 +30,7 @@ pointed at. It is never a synonym for "protected".
 
 | actor | who that is here |
 | --- | --- |
-| **MISSION USER** | the unprivileged uid that runs the CLI and the worker and owns the state directory. On this box `rtx5060ti`, uid 1000. This is the engine's own identity — the engine has no privilege the attacker in this row lacks. |
+| **MISSION USER** | the unprivileged uid that runs the CLI and the worker and owns the state directory. On this box the builder account, uid 1000. This is the engine's own identity — the engine has no privilege the attacker in this row lacks. |
 | **SANDBOXED AGENT** | provider code executing inside Firebreak. Same uid, different mount and network namespace. |
 | **ROOT** | uid 0. |
 | **PACKAGE MANAGER** | dpkg/apt acting as root, replacing files under `/usr`. Separated from ROOT because it is the routine, unattended path to root-owned data. |
@@ -54,8 +54,8 @@ from unprivileged user namespaces. Confirmed.
 | **Firebreak manifests** | `~/.local/state/shadowfetch/firebreak/*.session` | `-rw-------`, mission uid |
 | **journald anchor** | the journal store, `/var/log/journal/<machine-id>/` | dir `2755 root:systemd-journal` plus ACL `group:adm:r-x` and `other::r-x`; journal files `640 root:systemd-journal`. No FSS key (`…/fss` does not exist). |
 | **external chain anchor** | lines under `SYSLOG_IDENTIFIER=shadowfetch-audit` inside that journal, plus the local bookkeeping file `<state root>/audit-mirror.json` | the journal is root-owned; `audit-mirror.json` is `-rw-------` mission uid |
-| **provider manifests** | `/usr/share/shadowfetch/providers/*.json` | root-owned when packaged. **Not installed on this box** — the loader falls back to the repo tree, where they are `-rw-r--r-- rtx5060ti`. |
-| **approved-provider policy** | `/usr/share/shadowfetch/provider-policy/approved.json` | root-owned when packaged. **Not installed on this box** — falls back to `packages/shadowfetch-missions/data/usr/share/shadowfetch/provider-policy/approved.json`, `-rw-rw-r-- rtx5060ti`. |
+| **provider manifests** | `/usr/share/shadowfetch/providers/*.json` | root-owned when packaged. **Not installed on this box** — the loader falls back to the repo tree, where they are `-rw-r--r--`, owned by the builder account. |
+| **approved-provider policy** | `/usr/share/shadowfetch/provider-policy/approved.json` | root-owned when packaged. **Not installed on this box** — falls back to `packages/shadowfetch-missions/data/usr/share/shadowfetch/provider-policy/approved.json`, `-rw-rw-r--`, owned by the builder account. |
 
 Two facts about that table matter more than the rest:
 

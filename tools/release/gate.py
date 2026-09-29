@@ -50,6 +50,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import os
+import pwd
 from pathlib import Path
 import stat
 import subprocess
@@ -256,6 +257,11 @@ class ProgramResolver:
     def _pinned(self, name: str, role: str, pin: dict[str, str]) -> TrustedProgram | None:
         path_value = pin.get("path")
         digest = pin.get("sha256")
+        if isinstance(path_value, str) and path_value.startswith("~/"):
+            # "~/" is the running account's home directory taken from the
+            # password database, NOT from $HOME: the environment still does not
+            # get to redirect a pin. The digest below is verified either way.
+            path_value = pwd.getpwuid(os.getuid()).pw_dir + path_value[1:]
         if not isinstance(path_value, str) or not path_value.startswith("/"):
             raise UntrustedProgram(
                 f"[program.{name}].path must be an absolute path in {self.trust_file}"

@@ -1,20 +1,21 @@
-# Grok Bot on Shadowfetch Linux 4.0
+# Grok Bot on Shadowfetch Linux
 
-Grok Bot is a featured optional native application in Welcome and Mission
-Control. Choose it during first-boot setup to install the official Linux
+Grok Bot is one of the three optional agents Welcome offers (with Hermes and
+OpenClaw), and it has its own Control Center page. Choose it during first-boot setup to install the official Linux
 application, then open it and sign in with your own account. The normal desktop
 remains usable if you skip the choice or the download fails.
 
 Grok Bot and Grok Build are separate products. Grok Bot provides a desktop
 interface to cloud teammates and their persistent cloud computer. Grok Build is
-the optional terminal coding agent installed with `shadowfetch-code-agent grok`.
+xAI's terminal coding agent, the `grok` command. Shadowfetch no longer installs
+it; install it from xAI and connect it in ShadowCode under Settings > Accounts.
 The Grok Bot helper does not expose a headless task API or pretend its cloud
 computer is part of Shadowfetch's local Firebreak boundary.
 
 ## Installation and access
 
-The initial package is native Grok Bot **0.43.0 for amd64**, downloaded from the
-vendor only when selected. It is about 99 MiB to download and 338 MiB installed,
+The initial package is native Grok Bot **0.61.0 for amd64**, downloaded from the
+vendor only when selected. It is about 99 MiB to download and 340 MiB installed,
 plus any missing Debian dependencies. At least 1 GiB free space is required.
 The ISO contains Shadowfetch's setup integration and provenance, without the
 proprietary vendor binary or anyone's credentials.
@@ -41,20 +42,22 @@ key is not a replacement for this app's account sign-in. Grok Bot requires
 cloud data storage, and its service usage and privacy settings belong to the
 vendor account. Local Shadowfetch missions do not require a Grok Bot plan.
 
-Ice pauses this integration's cloud installation and launch. Switch to Fire
-when you choose to use the cloud application. This launch preference does not
-cancel any already-running vendor cloud routines; manage those inside Grok Bot.
+When the agent network is offline, this integration's cloud installation and
+launch are paused. Run `shadowfetch-agent-network set online` when you choose to
+use the cloud application. This setting does not cancel any already-running
+vendor cloud routines; manage those inside Grok Bot. An upgraded 4.x machine
+that used Ice reads as offline.
 
 ## Integrity and updates
 
 The release pin was obtained by following **x.ai/bot → More downloads → Linux
-→ .deb x64** to the vendor's HTTPS endpoint on September 5, 2026 UTC. Its redirect
+→ .deb x64** to the vendor's HTTPS endpoint on September 29, 2026 UTC. Its redirect
 resolved to the versioned official package in the shipped provenance manifest:
 
 ```text
-grok-bot_0.43.0_amd64.deb
-103320044 bytes
-SHA-256 451ecae8fcbda48a7c75dfc74a0da8f1d6452f6063b72330cbbaad29f3455380
+grok-bot_0.61.0_amd64.deb
+103690092 bytes
+SHA-256 3616c006748993a02674afc8a50513073d716b3bfa554943450dacf8e82576ef
 ```
 
 Setup checks the size, SHA-256 and Debian package name, version and architecture
@@ -68,7 +71,7 @@ vendor's terms. Shadowfetch does not grant redistribution rights to it.
 
 Normal newer vendor versions are accepted after their installed Debian package
 manifest passes verification. The helper reports `vendor-updated-dpkg-manifest`
-instead of claiming a match with the original 4.0 release pin. Setup leaves a
+instead of claiming a match with the original release pin. Setup leaves a
 newer verified release in place. It refuses package-manager operations that
 would remove another package, and never adds `--no-sandbox` when launching.
 

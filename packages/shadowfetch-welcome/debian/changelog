@@ -1,7 +1,18 @@
 shadowfetch-welcome (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * BREAKING: the Fire/Ice element page and the accent/wallpaper page are
+    removed. Welcome uses one ShadowCode palette (gold #F2B33D, steel
+    #BCC0C6).
+  * The agent setup page sets the agent network (Online, recommended, or
+    Offline) and offers exactly three optional agents: Grok Bot, Hermes and
+    OpenClaw. Offline pauses all three. The Codex, Claude Code, Grok Build
+    and Cursor Agent installers are no longer offered.
+  * New last page, "Connect your services in ShadowCode": explains
+    subscriptions, OpenRouter API keys and local models, and opens
+    /usr/bin/shadowcode with the session PATH so it finds the person's own
+    vendor CLIs.
+  * The "Agent workspace" profile preselects the three optional agents; the
+    Developer profile preselects none.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

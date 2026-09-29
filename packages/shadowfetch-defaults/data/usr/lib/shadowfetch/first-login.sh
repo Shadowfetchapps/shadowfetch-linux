@@ -25,6 +25,8 @@ pick() {
 }
 
 FILES=$(pick org.kde.dolphin.desktop)
+# ShadowCode, the desktop's coding agent (shadow-code's own desktop id).
+SHADOWCODE=$(pick com.shadowfetch.shadowcode.desktop)
 BROWSER=$(pick firefox-esr.desktop firefox.desktop org.mozilla.firefox.desktop chromium.desktop)
 TERMA=$(pick org.kde.konsole.desktop)
 KRITA=$(pick org.kde.krita.desktop krita.desktop)
@@ -34,15 +36,17 @@ SHOTCUT=$(pick org.shotcut.Shotcut.desktop shotcut.desktop)
 SETTINGS=$(pick systemsettings.desktop org.kde.systemsettings.desktop)
 DISCOVER=$(pick org.kde.discover.desktop plasma-discover.desktop)
 
-# Dock (icon task manager pins): files, browser, terminal, then the creative cluster
+# Dock (icon task manager pins): files, ShadowCode, browser, terminal, then the
+# creative cluster
 DOCK=""
-for id in "$FILES" "$BROWSER" "$TERMA" "$KRITA" "$GIMP" "$CALIBRE" "$SHOTCUT"; do
+for id in "$FILES" "$SHADOWCODE" "$BROWSER" "$TERMA" "$KRITA" "$GIMP" "$CALIBRE" "$SHOTCUT"; do
   [ -n "$id" ] && DOCK="${DOCK}${DOCK:+,}applications:$id"
 done
 
-# Kickoff favorites: creative cluster first, then essentials + store
+# Kickoff favorites: ShadowCode leads, then the creative cluster, then
+# essentials + store
 FAV=""
-for id in "$KRITA" "$GIMP" "$SHOTCUT" "$CALIBRE" "$BROWSER" "$FILES" "$TERMA" "$SETTINGS" "$DISCOVER"; do
+for id in "$SHADOWCODE" "$KRITA" "$GIMP" "$SHOTCUT" "$CALIBRE" "$BROWSER" "$FILES" "$TERMA" "$SETTINGS" "$DISCOVER"; do
   [ -n "$id" ] && FAV="${FAV}${FAV:+,}applications:$id"
 done
 

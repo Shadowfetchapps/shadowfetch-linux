@@ -46,5 +46,8 @@ unit/socket and retain clean service state beyond the old 30-minute deadline.
 
 When rebasing DrKonqi, revalidate the native pickup socket protocol, journal
 fields, upstream service ordering and runtime guard. The 4.0 ISO acceptance
-gate checks the tested upstream package version 6.6.5-3; this package does not
-place a global APT hold or pin on future KDE updates.
+gate checks the tested upstream package version (`UPSTREAM_VERSION` in
+`tools/drkonqi_pickup_contract.py`, 6.7.4-1 for 5.0.0); this package does not
+place a global APT hold or pin on future KDE updates. The 6.7.4 rebase kept the
+vendored 6.6.5 source because every file the helper compiles, both pinned unit
+templates and the launcher socket are byte-identical between the two releases.

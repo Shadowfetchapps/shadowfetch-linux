@@ -74,6 +74,9 @@ data/etc/sysctl.d/99-shadowfetch-hardening.conf etc/sysctl.d/
 data/etc/modprobe.d/99-shadowfetch-hardening.conf etc/modprobe.d/
 data/usr/share/doc/shadowfetch/LICENSES.md usr/share/doc/shadowfetch/
 data/usr/share/doc/shadowfetch/SOURCES.md usr/share/doc/shadowfetch/
+data/usr/share/doc/shadowfetch/SHADOWCODE.md usr/share/doc/shadowfetch/
+data/usr/share/doc/shadowfetch/HERMES.md usr/share/doc/shadowfetch/
+data/usr/share/doc/shadowfetch/OPENCLAW.md usr/share/doc/shadowfetch/
 data/usr/bin/shadowfetch-facts  usr/bin/
 data/usr/bin/shadowfetch-passport  usr/bin/
 data/usr/bin/shadowfetch-hardware usr/bin/
@@ -84,3 +87,6 @@ data/usr/bin/shadowfetch-doctor  usr/bin/
 data/usr/lib/shadowfetch/desktop/sf_desktop.py  usr/lib/shadowfetch/desktop/
 data/usr/lib/shadowfetch/look-migrate.sh  usr/lib/shadowfetch/
 data/etc/xdg/autostart/shadowfetch-look-migrate.desktop  etc/xdg/autostart/
+data/etc/shadowcode/policy.yaml  etc/shadowcode/
+data/etc/skel/.config/kglobalshortcutsrc  etc/skel/.config/
+data/etc/skel/.local/bin/.keep  etc/skel/.local/bin/

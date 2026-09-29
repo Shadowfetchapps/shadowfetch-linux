@@ -1,7 +1,6 @@
 shadowfetch-firewatchd (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * Rebuilt for Shadowfetch Linux 5.0.0. No change to this package.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

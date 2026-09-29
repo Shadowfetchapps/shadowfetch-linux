@@ -1,7 +1,10 @@
 shadowfetch-fireproof (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * Fireproof page restyled to the ShadowCode gold (#F2B33D, hover #FFC95E,
+    press #B97E22).
+  * tests: the single-update-authority scan matches skip names against the
+    path relative to packages/, so a checkout under a directory named "work"
+    (GitHub Actions) no longer empties the scan.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

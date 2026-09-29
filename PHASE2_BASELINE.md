@@ -18,7 +18,7 @@ $ git status --short
 ```
 e5766794e484b720a772396ddbdba5ccc40f0208
 e576679 Architecture audit and decisions, with the Phase 1 evidence addendum
-Bob Corbin <Robertcorbin84@gmail.com>   Tue Sep 8 06:23:08 2026 -0400
+<maintainer>   Tue Sep 8 06:23:08 2026 -0400
 branch:   release/4.0.0
 describe: v4.0.0-28-ge576679
 ```

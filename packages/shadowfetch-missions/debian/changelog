@@ -1,9 +1,11 @@
 shadowfetch-missions (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
-  * Retry read-only queries on a transient "database is locked" instead
-    of failing the call.
+  * Retry read-only queries (mission get, list and events) on a transient
+    "database is locked", up to six attempts with a 0.05-0.5 s backoff,
+    instead of failing the call. Writes still fail loudly.
+  * Depends on shadowfetch-fireline (>= 5.0.0), whose Firebreak reads the
+    agent network setting.
+  * debian/copyright: Source is github.com/Shadowfetchapps/shadowfetch-linux.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

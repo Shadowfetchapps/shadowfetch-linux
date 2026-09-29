@@ -123,6 +123,10 @@ REGISTRY: tuple[Section, ...] = (
     Section("missions", "Mission Control", "Work you can inspect",
             "sfcc.missions_page", "MissionsPage",
             ("mission-control", "home")),
+    # The preinstalled coding agent (package shadow-code). Not "code": too
+    # generic a route word to spend on one app.
+    Section("shadowcode", "ShadowCode", "Coding agent",
+            "sfcc.shadowcode_page", "ShadowCodePage", ("shadow-code",)),
     Section("grok-bot", "Grok Bot", "Featured teammate",
             "sfcc.grok_bot_page", "GrokBotPage", ("grokbot",)),
     # Not "agents": that word already routes to Workspaces (see above).

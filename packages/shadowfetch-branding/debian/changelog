@@ -1,7 +1,8 @@
 shadowfetch-branding (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * Shadowfetch Linux 5.0.0, edition ShadowCode. os-release and
+    /usr/share/shadowfetch/version report 5.0.0 (Umbra); BUG_REPORT_URL
+    points at github.com/Shadowfetchapps/shadowfetch-linux.
   * ShadowCode: new default wallpaper, the ShadowCode wallpaper set and
     /usr/share/backgrounds/shadowfetch/shadowcode-4k.jpg; the gold and steel
     emblem in the logos, icons and Plymouth splash, whose wordmark is now

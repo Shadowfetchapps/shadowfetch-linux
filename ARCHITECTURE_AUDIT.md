@@ -137,7 +137,7 @@ Read that diagram for what is *missing*: no arrow from the agent path to journal
 
 ### 3.2 The first-party MCP `fs` server is a home-directory read oracle — P0
 
-`sf_mcp.py:468` defaults `SF_MCP_FS_ROOT` to `Path.cwd()`, and the config the product tells users to generate (`shadowfetch-mcp config --json|--claude`, `FIRELINE.md:18-19`) sets no `env` block. Verified live: launched from `$HOME` it advertises itself as "scoped to /home/rtx5060ti" and returns `.ssh/` contents. Every test pins the variable, so the shipped default is never exercised. `debian/control` describes it as "scoped read-only file access". *(SEC-MCP-01)*
+`sf_mcp.py:468` defaults `SF_MCP_FS_ROOT` to `Path.cwd()`, and the config the product tells users to generate (`shadowfetch-mcp config --json|--claude`, `FIRELINE.md:18-19`) sets no `env` block. Verified live: launched from `$HOME` it advertises itself as "scoped to $HOME" and returns `.ssh/` contents. Every test pins the variable, so the shipped default is never exercised. `debian/control` describes it as "scoped read-only file access". *(SEC-MCP-01)*
 
 ### 3.3 Passwordless and unauthenticated root paths — P0/P1
 

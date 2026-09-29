@@ -159,13 +159,19 @@
 		</Include>
 	</Menu>
 
-	<!-- Workspaces and the Control Center front door. -->
+	<!--
+	  Workspaces, ShadowCode and the Control Center front door.
+	  ShadowCode (shadow-code, upstream desktop id com.shadowfetch.shadowcode)
+	  is included by file name because its upstream Categories carry only
+	  Development; it therefore also stays listed under Develop.
+	-->
 	<Menu>
 		<Name>Shadowfetch-AI</Name>
 		<Directory>shadowfetch-local-ai.directory</Directory>
 		<Include>
 			<Or>
 				<Category>X-Shadowfetch-AI</Category>
+				<Filename>com.shadowfetch.shadowcode.desktop</Filename>
 				<Filename>shadowfetch-local-ai.desktop</Filename>
 				<Filename>shadowfetch-welcome.desktop</Filename>
 			</Or>

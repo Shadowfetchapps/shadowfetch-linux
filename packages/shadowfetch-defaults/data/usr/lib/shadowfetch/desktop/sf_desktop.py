@@ -303,6 +303,27 @@ def start_detached(name: str, arguments: list[str] | None = None) -> bool:
         return False
 
 
+def start_with_session_path(name: str, arguments: list[str] | None = None) -> bool:
+    """Start a declared program detached, keeping the session PATH.
+
+    For ShadowCode: its binary is resolved from the trusted table, but it runs
+    the person's own vendor CLIs from ~/.local/bin, which trusted_env() leaves
+    out. Loader and shell hooks are still stripped. False when it cannot start.
+    """
+    path = trusted_program(name)
+    if path is None:
+        return False
+    env = trusted_env()
+    env["PATH"] = os.environ.get("PATH", TRUSTED_PATH)
+    try:
+        subprocess.Popen([path, *(arguments or [])], env=env, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        return True
+    except OSError:
+        return False
+
+
 def terminal_command(name: str, arguments: list[str] | None = None) -> bool:
     """Run a declared Shadowfetch tool in a visible terminal.
 

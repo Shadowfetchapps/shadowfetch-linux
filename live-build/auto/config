@@ -4,6 +4,25 @@
 
 set -e
 
+# The one Debian testing snapshot every chroot/bootstrap mirror below is pinned
+# to. 5.0.0 moved it from 20260726T000000Z (testing dinstall of 2026-07-25) to
+# 20260929T000000Z (dinstall of 2026-09-28 20:14 UTC; Release Valid-Until
+# 2026-10-05, see the note at the end). Every package list was resolved against
+# it in a clean container before the move.
+SNAPSHOT="http://snapshot.debian.org/archive/debian/20260929T000000Z/"
+
+# config/common sets LB_CACHE_STAGES="bootstrap", and live-build restores
+# cache/bootstrap WITHOUT checking which mirror produced it. Moving the pin
+# would otherwise build on the previous snapshot's debootstrap (old libc,
+# systemd, apt) with only the listed packages pulled forward. Drop the cache
+# whenever the pin it was made from is not this one.
+if [ -d cache/bootstrap ] && [ "$(cat cache/bootstrap.snapshot 2>/dev/null || true)" != "${SNAPSHOT}" ]; then
+    echo "[shadowfetch] cache/bootstrap was not built from ${SNAPSHOT}; discarding it" >&2
+    rm -rf cache/bootstrap
+fi
+mkdir -p cache
+printf '%s\n' "${SNAPSHOT}" > cache/bootstrap.snapshot
+
 lb config noauto \
     --mode debian \
     --initsystem systemd \
@@ -24,14 +43,14 @@ lb config noauto \
     `# and apt falls back to stale indices *without* failing the build. apt`  \
     `# authenticates by GPG signature on the Release file, not by transport, so` \
     `# http costs no integrity -- and deb.debian.org below is already http.` \
-    --parent-mirror-chroot "http://snapshot.debian.org/archive/debian/20260726T000000Z/" \
-    --mirror-chroot "http://snapshot.debian.org/archive/debian/20260726T000000Z/" \
+    --parent-mirror-chroot "${SNAPSHOT}" \
+    --mirror-chroot "${SNAPSHOT}" \
     `# testing-updates is written from a THIRD variable and was still live. It is` \
     `# empty today (main Packages.gz is 300 bytes) so this closes an unpinned` \
     `# surface rather than fixing a breakage -- but a pin that covers one of the` \
     `# two sources.list lines is not a pin.` \
-    --parent-mirror-chroot-volatile "http://snapshot.debian.org/archive/debian/20260726T000000Z/" \
-    --mirror-chroot-volatile "http://snapshot.debian.org/archive/debian/20260726T000000Z/" \
+    --parent-mirror-chroot-volatile "${SNAPSHOT}" \
+    --mirror-chroot-volatile "${SNAPSHOT}" \
     --archive-areas "main contrib non-free non-free-firmware" \
     --debian-installer false \
     --debian-installer-gui false \
@@ -53,8 +72,8 @@ lb config noauto \
     --apt-source-archives false \
     --backports false \
     --security false \
-    --parent-mirror-bootstrap "http://snapshot.debian.org/archive/debian/20260726T000000Z/" \
-    --mirror-bootstrap "http://snapshot.debian.org/archive/debian/20260726T000000Z/" \
+    --parent-mirror-bootstrap "${SNAPSHOT}" \
+    --mirror-bootstrap "${SNAPSHOT}" \
     `# Binary mirrors stay live on purpose: lb_chroot_archives:625 only rewrites` \
     `# the shipped sources.list when the chroot and binary mirrors differ, so this` \
     `# inequality is what gives a frozen build and an installed system that still` \
@@ -73,7 +92,7 @@ lb config noauto \
 #
 #     config/common:  APT_OPTIONS="--yes -o Acquire::Check-Valid-Until=false"
 #
-# Snapshot Release files carry a Valid-Until (this snapshot expires 2026-08-01)
+# Snapshot Release files carry a Valid-Until (this snapshot expires 2026-10-05)
 # and an expired Release is a hard apt failure, so the check has to be relaxed
 # for the build.
 #

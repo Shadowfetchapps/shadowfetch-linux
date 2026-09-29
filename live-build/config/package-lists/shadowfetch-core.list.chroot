@@ -61,7 +61,11 @@ qml-module-qtquick-controls2
 # Base utilities
 sudo
 network-manager
-network-manager-gnome
+# 5.0.0: network-manager-gnome was a transitional package (Depends on exactly
+# these two, same source version) and is gone from testing by the 20260929
+# snapshot. Naming its two real packages keeps the image contents identical.
+network-manager-applet
+nm-connection-editor
 systemd-timesyncd
 wpasupplicant
 pipewire

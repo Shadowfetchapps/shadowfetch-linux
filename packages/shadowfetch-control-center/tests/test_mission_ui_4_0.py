@@ -581,7 +581,7 @@ class WelcomeTests(unittest.TestCase):
     def test_shadowcode_keeps_the_session_path_for_the_vendor_clis(self):
         with patch.object(self.welcome.desktop, "trusted_program", return_value="/usr/bin/shadowcode"), \
                 patch.dict(os.environ, {"PATH": "/home/u/.local/bin:/usr/bin"}), \
-                patch.object(self.welcome.subprocess, "Popen") as popen:
+                patch.object(self.welcome.desktop.subprocess, "Popen") as popen:
             self.assertTrue(self.welcome.open_shadowcode())
         argv = popen.call_args.args[0]
         self.assertEqual(["/usr/bin/shadowcode"], argv)

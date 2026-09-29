@@ -18,7 +18,7 @@ regression test and demonstrate it fails against the shipped code.
 ## W-02 — Version control for the release tree — **COMPLETE**
 
 **Finding.** `.git` was a dangling pointer file reading
-`gitdir: /home/rtx5060ti/projects/shadowfetch-3.5.0/.git/worktrees/shadowfetch-4.0.0`.
+`gitdir: ~/projects/shadowfetch-3.5.0/.git/worktrees/shadowfetch-4.0.0`.
 That parent repository no longer exists, so every git command in the 4.0.0
 release tree failed. This silently disabled the history-based secret scan in
 `source_gate`, the release diff, and any ability to review what shipped.

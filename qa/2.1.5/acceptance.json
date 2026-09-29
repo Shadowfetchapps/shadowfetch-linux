@@ -1002,7 +1002,7 @@
           "sha256": "3ac748577196b188df0d5cd0968411022ef9f623d27a1933da91ec7a75c1c9e6"
         }
       ],
-      "notes": "Release exposed on GitHub (release v2.1.5 + main), shadowfetchlinux.org, and Archive.org (item shadowfetch-linux-2-1-5, uploader robertcorbin84@gmail.com, collection opensource) with matching SHA256SUMS, detached signature and torrent. Full 3.9GB ISO byte-copy to the mirror is completing transfer; authoritative ISO verified on shadowfetch.com."
+      "notes": "Release exposed on GitHub (release v2.1.5 + main), shadowfetchlinux.org, and Archive.org (item shadowfetch-linux-2-1-5, uploader <maintainer email>, collection opensource) with matching SHA256SUMS, detached signature and torrent. Full 3.9GB ISO byte-copy to the mirror is completing transfer; authoritative ISO verified on shadowfetch.com."
     },
     {
       "id": "PUB-02",

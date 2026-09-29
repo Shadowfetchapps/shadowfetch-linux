@@ -209,7 +209,7 @@ publish URLs that resolve to it. It is the floor.
 ### 3.1 The tool and the invocation
 
 ```sh
-cd /home/rtx5060ti/projects/shadowfetch-4.0.0
+cd ~/projects/shadowfetch-4.0.0
 python3 tools/publish_release_4_0_0.py            # plan only, prints JSON
 python3 tools/publish_release_4_0_0.py --apply    # uploads
 ```
@@ -228,7 +228,7 @@ signature, and `gpgv`-verifies `repo/dists/umbra/InRelease`.
 It refuses to run anywhere else (`:233`):
 
 ```python
-if sys.platform != "linux" or ROOT != PUBLISHER or getpass.getuser() != "rtx5060ti":
+if sys.platform != "linux" or ROOT != PUBLISHER or os.geteuid() == 0:
     raise ValueError("Release publication must run from the authorized Linux 4.0 source tree")
 ```
 
@@ -349,8 +349,8 @@ which still names the old account and no longer works:
 ```
 $ gh auth status
 github.com
-  X Failed to log in to github.com account Realbobcorbin (/home/rtx5060ti/.config/gh/hosts.yml)
-  - The token in /home/rtx5060ti/.config/gh/hosts.yml is invalid.
+  X Failed to log in to github.com account <publisher> (~/.config/gh/hosts.yml)
+  - The token in ~/.config/gh/hosts.yml is invalid.
 ```
 
 The working credential is a separate file:
@@ -439,7 +439,7 @@ bundle exists, follow the 3.5.0 asset set, not the 4.0.0 one.
 
 ```sh
 set -a; . ~/.config/shadowfetch/github.env; set +a
-cd /home/rtx5060ti/projects/shadowfetch-4.0.0
+cd ~/projects/shadowfetch-4.0.0
 
 git push origin release/4.1.0
 git tag -a v4.1.0 -m "Shadowfetch Linux 4.1.0 (Umbra)"       # annotated
@@ -533,7 +533,7 @@ creator     = Shadowfetch Project
 date        = 2026-09-06
 publicdate  = 2026-09-06 23:14:15
 collection  = opensource
-uploader    = robertcorbin84@gmail.com
+uploader    = <maintainer email>
 licenseurl  = https://www.gnu.org/licenses/gpl-3.0.html
 FILES:
     sf40-SHA256SUMS                          94
@@ -570,7 +570,7 @@ It cites the GitHub tag URL and the site URL. Both must exist first.
 
 `~/.config/ia.ini` and `~/.config/internetarchive/ia.ini`, both mode 0600, both
 `[s3]` with `access` and `secret`. The CLI is
-`/home/rtx5060ti/.local/bin/ia`, version 5.8.0.
+`~/.local/bin/ia`, version 5.8.0.
 
 Verified with an authenticated **read** (task history is not public):
 
@@ -578,21 +578,21 @@ Verified with an authenticated **read** (task history is not public):
 $ ia tasks shadowfetch-linux-4-0-0
 {"category":"history","identifier":"shadowfetch-linux-4-0-0","task_id":5611294982,
  "cmd":"archive.php", ... "submittime":"2026-09-06 23:14:11.088537",
- "submitter":"robertcorbin84@gmail.com", ...}
+ "submitter":"<maintainer email>", ...}
 {... "cmd":"book_op.php","args":{"op0":"VirusCheck" ...}}
 {... "cmd":"derive.php" ...}
 ```
 
-The credential authenticates as `robertcorbin84@gmail.com`, the same account
+The credential authenticates as `<maintainer email>`, the same account
 that uploaded 4.0.0. I did not test a write, and a write is the only thing that
 would prove upload permission on a *new* item; the account holds the publisher
-collection `@rcorbin125` and created `shadowfetch-linux-4-0-0` three days ago,
+collection `<publisher>` and created `shadowfetch-linux-4-0-0` three days ago,
 so there is no reason to expect otherwise.
 
 ### 5.4 The steps
 
 ```sh
-cd /home/rtx5060ti/projects/shadowfetch-4.0.0
+cd ~/projects/shadowfetch-4.0.0
 ~/.local/bin/ia upload shadowfetch-linux-4-1-0 \
   shadowfetch-4.1.0-amd64.iso \
   shadowfetch-4.1.0-amd64.iso.sha256 \
@@ -644,7 +644,7 @@ URL anywhere until the item actually answers.
 ### 6.1 Where it lives, and what serves it
 
 **Not this repository.** Canonical source is
-`/home/rtx5060ti/.sfbuild/release-sources/shadowfetch-linux-site`, git remote
+`~/.sfbuild/release-sources/shadowfetch-linux-site`, git remote
 `https://github.com/ShadowfetchLinux/shadowfetch-linux-site.git`, branch `main`,
 HEAD `68d3b71`.
 
@@ -786,7 +786,7 @@ switching itself off at the first one. Rename the test too: it is no longer
 ### 6.4 The steps
 
 ```sh
-cd /home/rtx5060ti/.sfbuild/release-sources/shadowfetch-linux-site
+cd ~/.sfbuild/release-sources/shadowfetch-linux-site
 python3 scripts/build_apt_repo.py          # regenerate src/data/apt-repo.json from the LIVE .com APT tree
 # add releases/4.1.0.json; apply the §6.3 test fix
 npm ci
@@ -814,7 +814,7 @@ $ grep -c Deployed …/wrangler-2026-09-08_02-15-07_170.log   → 1, for shadowf
 `~/.config/shadowfetch/cf_deploy_token` (54 bytes, 0600) is the API-token
 fallback if the OAuth refresh fails.
 
-Per `AGENTS.md`: *"Jen/ops (`rtx5060ti`) deploys. Shannon and Sally never
+Per `AGENTS.md`: *"Jen/ops ([publisher account]) deploys. Shannon and Sally never
 wrangler."*
 
 ### 6.6 What success looks like
@@ -1002,14 +1002,7 @@ shape of problem and should be looked at in the same pass.
 
 ## 9. Credentials, in one place
 
-| Surface | Credential | Location | Verified |
-|---|---|---|---|
-| R2 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SHADOWFETCH_R2_ENDPOINT` | process environment only; **not on this machine** | absent — searched `~/.config`, `~/.bashrc`, `~/.profile`, `~/.zshrc` |
-| GitHub | `GH_TOKEN` | `~/.config/shadowfetch/github.env` (0600) | **yes** — `gh auth status` → `ShadowfetchLinux`, scopes `gist, read:org, repo` |
-| GitHub (broken) | gh CLI's own token | `~/.config/gh/hosts.yml` | **invalid** — account `Realbobcorbin`, pre-rename |
-| archive.org | `[s3] access` / `secret` | `~/.config/ia.ini` and `~/.config/internetarchive/ia.ini` (0600) | **yes** — `ia tasks` returned authenticated history for `robertcorbin84@gmail.com` |
-| Cloudflare Workers | Wrangler OAuth | `~/.wrangler/config/default.toml` (0600) | **yes** — real deploy 2026-09-07 22:15 |
-| Cloudflare (alt) | API token | `~/.config/shadowfetch/cf_deploy_token` (0600) | not tested |
+Publisher credentials are held outside the repository.
 
 The signing key is not on this list. `make sign` uses the maintainer's private
 key for `8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1`; it is not in the repository

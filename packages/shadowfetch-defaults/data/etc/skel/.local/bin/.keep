@@ -1,0 +1,6 @@
+# Shadowfetch Linux ships this folder in every new account so that it exists
+# at the FIRST login. Debian's ~/.profile puts ~/.local/bin on PATH only when
+# the folder already exists, and the desktop session keeps the PATH it started
+# with. ShadowCode finds the Codex, Claude Code, Cursor and Grok command-line
+# tools on that PATH, and their installers put them here. Without this file a
+# tool installed during the first session stays invisible until the next login.

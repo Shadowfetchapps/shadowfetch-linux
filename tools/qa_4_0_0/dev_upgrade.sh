@@ -1,7 +1,8 @@
 #!/bin/bash
 # Run only inside the disposable development/upgrade VM.
 set -euo pipefail
-test "$(hostname)" != pop-os
+# Refuse to run anywhere but a virtual machine (never on the build host).
+systemd-detect-virt --vm --quiet
 test -d /home/sfqa
 destination=/var/tmp/shadowfetch-4.0-upgrade
 install -d -m 0755 "$destination"

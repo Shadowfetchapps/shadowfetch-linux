@@ -1,7 +1,52 @@
 shadowfetch-defaults (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * BREAKING: Fire/Ice is retired. shadowfetch-element, element-boot.sh,
+    element-session.sh, shadowfetch-element-boot.service and the
+    shadowfetch-element-session autostart entry are removed. Their security
+    half survives as the new /usr/bin/shadowfetch-agent-network
+    online|offline (user file ~/.config/shadowfetch/agent-network, system
+    file /etc/shadowfetch/agent-network, $SHADOWFETCH_AGENT_NETWORK; a
+    leftover 4.x element file still counts, ice = offline). The boot menu's
+    sf.agent-network= is stamped by the new
+    shadowfetch-agent-network-boot.service.
+  * postinst: on upgrade from before 5.0.0, carry /etc/shadowfetch/element
+    across as /etc/shadowfetch/agent-network (ice -> offline, fire ->
+    online), remove the element file and purge the old unit's enable link,
+    so no upgraded sandbox gains network.
+  * shadowfetch-grok-bot, shadowfetch-workbench and the shared desktop
+    library (sf_desktop.py) read the agent network instead of the element.
+    Workbench profiles.json uses recommended_agent_network; "Element
+    Workbench" is renamed Shadowfetch Workbench.
+  * BREAKING: shadowfetch-codex and shadowfetch-code-agent are removed, with
+    CODEX.md and CODING-AGENTS.md. ShadowCode (shadowfetch-desktop depends
+    on it) connects the vendor CLIs itself. CLIs already installed in
+    ~/.local/bin are left in place.
+  * BREAKING: Buzz is removed completely: /usr/libexec/shadowfetch-retire-buzz
+    and its autostart entry are gone, and the postinst no longer runs the
+    relay retirement.
+  * New optional, user-home, non-root installers shadowfetch-hermes (Hermes
+    Agent 0.21.5, tag v2026.9.24, installer pinned by SHA-256) and
+    shadowfetch-openclaw (OpenClaw 2026.9.6 via `npm ci` from a shipped,
+    SHA-pinned package-lock.json under /usr/share/shadowfetch/openclaw/).
+    Each has setup, update (verified latest release, after consent), status,
+    doctor, open, info and uninstall, and pauses while the agent network is
+    offline. OpenClaw opens only inside shadowfetch-firebreak; its Gateway is
+    never installed unless `shadowfetch-openclaw gateway enable` binds it to
+    loopback; setup discloses its security-advisory record.
+  * New /usr/lib/shadowfetch/look-migrate.sh, run once per user from
+    shadowfetch-look-migrate.desktop: repoints only settings that name a
+    removed Ice/Fire-era asset (colour scheme, Konsole scheme, look-and-feel,
+    wallpapers, retired accents) at ShadowCode, and removes menu launchers
+    that still run the retired CLI helpers.
+  * shadowfetch-doctor: new "shadowcode" category. Fails when
+    /usr/bin/shadowcode is missing; warns when a user-level ShadowCode in
+    ~/.local takes precedence over the system one (existence probe only).
+  * shadowfetch-facts lists shadowcode instead of shadowfetch-code-agent.
+  * skel kdeglobals, kscreenlockerrc, first-login.sh and the Passport report
+    use the ShadowCode gold (#F2B33D) and shadowcode-4k.jpg.
+  * maintscript: rm_conffile for the two retired autostart entries, and the
+    52shadowfetch-unattended.conf removal restamped to 5.0.0-1~.
+
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

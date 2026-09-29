@@ -601,7 +601,7 @@ SECCOMP_DENY = (
     #
     #     open_after_filter            blocked:EPERM
     #     io_uring_openat_after_filter REACHED:fd5
-    #     contents_read_through_it     "pop-os"      (/etc/hostname, read out)
+    #     contents_read_through_it     "<hostname>"    (/etc/hostname, read out)
     #
     # io_uring_setup was REACHED:3 inside a Firebreak sandbox before Stage F, so
     # that route was open here. With these three rows denied the same probe stops

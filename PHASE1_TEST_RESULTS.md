@@ -239,7 +239,7 @@ Checked directly rather than taken on report:
    ls: cannot access '...evidence-bundle-4.0.0.tar.gz': No such file or directory
 
 -- ISO's own detached signature --
-   -rw-rw-r-- 1 rtx5060ti rtx5060ti 228 Sep  6 16:22 shadowfetch-4.0.0-amd64.iso.asc
+   -rw-rw-r-- 1 builder builder 228 Sep  6 16:22 shadowfetch-4.0.0-amd64.iso.asc
 ```
 
 The per-ISO signature path is intact; the aggregate-checksum path does not

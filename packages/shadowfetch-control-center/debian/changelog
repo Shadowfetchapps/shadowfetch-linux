@@ -1,7 +1,21 @@
 shadowfetch-control-center (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * New "Hermes & OpenClaw" page (optional_agents_page.py; search terms
+    hermes, openclaw): shows each helper's own `status --json` and runs
+    shadowfetch-hermes / shadowfetch-openclaw setup, update, open and
+    uninstall by their trusted absolute paths. Nothing is preinstalled.
+    OpenClaw's card carries its security-advisory note.
+  * Fire/Ice retired: the Grok Bot, Mission Control and Workbench pages read
+    the agent network setting (online/offline) through the shared desktop
+    library instead of the element. Offline pauses Grok Bot install and
+    launch and cloud sign-in, and defaults a mission's connection to
+    "Offline · no external network"; an upgraded Ice setting reads as
+    offline.
+  * theme.py: one ShadowCode palette (gold #F2B33D, hover #FFC95E, press
+    #B97E22, steel #BCC0C6); the Ice azure palette is removed.
+  * "Element Workbench" is renamed Workbench ("Production projects"); the
+    "buzz" search alias is dropped.
+
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

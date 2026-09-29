@@ -300,18 +300,7 @@ def open_shadowcode():
     ShadowCode runs the person's own vendor CLIs from ~/.local/bin, which
     desktop.trusted_env() deliberately leaves out.
     """
-    path = desktop.trusted_program("shadowcode")
-    if path is None:
-        return False
-    env = desktop.trusted_env()
-    env["PATH"] = os.environ.get("PATH", desktop.TRUSTED_PATH)
-    try:
-        subprocess.Popen([path], env=env, stdin=subprocess.DEVNULL,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
-        return True
-    except OSError:
-        return False
+    return desktop.start_with_session_path("shadowcode")
 
 CONFIG_DIR = Path.home() / ".config" / "shadowfetch"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -1935,7 +1924,7 @@ class WelcomePage(QWidget):
         copy.addWidget(_label("The coding agent built into this desktop. Pick a model from a subscription you already have, an API key, or one that runs on this computer, then review every change it makes. Setup ends by connecting your services.", 11, MUTED, wrap=True))
         feature_row.addLayout(copy, 1)
         explore = QPushButton("Open ShadowCode  →")
-        explore.clicked.connect(open_shadowcode)
+        explore.clicked.connect(self._open_shadowcode)
         feature_row.addWidget(explore)
         lay.addWidget(feature)
         points = QGridLayout()
@@ -1973,6 +1962,13 @@ class WelcomePage(QWidget):
         nxt.setFixedHeight(44)
         nxt.clicked.connect(on_next)
         lay.addWidget(nxt, alignment=Qt.AlignmentFlag.AlignRight)
+
+    def _open_shadowcode(self):
+        if not open_shadowcode():
+            QMessageBox.warning(
+                self, "ShadowCode could not be started",
+                "Open it from the application menu, or reinstall the shadow-code "
+                "package from Software.")
 
 
 class ProfilePage(QWidget):

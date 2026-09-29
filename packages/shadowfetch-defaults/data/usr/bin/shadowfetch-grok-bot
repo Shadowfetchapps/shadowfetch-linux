@@ -18,10 +18,10 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
-VERSION = "0.43.0"
-URL = "https://downloads.cursor.com/grokbot/stable/dd6e1fd3efb029e94e3c9d5c4d3e66510a917395/linux/x64/grok-bot_0.43.0_amd64.deb"
-SHA256 = "451ecae8fcbda48a7c75dfc74a0da8f1d6452f6063b72330cbbaad29f3455380"
-DOWNLOAD_BYTES = 103320044
+VERSION = "0.61.0"
+URL = "https://downloads.cursor.com/grokbot/stable/47a9d1df3a7d37aaa53d206ab2d1f9159a336223/linux/x64/grok-bot_0.61.0_amd64.deb"
+SHA256 = "3616c006748993a02674afc8a50513073d716b3bfa554943450dacf8e82576ef"
+DOWNLOAD_BYTES = 103690092
 OFFICIAL_ENDPOINT = "https://api2.cursor.sh/updates/download/stable/linux-x64/grok-bot-fb0a830618be0c54"
 TERMS_URL = "https://cursor.com/terms/grok-bot"
 DOCS_URL = "https://docs.x.ai/grok-bot/get-started"
@@ -32,13 +32,13 @@ SYSTEM_STATE = Path("/var/lib/shadowfetch/grok-bot")
 LOCK = SYSTEM_STATE / "setup.lock"
 SYSTEM_CONFIG = Path("/etc/shadowfetch")
 PINNED_FILES = {
-    "/opt/Grok Bot/grok-bot": "6d2a2ce754b755637076692a502cd29165d80d1b773d5b5482f4bfccf76a2acf",
-    "/opt/Grok Bot/resources/app.asar": "77fa229a29ef03799fec31e1b30f4d03823461ca4c60d9c02dd0a2297de4edef",
+    "/opt/Grok Bot/grok-bot": "f41a171f676da01f1a126e24e9fbfeb7af6d17456e924f3f9831ec637886d79c",
+    "/opt/Grok Bot/resources/app.asar": "b25d2b55c63b65eb4aa5152b2ac34a4a2b7b5bc4665c4142b1f265aaad5901b2",
     "/usr/share/applications/grok-bot.desktop": "162b72e4238313e87bf09f8a85584722c2848302efb8d245541972a45d18df7e",
 }
 CONSENT = """Grok Bot is an optional cloud agent desktop application from SpaceXAI/Cursor.
 This installs the official native Linux package for this computer (about 99 MiB
-download, 338 MiB installed) and may install required Debian dependencies.
+download, 340 MiB installed) and may install required Debian dependencies.
 Administrator authentication is needed. The vendor package registers its signed
 APT update source at downloads.cursor.com, so system updates can update Grok Bot.
 Open the native app to sign in with your own eligible Cursor or linked SuperGrok

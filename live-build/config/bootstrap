@@ -33,20 +33,20 @@ LB_PARENT_DISTRIBUTION="testing"
 LB_PARENT_DEBIAN_INSTALLER_DISTRIBUTION="testing"
 
 # $LB_PARENT_MIRROR_BOOTSTRAP: set parent mirror to bootstrap from
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
-LB_PARENT_MIRROR_BOOTSTRAP="http://snapshot.debian.org/archive/debian/20260726T000000Z/"
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
+LB_PARENT_MIRROR_BOOTSTRAP="http://snapshot.debian.org/archive/debian/20260929T000000Z/"
 
 # $LB_PARENT_MIRROR_CHROOT: set parent mirror to fetch packages from
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
-LB_PARENT_MIRROR_CHROOT="http://snapshot.debian.org/archive/debian/20260726T000000Z/"
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
+LB_PARENT_MIRROR_CHROOT="http://snapshot.debian.org/archive/debian/20260929T000000Z/"
 
 # $LB_PARENT_MIRROR_CHROOT_SECURITY: set security parent mirror to fetch packages from
 # (Default: http://security.debian.org/)
 LB_PARENT_MIRROR_CHROOT_SECURITY="http://security.debian.org/"
 
 # $LB_PARENT_MIRROR_CHROOT_VOLATILE: set volatile parent mirror to fetch packages from
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
-LB_PARENT_MIRROR_CHROOT_VOLATILE="http://snapshot.debian.org/archive/debian/20260726T000000Z/"
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
+LB_PARENT_MIRROR_CHROOT_VOLATILE="http://snapshot.debian.org/archive/debian/20260929T000000Z/"
 
 # $LB_PARENT_MIRROR_CHROOT_BACKPORTS: set backports parent mirror to fetch packages from
 # (Default: http://backports.debian.org/debian-backports/)
@@ -69,24 +69,24 @@ LB_PARENT_MIRROR_BINARY_VOLATILE="http://deb.debian.org/debian/"
 LB_PARENT_MIRROR_BINARY_BACKPORTS="http://backports.debian.org/debian-backports/"
 
 # $LB_PARENT_MIRROR_DEBIAN_INSTALLER: set debian-installer parent mirror
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
 LB_PARENT_MIRROR_DEBIAN_INSTALLER="http://deb.debian.org/debian/"
 
 # $LB_MIRROR_BOOTSTRAP: set mirror to bootstrap from
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
-LB_MIRROR_BOOTSTRAP="http://snapshot.debian.org/archive/debian/20260726T000000Z/"
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
+LB_MIRROR_BOOTSTRAP="http://snapshot.debian.org/archive/debian/20260929T000000Z/"
 
 # $LB_MIRROR_CHROOT: set mirror to fetch packages from
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
-LB_MIRROR_CHROOT="http://snapshot.debian.org/archive/debian/20260726T000000Z/"
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
+LB_MIRROR_CHROOT="http://snapshot.debian.org/archive/debian/20260929T000000Z/"
 
 # $LB_MIRROR_CHROOT_SECURITY: set security mirror to fetch packages from
-# (Default: https://snapshot.debian.org/archive/debian/20260726T000000Z/)
-LB_MIRROR_CHROOT_SECURITY="https://snapshot.debian.org/archive/debian/20260726T000000Z/"
+# (Default: https://snapshot.debian.org/archive/debian/20260929T000000Z/)
+LB_MIRROR_CHROOT_SECURITY="https://snapshot.debian.org/archive/debian/20260929T000000Z/"
 
 # $LB_MIRROR_CHROOT_VOLATILE: set volatile mirror to fetch packages from
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
-LB_MIRROR_CHROOT_VOLATILE="http://snapshot.debian.org/archive/debian/20260726T000000Z/"
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
+LB_MIRROR_CHROOT_VOLATILE="http://snapshot.debian.org/archive/debian/20260929T000000Z/"
 
 # $LB_MIRROR_CHROOT_BACKPORTS: set backports mirror to fetch packages from
 # (Default: http://backports.debian.org/debian-backports/)
@@ -109,7 +109,7 @@ LB_MIRROR_BINARY_VOLATILE="http://deb.debian.org/debian/"
 LB_MIRROR_BINARY_BACKPORTS="http://backports.debian.org/debian-backports/"
 
 # $LB_MIRROR_DEBIAN_INSTALLER: set debian-installer mirror
-# (Default: http://snapshot.debian.org/archive/debian/20260726T000000Z/)
+# (Default: http://snapshot.debian.org/archive/debian/20260929T000000Z/)
 LB_MIRROR_DEBIAN_INSTALLER="http://deb.debian.org/debian/"
 
 # $LB_ARCHIVES: enable available third-party archives

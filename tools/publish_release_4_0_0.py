@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import datetime
-import getpass
 import hashlib
 import json
 import mimetypes
@@ -26,7 +25,9 @@ import sys
 import tempfile
 
 BUCKET = "shadowfetch-linux"
-PUBLISHER = Path("/home/rtx5060ti/projects/shadowfetch-4.0.0")
+# The one authorized publishing tree: ~/projects/shadowfetch-4.0.0 of the
+# account running the publisher (derived from $HOME, not a named user).
+PUBLISHER = Path.home().resolve() / "projects" / "shadowfetch-4.0.0"
 ROOT = Path(__file__).resolve().parents[1]
 FINGERPRINT = "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1"
 # WHICH RELEASE THIS IS, is not written down here. A publisher carrying its own
@@ -251,8 +252,8 @@ def main():
     if not args.apply:
         print(json.dumps([{"key": item.key, "bytes": item.size, "sha256": item.sha256, "mutable": item.mutable} for item in [*plan, pointer]], indent=2))
         return 0
-    if sys.platform != "linux" or ROOT != PUBLISHER or getpass.getuser() != "rtx5060ti":
-        raise ValueError("Release publication must run from the authorized Linux 4.0 source tree")
+    if sys.platform != "linux" or ROOT != PUBLISHER or os.geteuid() == 0:
+        raise ValueError("Release publication must run from the authorized Linux 4.0 source tree, as a non-root user")
     endpoint = os.environ.get("SHADOWFETCH_R2_ENDPOINT", "")
     if not re.fullmatch(r"https://[a-f0-9]{32}\.r2\.cloudflarestorage\.com", endpoint):
         raise ValueError("Set the account's HTTPS R2 endpoint")

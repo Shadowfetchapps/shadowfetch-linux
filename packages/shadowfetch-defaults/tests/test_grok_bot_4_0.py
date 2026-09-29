@@ -164,7 +164,7 @@ class GrokBotTests(unittest.TestCase):
 
     def test_newer_vendor_update_is_not_downgraded_or_claimed_as_pin(self):
         with patch.object(BOT, "trusted_regular", return_value=True), patch.object(BOT.os, "access", return_value=True), patch.object(BOT, "run", return_value=completed("")):
-            self.assertEqual(BOT.integrity("0.44.0"), (True, "vendor-updated-dpkg-manifest"))
+            self.assertEqual(BOT.integrity("0.62.0"), (True, "vendor-updated-dpkg-manifest"))
 
     def test_older_vendor_version_needs_update(self):
         with patch.object(BOT, "trusted_regular", return_value=True), patch.object(BOT.os, "access", return_value=True), patch.object(BOT, "run", return_value=completed("", code=1)):
@@ -230,7 +230,7 @@ class GrokBotTests(unittest.TestCase):
             stack.enter_context(patch.object(BOT.Path, "is_file", return_value=True))
             stack.enter_context(patch.object(BOT.os, "umask"))
             stack.enter_context(patch.dict(os.environ))
-            stack.enter_context(patch.object(BOT, "installed_package", return_value="0.44.0"))
+            stack.enter_context(patch.object(BOT, "installed_package", return_value="0.62.0"))
             stack.enter_context(patch.object(BOT, "integrity", return_value=(True, "vendor-updated-dpkg-manifest")))
             runner = stack.enter_context(patch.object(BOT, "run"))
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))

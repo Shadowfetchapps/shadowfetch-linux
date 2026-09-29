@@ -12,6 +12,7 @@
   "patch": "patches/pickup-drains-journal.patch",
   "scope": "Compile only upstream coredump processor/watch library; install own helper plus pickup ExecStart drop-in. Original drkonqi binary and per-crash service remain owned by Debian.",
   "tested_runtime_protocol": "KDE drkonqi 6.6.5-3 native SOCK_SEQPACKET launcher; UID/cursor/pickup metadata unchanged.",
+  "runtime_rebase": "5.0.0 image ships Debian drkonqi 6.7.4-1. Checked 2026-09-29 against the KDE-signed drkonqi-6.7.4.tar.xz (sha256 c7f9402b7a32e077b23d34d083926bc7a78f18b93184510def3fcc32532d6959, VALIDSIG B3CB366552540BE06EE9AD9711968C44928CAEFC): every compiled source, the pickup and processor@ unit templates and the launcher socket are byte-identical to 6.6.5, and Debian 6.7.4-1 installs the unit hashes the contract pins. The vendored 6.6.5 source is kept.",
   "licenses": [
     "GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL"
   ]

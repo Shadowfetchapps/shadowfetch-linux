@@ -175,6 +175,9 @@ REQUIRED_ROOT_FILES = {
     "usr/share/shadowfetch/welcome/catalog/workbench-production-ops.json",
     "usr/share/shadowfetch/welcome/catalog/workbench-software-studio.json",
     "var/lib/dpkg/status",
+    # 5.0: ShadowCode's system policy; without it the preinstalled copy nags
+    # about GitHub releases that apt, not the user, must install.
+    "etc/shadowcode/policy.yaml",
 }
 
 REQUIRED_EXECUTABLES = {

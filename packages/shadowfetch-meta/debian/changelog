@@ -1,7 +1,11 @@
 shadowfetch-meta (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * shadowfetch-desktop now Depends on shadow-code (>= 0.34.2): ShadowCode,
+    the desktop's coding agent, republished unmodified from its signed
+    upstream .deb. It is a version floor, not (= ${binary:Version}), because
+    this tree does not build it; the floor is the pin in
+    tools/release/shadowcode.toml and is rewritten only by
+    tools/bump_shadowcode.py.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

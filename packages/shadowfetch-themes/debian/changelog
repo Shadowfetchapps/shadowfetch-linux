@@ -1,7 +1,5 @@
 shadowfetch-themes (5.0.0-1) umbra; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
   * ShadowCode: one look replaces Fire and Ice. ShadowfetchDark.colors,
     ShadowfetchUmbra.colorscheme, org.shadowfetch.dark and the umbra SDDM
     theme keep their ids so 4.1 configurations still resolve, are restyled

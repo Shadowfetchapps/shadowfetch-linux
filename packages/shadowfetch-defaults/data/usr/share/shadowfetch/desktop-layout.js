@@ -18,7 +18,7 @@ panel.height = 46;
 // Floating + adaptive opacity = the high-end "designed" look (Plasma 6).
 try { panel.floating = true; } catch (e) {}
 
-// --- App launcher (Kickoff) with curated favorites featuring the creative apps ---
+// --- App launcher (Kickoff) with curated favorites: ShadowCode, then the creative apps ---
 var kickoff = panel.addWidget("org.kde.plasma.kickoff");
 kickoff.currentConfigGroup = ["General"];
 kickoff.writeConfig("favoritesPortedToKAstats", true);
@@ -31,7 +31,8 @@ var sp1 = panel.addWidget("org.kde.plasma.panelspacer");
 sp1.currentConfigGroup = ["General"];
 sp1.writeConfig("expanding", true);
 
-// --- Curated dock: icon-only task manager with pinned creative apps ---
+// --- Curated dock: icon-only task manager; files, ShadowCode, browser,
+//     terminal, then the pinned creative apps (order set in first-login.sh) ---
 var tasks = panel.addWidget("org.kde.plasma.icontasks");
 tasks.currentConfigGroup = ["General"];
 tasks.writeConfig("launchers", "@@LAUNCHERS@@");

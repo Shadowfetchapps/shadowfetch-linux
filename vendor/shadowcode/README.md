@@ -15,24 +15,14 @@ signed, for the version we pinned" is checked, not assumed, at every step.
 | `upstream/verify-native-release.sh`, `upstream/native-release-auth-lib.sh` | upstream's offline verifier, byte for byte. Checks the Ed25519 signature over `RELEASE-AUTH` (`openssl pkeyutl -verify -rawin`), the key interval, the manifest and checksum digests, and an asset's size and SHA-256 |
 | `<version>/RELEASE-AUTH`, `RELEASE-AUTH.sig`, `SHA256SUMS`, `RELEASE-MANIFEST.json` | the four signed metadata files of that release |
 
-Reviewed trust commit: `3f81044e1fe3d8f24cc1293e8efde79db5533213`
+Reviewed trust commit: `3f81044e1fe3d8f24cc1293e8efde79db5533213` (tag `v0.34.2`)
 
-That is the ShadowCode commit tagged `v0.33.1` (published). `trust/` and
-`upstream/` are copies of `release/trust/` and `scripts/` at that commit:
-
-    policy                                     sha256 eca44c9ea3ec6d26d30a9ba32cdf12216d9d7ad81ddc95bcaa4987e8eaa85eae
-    f0c60ff8...3b7f.pem                        sha256 5cff52b3b22a22f67a3b1608ea990ad38bc04a68adb7a80a1f40eceae858ad65
-    verify-native-release.sh                   sha256 33b11066891aa035af81bc5bfd86d9ba9f6e23b53233050c2fe84d4d8fcedf0f
-    native-release-auth-lib.sh                 sha256 0e74030d9f3e6c1372c70aa973ce0812a23ddf6e206e6daf2891b35a3310b615
-
-**That policy authorises key `f0c60ff8…3b7f` for ShadowCode 0.33.0 through
-0.33.1 only.** Upstream widened it to 0.34.0 in
-`d5b2025cc3811909c1c5046accd61c03840e9300` ("ShadowCode 0.34.0: … trust
-range"), which reached `origin/main` on 2026-09-28. Against `e15c4480` that
-commit changes exactly one line -- the key's maximum, `0.33.1` -> `0.34.0` --
-and neither verifier script. It has deliberately NOT been vendored yet:
-widening a key's interval is a trust decision for a reviewer, and step 1 below
-is how it is taken.
+`trust/` and `upstream/` are copies of `release/trust/` and `scripts/` at that
+commit. Against the first reviewed commit, `e15c4480` (`v0.33.1`), the only
+change is the key's authorised maximum, `0.33.1` -> `0.34.2`; neither verifier
+script changed. **The policy authorises key `f0c60ff8…3b7f` for ShadowCode
+0.33.0 through 0.34.2.** A later release needs step 1 below again with a
+published commit whose policy authorises it.
 
 The version pin itself is **not** here. It is `tools/release/shadowcode.toml`,
 the one place the shipped version, commit and per-asset size/SHA-256 live.
@@ -50,18 +40,18 @@ the one place the shipped version, commit and per-asset size/SHA-256 live.
 
 Nothing trusts an earlier step: there is no "verified" marker file to forge.
 
-## Bumping to a new ShadowCode release (tonight's path)
+## Bumping to a new ShadowCode release
 
-Only after the tag is **published** (`gh release view v0.34.0 -R
+Only after the tag is **published** (`gh release view v<version> -R
 Shadowfetchapps/ShadowCode`).
 
-1. The vendored policy stops at 0.33.1, so 0.34.0 first needs the widened
+1. A version beyond the vendored policy's maximum first needs the widened
    policy from a **published, reviewed** upstream commit (review
    `git diff e15c4480 <sha> -- release/trust scripts/verify-native-release.sh scripts/native-release-auth-lib.sh`):
 
        git -C <ShadowCode clone> fetch origin --tags
        python3 tools/bump_shadowcode.py --refresh-trust \
-           --trust-commit <published commit carrying the 0.34.0 range> \
+           --trust-commit <published commit whose policy authorises the new version> \
            --shadowcode-checkout <ShadowCode clone>
 
    It refuses a commit on no remote branch or tag, and refuses any key this
@@ -71,11 +61,11 @@ Shadowfetchapps/ShadowCode`).
 2. Bump (verifies the signature with the currently pinned release as
    `--previous-dir`, so downgrades and same-version republications refuse):
 
-       python3 tools/bump_shadowcode.py 0.34.0 --dry-run
-       python3 tools/bump_shadowcode.py 0.34.0
+       python3 tools/bump_shadowcode.py <version> --dry-run
+       python3 tools/bump_shadowcode.py <version>
 
-   This writes `vendor/shadowcode/0.34.0/`, rewrites
-   `tools/release/shadowcode.toml`, and sets `shadow-code (>= 0.34.0)` in
+   This writes `vendor/shadowcode/<version>/`, rewrites
+   `tools/release/shadowcode.toml`, and sets `shadow-code (>= <version>)` in
    `packages/shadowfetch-meta/debian/control`. Re-running it is a verified
    no-op.
 
@@ -88,7 +78,7 @@ Shadowfetchapps/ShadowCode`).
        make vm-acceptance VM_CASE=shadowcode
        make vm-acceptance VM_CASE=shadowcode-soak VM_ACCEPTANCE_ARGS=--record
 
-   0.34.0 also adds `bubblewrap` to Recommends; `--apt-recommends true` in
+   Since 0.34.0 ShadowCode Recommends `bubblewrap`; `--apt-recommends true` in
    `live-build/auto/config` installs it in the image.
 
 ## Source distribution

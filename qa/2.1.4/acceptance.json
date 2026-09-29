@@ -806,7 +806,7 @@
           "sha256": "24194d7d2e7e93586be45b999f9ab0e0bb70c465ae918068f02a3c82b8822d9e"
         }
       ],
-      "notes": "Release visible on all three surfaces: GitHub release v2.1.4 (Realbobcorbin/shadowfetch-linux) with SHA256SUMS/.asc/.torrent/manifest assets; shadowfetch.com/linux presenting 2.1.4 (hero, download, verify, changelog #v2-1-4, releases feed); Archive.org item shadowfetch-linux-2-1-4 derived and serving the ISO/.asc/.sha256/.torrent/SHA256SUMS. All three independently reachable."
+      "notes": "Release visible on all three surfaces: GitHub release v2.1.4 (project GitHub repository) with SHA256SUMS/.asc/.torrent/manifest assets; shadowfetch.com/linux presenting 2.1.4 (hero, download, verify, changelog #v2-1-4, releases feed); Archive.org item shadowfetch-linux-2-1-4 derived and serving the ISO/.asc/.sha256/.torrent/SHA256SUMS. All three independently reachable."
     },
     {
       "id": "PUB-02",

@@ -29,5 +29,6 @@
 # and say so, not fall back to the writable one.
 
 [program.gitleaks]
-path = "/home/rtx5060ti/.local/bin/gitleaks"
+# "~/" is the running account's home from the password database (never $HOME).
+path = "~/.local/bin/gitleaks"
 sha256 = "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509"

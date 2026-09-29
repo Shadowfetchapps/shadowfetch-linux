@@ -6,10 +6,90 @@ none of them is hypothetical.
 
 ## Before anything: where the work lives
 
-Branch `release/4.0.0` in `~/projects/shadowfetch-4.0.0` on the Linux publisher.
-There is one authorized publishing tree and `publish_release_4_0_0.py` refuses
-to run anywhere else (`sys.platform != "linux" or ROOT != PUBLISHER or
-getpass.getuser() != "rtx5060ti"`).
+Branch `release/5.0.0` in `~/projects/shadowfetch-4.0.0` on the Linux publisher
+(the directory name is historical, not the version). There is one authorized
+publishing tree and `publish_release_4_0_0.py` refuses to run anywhere else
+(`sys.platform != "linux" or ROOT != PUBLISHER or os.geteuid() == 0`, where
+`PUBLISHER` is `~/projects/shadowfetch-4.0.0` of the running account). The `_4_0_0` in its name is a legacy label: it publishes the
+release named by the sole non-historical `tools/release/versions/<v>.toml`,
+which is 5.0.0.
+
+## The 5.0.0 release run, in order
+
+Each step names what must be true before the next one starts. Do not edit the
+tree while any step from 3 onward runs (see the trap under *Running the
+tests*).
+
+1. **Settle the inputs.** The platform refresh (Debian snapshot, kernel,
+   Plasma) has landed and the `TODO(platform)` placeholders in `README.md` and
+   `RELEASE-5.0.0.md` are filled. The APT suite decision in
+   `tools/release/versions/5.0.0.toml` (`codename = "umbra"`, marked
+   PROVISIONAL) is made and the comment updated. Every `debian/changelog` top
+   entry has its final date.
+2. **ShadowCode pin.** Check whether upstream has published a newer release
+   (`gh release view -R Shadowfetchapps/ShadowCode`). To move the pin, follow
+   `vendor/shadowcode/README.md`: `--refresh-trust` only from a published,
+   reviewed upstream commit, then
+
+       python3 tools/bump_shadowcode.py <version> --dry-run
+       python3 tools/bump_shadowcode.py <version>
+
+   which rewrites `tools/release/shadowcode.toml`, `vendor/shadowcode/<v>/`
+   and the `shadow-code (>= <v>)` floor in `packages/shadowfetch-meta/debian/control`.
+   To keep 0.34.2, re-running `bump_shadowcode.py 0.34.2` is a verified no-op.
+   Add `vendor/shadowcode/<v>/lintian-accepted` only after reviewing each
+   entry. Update the version in `README.md`, `RELEASE-5.0.0.md` and the
+   meta changelog if it moved.
+3. **Fetch and smoke ShadowCode.**
+
+       make shadowcode          # tools/fetch_shadowcode.py: download, verify signature and pin
+       make shadowcode-smoke    # tools/shadowcode_smoke.py: extract, ldd, --version, runtime --version
+
+   The smoke must report 7/7.
+4. **Tests and source gate.** `make test`, then `make source-gate`. The
+   source gate fails if Hermes or OpenClaw is named outside their allowlist,
+   or if a shipped Shadowfetch payload names a retired runtime. That scan
+   includes the docs under `packages/shadowfetch-defaults/data/`, so
+   ShadowCode's docs there describe its "local model runtime" generically.
+5. **Packages and repository.**
+
+       make packages repo
+       make package-gate
+
+   `make repo` also stages ShadowCode's source under
+   `repo/pool/third-party-source/shadow-code/<v>/`. The package gate re-checks
+   the signature, pin and bytes, the `shadowfetch-desktop` floor, the runtime's
+   confinement to `/usr/lib/shadowcode/`, the reviewed lintian list, the
+   published sources, and that nothing carries or depends on Hermes/OpenClaw.
+6. **Drift gate.** `python3 tools/drift_gate.py` must print 0 DRIFT. Read the
+   BLOCKED list; do not trust the exit code alone.
+7. **Image.** `make iso` (sudo): builds, checksums, signs (`make sign`) and
+   runs `make iso-gate`, which requires `shadow-code` at exactly the pinned
+   version with launcher, desktop entry and runtime byte-identical to the
+   signed archive. Record the ISO's size, SHA-256, source commit and tree.
+8. **VM acceptance.** Drive every required case in `qa/5.0.0/acceptance.json`
+   through the harness with `--record` (via `VM_ACCEPTANCE_ARGS`), for example
+
+       make vm-acceptance VM_CASE=live-boot VM_ACCEPTANCE_ARGS=--record
+       make vm-acceptance VM_CASE=shadowcode VM_ACCEPTANCE_ARGS=--record
+       make vm-acceptance VM_CASE=shadowcode-soak VM_ACCEPTANCE_ARGS=--record
+
+   `shadowcode-soak` records only after a `shadowcode` run of the same
+   artifact has passed; together they prove `SHADOWCODE-01`. `UPGRADE-01`
+   needs `--upgrade-base-image` pointing at an installed, APT-updated 4.1.0
+   image; the 3.5.0 base the harness names no longer exists. Then
+   `make vm-acceptance-verify` and `make acceptance-gate`, which refuses
+   unless every required case is pass or waived with a named approver.
+9. **Fill the documents.** Replace every `TODO(iso)` in `README.md` and
+   `RELEASE-5.0.0.md` with measured values (size, SHA-256, commit/tree, date,
+   acceptance results, gate verdicts). `grep -rn 'TODO(iso)\|TODO(platform)'
+   README.md RELEASE-5.0.0.md` must print nothing. Re-run
+   `python3 tools/drift_gate.py`.
+10. **Publish.** `make publish` (runs `pre-release-check`, then
+    `publish_release_4_0_0.py --apply`; see *Publishing* below). Then the
+    public byte verification, the v5.0.0 GitHub release with the checksum,
+    signature, SBOM, package manifest and evidence bundle, and the website,
+    per `RELEASE-5.0.0.md`. `PUB-01` is proven last, against what is public.
 
 ## Running the tests
 
@@ -44,7 +124,7 @@ python3 tools/release/source_gate.py     # runs make test, plus source checks
 python3 tools/release/package_gate.py    # builds and inspects the debs
 python3 tools/release/iso_gate.py        # builds and boots the image
 python3 tools/drift_gate.py              # one authority per fact
-python3 tools/release/acceptance.py --version 4.0.0 verify
+make acceptance-gate                     # tools/release/acceptance.py, VERSION=5.0.0
 ```
 
 `drift_gate` exits non-zero on DRIFT (a copy disagrees with its source) and

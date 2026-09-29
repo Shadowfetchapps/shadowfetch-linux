@@ -141,6 +141,32 @@ class TrustedProgramResolutionTests(unittest.TestCase):
             self.resolver(trust).resolve("sf-fake-scanner", gate.ROLE_SECURITY)
         self.assertIn("must be an absolute path", str(caught.exception))
 
+    def test_a_home_relative_pin_uses_the_password_database_not_home(self) -> None:
+        binary = write_executable(self.root / "userbin" / "sf-fake-scanner")
+        trust = self.root / "trust.toml"
+        trust.write_text(
+            '[program.sf-fake-scanner]\npath = "~/userbin/sf-fake-scanner"\n'
+            f'sha256 = "{gate.sha256(binary)}"\n',
+            encoding="utf-8",
+        )
+        from types import SimpleNamespace
+        from unittest import mock
+
+        # $HOME pointing at the binary must not make the pin resolve.
+        with mock.patch.dict(os.environ, {"HOME": str(self.root)}), mock.patch.object(
+            gate.pwd, "getpwuid", return_value=SimpleNamespace(pw_dir=str(self.root / "nohome"))
+        ):
+            with self.assertRaises(gate.UntrustedProgram) as caught:
+                self.resolver(trust).resolve("sf-fake-scanner", gate.ROLE_SECURITY)
+        self.assertIn("unusable", str(caught.exception))
+        # The account's passwd home does, and the digest is still checked.
+        with mock.patch.object(
+            gate.pwd, "getpwuid", return_value=SimpleNamespace(pw_dir=str(self.root))
+        ):
+            program = self.resolver(trust).resolve("sf-fake-scanner", gate.ROLE_SECURITY)
+        self.assertEqual(binary, program.path)
+        self.assertEqual(gate.TRUST_PINNED, program.trust)
+
     def test_a_program_name_may_not_carry_a_path(self) -> None:
         with self.assertRaises(gate.UntrustedProgram):
             self.resolver().resolve("../../tmp/sh", gate.ROLE_SECURITY)

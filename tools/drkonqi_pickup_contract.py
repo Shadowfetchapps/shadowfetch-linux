@@ -13,12 +13,21 @@ PACKAGE = "shadowfetch-drkonqi-pickup"
 # point; two that nothing compares is how this one reached 4.1.0 saying
 # 4.0.0-1.
 VERSION = "5.0.0-1"
-UPSTREAM_VERSION = "6.6.5-3"
+# The Debian drkonqi the image installs (package list pins it to this exact
+# version). 5.0.0 moved from 6.6.5-3 to 6.7.4-1 with the 20260929 snapshot.
+# The helper still compiles the vendored 6.6.5 source: checked 2026-09-29, the
+# seven files it builds (src/coredump/{coredump,coredumpwatcher}.{cpp,h},
+# memory.h, socket.h, processor/main.cpp), the pickup and processor@ unit
+# templates and the launcher socket are byte-identical in the KDE-signed
+# drkonqi-6.7.4 tarball, and Debian 6.7.4-1 installs units with the SAME
+# hashes as below. Upstream has not fixed the pickup hang, so the patch is
+# still needed. Re-run that comparison before moving this again.
+UPSTREAM_VERSION = "6.7.4-1"
 HELPER = "usr/libexec/shadowfetch-drkonqi-pickup"
 DROPIN = "usr/lib/systemd/user/drkonqi-coredump-pickup.service.d/10-shadowfetch-pickup.conf"
 UPSTREAM_PROCESSOR = "usr/lib/x86_64-linux-gnu/libexec/drkonqi-coredump-processor"
 
-# KDE v6.6.5 service templates, with only KDE_INSTALL_FULL_LIBEXECDIR replaced
+# KDE v6.6.5 (identical in v6.7.4) service templates, with only KDE_INSTALL_FULL_LIBEXECDIR replaced
 # by Debian's /usr/lib/x86_64-linux-gnu/libexec. These vendor units stay intact.
 UPSTREAM_UNITS = {
     "usr/lib/systemd/user/drkonqi-coredump-pickup.service":

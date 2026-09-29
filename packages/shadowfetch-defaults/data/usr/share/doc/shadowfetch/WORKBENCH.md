@@ -12,8 +12,9 @@ Shadowfetch Linux connects Mission Control to four production profiles:
   and provenance templates.
 
 The agent network setting decides whether Firebreak agent sessions start with
-network access. Online is the default; offline starts every session without
-network until the user grants it (`shadowfetch-agent-network set offline`).
+network access. Online is the default; offline (`shadowfetch-agent-network set
+offline`) starts every session without network until you grant it for that
+session.
 Both keep the same boundary: the project is the only path on your disk a session can
 write, the sandbox environment starts empty rather than having known secrets removed
 from it, and every session takes a checkpoint and leaves a receipt.
@@ -42,7 +43,8 @@ Workbench. Give the mission a title, project folder, workflow and instructions.
 Use an existing project directly inside `~/Workspaces`; create one in
 Workbench first. Choose one of:
 
-- **Code & tests**: use your signed-in Codex CLI. Enter
+- **Code & tests**: use your signed-in Codex CLI (install it from OpenAI;
+  Shadowfetch no longer installs it for you). Enter
   the actual test program and arguments. Inspect changes and test receipts
   before accepting the result.
 - **Media export**: select media paths inside the project. The engine performs
@@ -63,4 +65,4 @@ accepted; move or copy only the files you want the agent to use into a project.
 already have: subscriptions, API keys, or a model that runs on this computer.
 Welcome offers three optional agents -- Grok Bot, Hermes and OpenClaw -- each
 installed only if you choose it. No API keys or app accounts are included in the
-distro.
+distro. See `SHADOWCODE.md`, `HERMES.md`, `OPENCLAW.md` and `GROK-BOT.md`.

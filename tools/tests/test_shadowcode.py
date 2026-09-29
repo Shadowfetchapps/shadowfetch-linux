@@ -614,9 +614,9 @@ class DebSourceTests(unittest.TestCase):
 
 
 class PrebuiltLintianTests(unittest.TestCase):
-    def test_the_pinned_release_has_a_reviewed_exception_list(self):
+    def test_an_exception_list_names_only_shadow_code_errors(self):
+        # A clean release (0.34.2: no lintian errors) needs no list at all.
         accepted = package_gate.prebuilt_lintian_accepted(shadowcode.PACKAGE)
-        self.assertTrue(accepted)
         self.assertTrue(all(line.startswith("E: shadow-code: ") for line in accepted))
 
     def test_a_version_without_a_list_accepts_nothing(self):

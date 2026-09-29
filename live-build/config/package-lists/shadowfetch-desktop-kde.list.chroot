@@ -5,7 +5,9 @@
 shadowfetch-desktop
 shadowfetch-creative-base
 # Tested upstream crash-routing protocol plus pickup-only lifecycle correction.
-drkonqi=6.6.5-3
+# Must equal UPSTREAM_VERSION in tools/drkonqi_pickup_contract.py (the ISO gate
+# and tools/tests/test_drkonqi_pickup_contract.py both hold it to that).
+drkonqi=6.7.4-1
 shadowfetch-drkonqi-pickup
 # shadowfetch-nvidia removed from chroot install — moved to first-boot hook
 # (NVIDIA driver DKMS doesn't build cleanly against the chroot's kernel

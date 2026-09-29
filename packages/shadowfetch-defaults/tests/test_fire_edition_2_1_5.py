@@ -375,6 +375,8 @@ class FireEdition215Tests(unittest.TestCase):
         self.assertEqual(sorted(optional), sorted([
             "data/usr/bin/shadowfetch-hermes",
             "data/usr/bin/shadowfetch-openclaw",
+            "data/usr/share/doc/shadowfetch/HERMES.md",
+            "data/usr/share/doc/shadowfetch/OPENCLAW.md",
             "data/usr/share/shadowfetch/openclaw/2026.9.6/package.json",
             "data/usr/share/shadowfetch/openclaw/2026.9.6/package-lock.json",
         ]))

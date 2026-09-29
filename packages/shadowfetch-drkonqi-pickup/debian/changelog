@@ -1,7 +1,7 @@
 shadowfetch-drkonqi-pickup (5.0.0-1) unstable; urgency=medium
 
-  * Open the 5.0.0 line. Version stamped from 4.1.0; release notes to
-    follow once the 5.0 scope is decided.
+  * Rebuilt for Shadowfetch Linux 5.0.0; the CMake project version moves to
+    5.0.0. No functional change.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400
 

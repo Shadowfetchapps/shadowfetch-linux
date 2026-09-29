@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-root=${QA_ROOT:-/home/rtx5060ti/projects/shadowfetch-4.0.0}
+root=${QA_ROOT:-$HOME/projects/shadowfetch-4.0.0}
 # The release under test. Required and never inferred: this name selects the
 # evidence root and the ISO, and guessing it would quietly file one release's
 # evidence under another's directory.

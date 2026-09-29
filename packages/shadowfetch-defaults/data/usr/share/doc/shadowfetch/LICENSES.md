@@ -8,33 +8,59 @@ others). Those licenses and the corresponding source are available from Debian
 
 ## Shadowfetch's own components
 
-The Shadowfetch packages are published
-under the MIT License, EXCEPT theme assets derived from KDE's Breeze
-(the Umbra SDDM/Plasma theme), which remain under Breeze's LGPL-2.1+/GPL-2.0+
-terms as required.
+Each Shadowfetch package states its license in
+`/usr/share/doc/<package>/copyright`, and that file is authoritative. Most
+Shadowfetch packages are published under the MIT License. The exceptions:
+shadowfetch-fireline and grub-btrfs are GPL-3.0-or-later; the DrKonqi pickup
+helper is GPL-3.0-only (its compiled KDE source keeps GPL-3.0-only OR
+LicenseRef-KDE-Accepted-GPL); and the theme assets derived from KDE's Breeze
+(shadowfetch-themes: colour schemes, SDDM theme, look-and-feel) remain under
+Breeze's LGPL-2.1+ terms.
 
-The optional Codex CLI is maintained by OpenAI under Apache-2.0 at
-https://github.com/openai/codex. It is downloaded only after explicit user
-consent and is installed for the current desktop user, not embedded in the ISO.
+## ShadowCode
 
-The optional Claude Code, Grok Build, and Cursor Agent downloads are not
-embedded in the ISO. They are third-party products governed by their vendors'
-terms and are downloaded only after explicit user consent. Shadowfetch's MIT
-license does not grant rights to those downloaded products.
+ShadowCode, the preinstalled coding agent (package `shadow-code`), is
+Copyright 2026 Shadowfetch and licensed under the Apache License 2.0. Its
+licence and NOTICE file are installed as
+`/usr/share/doc/shadowcode/notices/ShadowCode-LICENSE` and
+`/usr/share/doc/shadowcode/notices/ShadowCode-NOTICE`; the Apache licence
+requires that NOTICE to travel with any copy you redistribute, and it does not
+grant permission to use the name "ShadowCode" for other products. The
+third-party components bundled inside ShadowCode, including its local model
+runtime, keep their own licences; their notices are under
+`/usr/share/doc/shadowcode/notices/` and `/usr/lib/shadowcode/NOTICES/`.
+Shadowfetch republishes the `.deb` exactly as the upstream publisher built and
+signed it. See `SHADOWCODE.md`.
 
-The optional native Grok Bot desktop application is also downloaded from its
-official vendor only after the user selects installation. Its proprietary
-binary is not embedded in the ISO. Grok Bot and Cursor service terms apply;
-Shadowfetch's MIT license does not grant redistribution rights to that app.
-The shipped `GROK-BOT.md` explains its native package, cloud account, and
-vendor update source. This integration does not imply vendor endorsement.
+ShadowCode's subscriptions and API keys connect to third-party services
+(Codex, Claude Code, Cursor, Antigravity, Grok, OpenRouter). Those vendors'
+command-line tools are not part of the image, and their terms govern your
+account. Models you download in ShadowCode keep their own licences.
+
+## Optional agents, downloaded only on request
+
+None of these is embedded in the ISO. Each is downloaded only after you choose
+it, and Shadowfetch's licences grant no rights to them.
+
+- **Hermes Agent** (Nous Research, MIT) is installed into your home folder by
+  `shadowfetch-hermes`. See `HERMES.md`.
+- **OpenClaw** (OpenClaw Foundation, MIT) is installed into your home folder
+  by `shadowfetch-openclaw`. See `OPENCLAW.md`.
+- **Grok Bot**, the native desktop application, is downloaded from its official
+  vendor after administrator authentication. Its binary is proprietary and is
+  not redistributed by Shadowfetch; Grok Bot and Cursor service terms apply.
+  `GROK-BOT.md` explains its native package, cloud account, and vendor update
+  source. This integration does not imply vendor endorsement.
 
 ## Written offer for source
 
 The complete corresponding source for the Shadowfetch packages is:
   * published at https://github.com/Shadowfetchapps/shadowfetch-linux
-  * available as a source tarball at
-      https://shadowfetch.com/linux/apt/sources/shadowfetch-source-3.0.0.tar.gz
+  * listed in the signed APT source index,
+      https://www.shadowfetch.com/linux/apt/dists/umbra/main/source/Sources
+  * for ShadowCode, published beside the repository under
+      https://www.shadowfetch.com/linux/apt/pool/third-party-source/shadow-code/
+    (see `SOURCES.md`)
 
 For source of any upstream Debian/KDE component, contact
 signing@shadowfetch.com and we will direct you to, or provide, the exact

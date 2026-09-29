@@ -48,6 +48,16 @@ class PickupContractTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(RuntimeError):
                 contract.validate_upstream_unit(path, b"[Service]\nExecStart=/bin/true\n")
 
+    def test_image_package_list_pins_the_contract_drkonqi(self):
+        # The ISO gate rejects any other installed drkonqi, and live-build
+        # installs whatever the list names. A snapshot move that updated one
+        # and not the other would only fail after a full ISO build.
+        lists = TOOLS.parent / "live-build/config/package-lists"
+        pins = [line.strip() for path in sorted(lists.glob("*.list.chroot"))
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.split("#", 1)[0].strip().startswith("drkonqi")]
+        self.assertEqual(pins, ["drkonqi=" + contract.UPSTREAM_VERSION])
+
     def test_package_and_iso_gates_share_exact_payload_contract(self):
         # Stage Q collapsed the version-copied gate families. The package
         # allowlist, the source set and the smoke set are version DATA now, so

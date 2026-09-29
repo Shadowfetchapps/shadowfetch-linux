@@ -1,72 +1,68 @@
-# Shadowfetch Linux 4.1 — Egress and Syscall Filters
+# Shadowfetch Linux 5.0 — ShadowCode
 
-**Your computer. Your agents. Work you can inspect.**
+**One Harness. All Models.**
 
-Shadowfetch Linux is an independent Debian testing derivative with KDE Plasma 6, a creative desktop, reviewed updates and recovery tools. Version 4.0 added a native Mission Control desktop: give a task a project, choose its connection and provider, then review the files, tests and changes it produces.
+Shadowfetch Linux is an independent Debian testing derivative with KDE Plasma 6, a creative desktop, reviewed updates and recovery tools. Version 5.0 is built around **ShadowCode**, a coding agent that comes preinstalled: open a project, pick a model, describe the change, watch the agent work, then review the diff.
 
-**Version 4.1 makes the sandbox around that work do what it already said.** A declared egress allowlist is now a default-DROP nftables ruleset inside the sandbox's own network namespace; declared masked paths are real mounts; every sandbox gets a seccomp syscall filter; and names resolve inside a networked sandbox, which they did not before. It also **changes behaviour that working setups depend on** — a mission now has to name its provider, stored approvals stop covering missions that name destinations, and `--net allow` no longer reaches the host's loopback. Read the release notes before upgrading.
+**What that means on this desktop.** ShadowCode runs the models you already have access to, from one window:
 
-![Shadowfetch Linux Mission Control with actual task results and review actions](https://www.shadowfetchlinux.org/linux-assets/linux-4.0.0-mission-control.webp)
+- **Subscriptions** — Codex, Claude Code, Cursor, Antigravity or Grok, through each vendor's own command-line tool and sign-in. You install the vendor's CLI; ShadowCode's **Connect** runs the vendor's login. It does not read or store vendor credentials, and it never buys credits.
+- **API keys** — an OpenRouter key if you have no subscription, billed per token to your OpenRouter account.
+- **On this computer** — a bundled local model runtime (Vulkan GPU or CPU) and a short list of free models to download, one recommended for your hardware. Nothing downloads until you choose it.
 
-*Mission Control: a persistent queue with activity, output files, diffs and review. Captured on 4.0; this interface is unchanged in 4.1, which is why the image is not recaptured. Final capture state: published (4.0 capture reused; UI unchanged in 4.1).*
+Nothing is connected until you sign in. Welcome's last step opens ShadowCode so you can connect what you have. 5.0 also **changes behaviour that 4.1 setups depend on**: Fire and Ice are gone, several commands are removed, and the Fire/Ice network switch is now a separate setting. Read the [release notes](RELEASE-5.0.0.md) before upgrading.
 
-![Official Grok Bot native Linux application on Shadowfetch Linux](https://www.shadowfetchlinux.org/linux-assets/linux-4.0.0-grok-bot.webp)
+<!-- TODO(iso): add 5.0 screenshots (ShadowCode, Welcome, Mission Control) once VISUAL-01 has captured them from the release ISO. -->
 
-*Official native Grok Bot. Final capture state: published on site (sign-in screen; does not prove authenticated cloud work). A launch or sign-in screen does not prove an authenticated account or a completed cloud task.*
-
-[Download](https://www.shadowfetchlinux.org/download) · [Mission Control](https://www.shadowfetchlinux.org/mission-control) · [Grok Bot](https://www.shadowfetchlinux.org/grok-bot) · [Screenshots](https://www.shadowfetchlinux.org/screenshots) · [Release notes](RELEASE-4.1.0.md)
+[Download](https://www.shadowfetchlinux.org/download) · [Screenshots](https://www.shadowfetchlinux.org/screenshots) · [Release notes](RELEASE-5.0.0.md) · [ShadowCode](https://github.com/Shadowfetchapps/ShadowCode)
 
 ## Current release
 
 | Fact | Value |
 | --- | --- |
 | Version / codename | 5.0.0 / Umbra |
-| Publication date / channel | 2026-09-10 / stable |
-| ISO | shadowfetch-4.1.0-amd64.iso |
-| Size | 3980670976 bytes — 3.98 GB (3.71 GiB) |
-| SHA-256 | `e19e96302f97e94d5284f8fbef181c9b0e49ca7b746afe5e66e4bc6d5c551f25` |
-| ISO product source commit / tree | `78ee38ceac0ff989d596e5a5e0b97aac17c3b936` / `163b434ebbd572522c781cc92ff48f90f7fda01c` |
-| Base / desktop | Debian testing snapshot 20260726T000000Z / KDE Plasma 6 |
+| Edition | ShadowCode — "One Harness. All Models." |
+| Publication date / channel | TODO(iso) / stable |
+| ISO | shadowfetch-5.0.0-amd64.iso |
+| Size | TODO(iso) bytes |
+| SHA-256 | `TODO(iso)` |
+| ISO product source commit / tree | `TODO(iso)` / `TODO(iso)` |
+| Base / desktop | Debian testing snapshot 20260929T000000Z / KDE Plasma 6.7.4 |
+| Kernel | Linux 7.2.6 |
+| ShadowCode | 0.34.2 (`shadow-code`, republished unmodified from the signed upstream `.deb`) |
 | Architecture / APT suite | amd64 / `umbra` |
-| Final boot acceptance | hybrid BIOS+UEFI ISO published; see known-issues for Secure Boot / VM caveats |
+| Final boot acceptance | TODO(iso): VM acceptance not yet run; all 19 cases in `qa/5.0.0/acceptance.json` are pending |
 
 Signing-key fingerprint: `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
-## What 4.0 established
+## What is on the desktop
 
 | Feature | What you can do |
 | --- | --- |
-| **Mission Control** | Create work in an existing Workbench project, watch the persistent queue, inspect activity and failures, and review files, receipts and changes. Open the same form from Workbench or Dolphin. |
-| **Code and tests** | Request a scoped change and select the exact test program and arguments. Bounded edit/test/repair attempts leave a diff and validation record. Use your configured Codex cloud provider. |
-| **Reports with sources** | Select project text files and generate a report with citations. Review the source support for each claim. |
-| **Media exports** | Export selected media with deterministic FFmpeg workflows; inspect stream validation, sizes and digests alongside the files. |
-| **Review and recovery** | Successful tasks wait for review. Accept a result, cancel running work, retry failed work or restore the local checkpoint. Restore refuses conflicts with newer project edits. |
-| **Featured Grok Bot** | Select the official native desktop in Welcome or use its dedicated Mission Control page. The verified installer discloses the download, administrator approval and vendor update source. Sign in inside the vendor app. |
-| **Offline workspaces** | Keep project files together and use deterministic media tools without an AI provider. An on-device provider ships in 4.1; whether it RUNS depends on a model service answering on this machine. |
+| **ShadowCode** | Preinstalled coding agent. Connect subscriptions, an OpenRouter key or a local model in **Settings › Accounts**; approve actions, review and undo changes. See `/usr/share/doc/shadowfetch/SHADOWCODE.md`. |
+| **Agent network** | `shadowfetch-agent-network online\|offline` decides whether Firebreak agent sandboxes start with network. Offline also pauses Grok Bot, Hermes and OpenClaw. Choose it in Welcome, at the boot menu, or later from a terminal. |
+| **Optional agents** | Welcome offers exactly three, each downloaded only if you pick it: **Grok Bot** (official native app), **Hermes Agent** 0.21.5 and **OpenClaw** 2026.9.6. Hermes and OpenClaw install into your home folder without root; OpenClaw opens only inside a Firebreak sandbox, with its Gateway off. |
+| **Mission Control** | Create work in a Workbench project, watch the persistent queue, and review files, receipts and changes before accepting them. Code and report missions use a provider you name (`codex`, `claude` or `localmodel`); media exports run offline. |
+| **Review and recovery** | Accept, cancel, retry or restore a mission's local checkpoint. Fireproof simulates and rechecks updates; supported Btrfs layouts give Phoenix snapshot recovery. |
+| **Workbench, Guide, Ember, Firewatch** | Unchanged from 4.1 apart from the agent network replacing Fire/Ice; "Element Workbench" is now just Workbench. |
 
-Grok Bot is separate from the Grok Build CLI. Codex, Claude Code, Grok Build and Cursor Agent remain independent optional coding tools with their own account setup. Grok Bot needs an eligible vendor account and plan; a model API key does not replace its native sign-in.
-
-Welcome keeps profile descriptions in a scrollable list with fixed navigation, and every wallpaper remains reachable through a horizontal row. The Control Center health header reports failed system units; user services and application health need their own checks. A focused DrKonqi helper lets the finite login crash-pickup scan finish, including an empty scan, while retaining KDE’s per-crash reporting path and runtime guard.
-
-Element Workbench, the creative application stack, Guide, Ember, Firewatch, Phoenix and Fireproof remain available. Fireproof simulates and rechecks updates; supported Btrfs layouts provide Phoenix snapshot recovery. Recovery depends on the snapshots and available space.
+There is one look, ShadowCode: gold and steel on black. `shadowfetch-doctor` checks that ShadowCode is installed and warns when a user-level copy in `~/.local` shadows the system one.
 
 ## Scope, connections and data
 
-Fire exposes connected workflows. Ice starts sandboxed agent sessions without an external network and pauses Grok Bot installation and launch. Each mission presents its connection choice. Generated code, tests and media tools run in Firebreak with writes scoped to the approved project and a restricted filesystem view. Code and source-report missions require configured Codex access and explicit network approval; media exports can run offline.
+ShadowCode has its own network setting (**Settings › Permissions & network**: Online, Web tools off, Offline). `shadowfetch-agent-network` is a separate Shadowfetch setting for Firebreak sandboxes and the optional agents; it does not change ShadowCode's. Vendor CLIs that ShadowCode drives follow their own execution rules and sandboxes.
 
-Local AI is deferred for this release. The upgrade retires Shadowfetch's Buzz integration and managed relay startup while preserving user data and separately installed vendor software.
+Hermes runs commands and edits files as you and is not sandboxed. OpenClaw has a long security-advisory record (700+ GitHub advisories since early 2026); Shadowfetch discloses it before setup, pins its dependencies, runs it in Firebreak, never starts its Gateway unless you enable it (loopback only), and recommends updating it often.
 
-No Shadowfetch account is required to use the desktop. Model weights and provider account sessions are not bundled. Optional vendor applications retain their own network behavior, settings, licenses and account requirements.
-
-Receipts, prompts and source material can be private. Review files before sharing them. Local restoration cannot reverse external effects from an approved network action.
+No Shadowfetch account is required. No API keys, account sessions or model weights are bundled. Optional vendor applications and services keep their own network behaviour, terms and account requirements. Receipts, prompts and source material can be private; review files before sharing them. Local restoration cannot reverse external effects of an approved network action.
 
 ## Verify and install
 
-The [download page](https://www.shadowfetchlinux.org/download) links the ISO, checksum and detached signature. The SBOM, package manifest and QA evidence bundle are attached to the [v4.1.0 GitHub release](https://github.com/Shadowfetchapps/shadowfetch-linux/releases/tag/v4.1.0); see [RELEASE-4.1.0.md](RELEASE-4.1.0.md). Use the exact accepted filename below. These commands download and verify files; they do not write a USB device.
+The [download page](https://www.shadowfetchlinux.org/download) links the ISO, checksum and detached signature. TODO(iso): the SBOM, package manifest and QA evidence bundle will be attached to the v5.0.0 GitHub release. Use the exact accepted filename below. These commands download and verify files; they do not write a USB device.
 
 ```sh
-ISO='shadowfetch-4.1.0-amd64.iso'
-ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'
+ISO='shadowfetch-5.0.0-amd64.iso'
+ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'   # TODO(iso): confirm once published
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.sha256"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.asc"
@@ -80,15 +76,17 @@ sha256sum --check "$ISO.sha256"
 
 Continue only after the signature and checksum both verify. A GPG warning about personal key trust differs from a failed signature. Write the verified ISO with a USB image writer, then follow the [installation guide](https://www.shadowfetchlinux.org/install).
 
-The live session uses `shadow` / `shadow` with passwordless sudo. The installer creates the chosen user and removes the live account. See the [verification guide](https://www.shadowfetchlinux.org/verify), [Secure Boot guide](https://www.shadowfetchlinux.org/secure-boot) and [known issues](https://www.shadowfetchlinux.org/known-issues).
+The boot menu offers a normal entry and an "agents offline" entry; the installer carries that choice to the installed system. The live session uses `shadow` / `shadow` with passwordless sudo. The installer creates the chosen user and removes the live account. See the [verification guide](https://www.shadowfetchlinux.org/verify), [Secure Boot guide](https://www.shadowfetchlinux.org/secure-boot) and [known issues](https://www.shadowfetchlinux.org/known-issues).
+
+**Upgrading from 4.1:** `sudo apt update` then `fireproof update`. Read the [release notes](RELEASE-5.0.0.md) first; the upgrade removes `shadowfetch-element`, `shadowfetch-codex` and `shadowfetch-code-agent`, and moves an Ice machine to the offline agent network.
 
 ## Hardware and limits
 
-Use a 64-bit Intel/AMD computer. Plan for 8 GB RAM and 100 GB disk space for a comfortable desktop; demanding creative projects need additional memory and storage. These planning figures are not a physical-hardware certification.
+Use a 64-bit Intel/AMD computer. Plan for 8 GB RAM and 100 GB disk space for a comfortable desktop; local models and demanding creative projects need more memory and storage. GPU inference in ShadowCode needs Vulkan. These planning figures are not a physical-hardware certification.
 
-Secure Boot has no Microsoft-trusted shim. Intel/AMD use Mesa; NVIDIA setup is an explicit, simulate-first workflow. VM rendering tests do not establish physical NVIDIA, AMD or Intel acceleration performance, and hybrid laptops need their own validation. Phoenix Points require a supported Btrfs root; ext4 does not provide the same snapshot recovery. Debian testing can change faster than Debian stable.
+Secure Boot has no Microsoft-trusted shim. Intel/AMD use Mesa; NVIDIA setup is an explicit, simulate-first workflow. VM rendering tests do not establish physical GPU acceleration performance, and hybrid laptops need their own validation. Phoenix Points require a supported Btrfs root; ext4 does not provide the same snapshot recovery. Debian testing can change faster than Debian stable.
 
-The SBOM (`sbom-4.1.0.cdx.json`), package manifest (`packages-4.1.0.manifest`) and QA evidence bundle (`evidence-bundle-4.1.0.tar.gz`) are attached to the [v4.1.0 GitHub release](https://github.com/Shadowfetchapps/shadowfetch-linux/releases/tag/v4.1.0). In the acceptance record, 13 cases pass, 4 are waived (Grok Bot integrity, Grok Bot screenshot, resource limits, 45-minute stress) and the publication check PUB-01 is still pending. See [https://www.shadowfetchlinux.org/download](https://www.shadowfetchlinux.org/download) and [RELEASE-4.1.0.md](RELEASE-4.1.0.md). The release notes identify the actual install paths, graphics environment, provider tests and stress measurements.
+TODO(iso): acceptance summary. At the time of writing every case in `qa/5.0.0/acceptance.json`, including the new `SHADOWCODE-01`, is pending; the release notes will record which pass, which are waived and why.
 
 ## Build from source
 
@@ -98,30 +96,31 @@ The project uses Debian live-build, Debian source packages and a signed reprepro
 make deps          # install build dependencies
 make test          # focused behavior checks
 make source-gate   # tests, parsers, linters and secret scans
+make shadowcode    # fetch and verify the pinned ShadowCode .deb
 make packages      # build the Debian packages into build/
 ```
 
 The release build uses the configured signing key:
 
 ```sh
-make repo          # signed local APT repository
+make repo          # signed local APT repository, plus ShadowCode's published source
 make package-gate  # package, repository and clean-install checks
 make iso           # privileged image assembly, signature and ISO gate
 make qemu          # launch the resulting image for a smoke test
 ```
 
-`make iso` produces `shadowfetch-5.0.0-amd64.iso` in the repository root. `VERSION ?= 5.0.0` and `CODENAME ?= umbra` live in the Makefile. Signing and publishing require the maintainer's private key and authorized publisher credentials, which are not in this repository. Consult `make help`, the [release notes](RELEASE-4.1.0.md) and `FINAL_OPERATIONS_CHECKLIST.md` before release operations; `.github/CI-SECRETS.md` records that the CI pipeline holds no secrets and why.
+`make iso` produces `shadowfetch-5.0.0-amd64.iso` in the repository root. `VERSION ?= 5.0.0` and `CODENAME ?= umbra` live in the Makefile. The ShadowCode version lives only in `tools/release/shadowcode.toml`, moved by `tools/bump_shadowcode.py`; see `vendor/shadowcode/README.md`. Signing and publishing require the maintainer's private key and authorized publisher credentials, which are not in this repository. Consult `make help`, the [release notes](RELEASE-5.0.0.md) and `FINAL_OPERATIONS_CHECKLIST.md` before release operations; `.github/CI-SECRETS.md` records that the CI pipeline holds no secrets and why.
 
-Source map: `packages/shadowfetch-missions/` contains the queue and execution engine; `packages/shadowfetch-control-center/` contains the native Qt UI; `packages/shadowfetch-welcome/` contains first boot; `packages/shadowfetch-defaults/` supplies integration helpers; `packages/shadowfetch-drkonqi-pickup/` contains the pinned KDE pickup source, correction and behavior checks. `live-build/` assembles the desktop, `tools/` holds gates and release tooling, and `qa/4.1.0/` indexes acceptance evidence.
+Source map: `packages/shadowfetch-missions/` contains the queue and execution engine; `packages/shadowfetch-control-center/` contains the native Qt UI; `packages/shadowfetch-welcome/` contains first boot; `packages/shadowfetch-defaults/` supplies integration helpers (agent network, Hermes and OpenClaw installers, doctor); `packages/shadowfetch-meta/` declares the desktop, including its ShadowCode dependency; `packages/shadowfetch-drkonqi-pickup/` contains the pinned KDE pickup source, correction and behavior checks. `vendor/shadowcode/` holds ShadowCode's vendored trust policy and signed release metadata. `live-build/` assembles the desktop, `tools/` holds gates and release tooling, and `qa/5.0.0/` indexes acceptance evidence.
 
 ## Support and contributing
 
-Use [GitHub Issues](https://github.com/Shadowfetchapps/shadowfetch-linux/issues) for bugs, installation reports and hardware notes. Include the exact ISO and checksum result, firmware/boot mode, CPU/GPU/RAM, disk layout, the failing step and redacted `shadowfetch-health --json` output. For mission bugs, include the workflow, state and redacted receipt. Report security-sensitive findings through [SECURITY.md](SECURITY.md).
+Use [GitHub Issues](https://github.com/Shadowfetchapps/shadowfetch-linux/issues) for bugs, installation reports and hardware notes. Include the exact ISO and checksum result, firmware/boot mode, CPU/GPU/RAM, disk layout, the failing step and redacted `shadowfetch-health --json` output. For mission bugs, include the workflow, state and redacted receipt. Report ShadowCode application bugs to [ShadowCode's tracker](https://github.com/Shadowfetchapps/ShadowCode/issues). Report security-sensitive findings through [SECURITY.md](SECURITY.md).
 
 Patches to packages, build tools, tests and documentation are welcome. Run `make source-gate` before submitting. Do not post password exports, private keys, tokens, private source files or unredacted account logs.
 
 ## Licensing
 
-The ISO aggregates upstream packages under their respective licenses. Most Shadowfetch-authored code and packaging use **GPL-3.0-or-later**; see [LICENSE](LICENSE) and each package’s copyright file. The DrKonqi pickup helper’s own code and packaging use **GPL-3.0-only**; its compiled KDE source retains **GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL**. The source package includes the upstream archive, signature, release key and downstream patch. Other upstream source retains its original license notices. Shadowfetch and Umbra names, marks and artwork are reserved under [TRADEMARKS.md](TRADEMARKS.md); rebrand derivative distributions. Optional vendor applications retain their own licenses and terms. Shadowfetch Linux is independent and does not imply Debian or vendor endorsement.
+The ISO aggregates upstream packages under their respective licenses. Each Shadowfetch package states its license in its `debian/copyright`: most are MIT; `shadowfetch-fireline` and `grub-btrfs` are GPL-3.0-or-later; the Breeze-derived `shadowfetch-themes` is LGPL-2.1-or-later. The DrKonqi pickup helper's own code and packaging use **GPL-3.0-only**; its compiled KDE source retains **GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL**, and its source package includes the upstream archive, signature, release key and downstream patch. This repository's [LICENSE](LICENSE) is GPL-3.0. ShadowCode is **Apache-2.0** and its bundled components keep their own licenses; its corresponding source is published beside the APT repository under `pool/third-party-source/shadow-code/`. Other upstream source retains its original license notices. Shadowfetch and Umbra names, marks and artwork are reserved under [TRADEMARKS.md](TRADEMARKS.md); rebrand derivative distributions. Optional vendor applications retain their own licenses and terms. Shadowfetch Linux is independent and does not imply Debian or vendor endorsement.
 
-[Docs](https://www.shadowfetchlinux.org/docs) · [Security model](https://www.shadowfetchlinux.org/security) · [Release feed](https://www.shadowfetchlinux.org/releases.json) · [Previous 3.5 release](RELEASE-3.5.0.md)
+[Docs](https://www.shadowfetchlinux.org/docs) · [Security model](https://www.shadowfetchlinux.org/security) · [Release feed](https://www.shadowfetchlinux.org/releases.json) · [Previous 4.1 release](RELEASE-4.1.0.md)

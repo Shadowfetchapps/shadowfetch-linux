@@ -140,7 +140,7 @@ that is not group/other-writable *before* handing it to the escalator.
 | `fireproofd` | systemd + D-Bus activation | n/a (daemon) | see §5 | see §5 |
 | `firewatchd` | systemd | n/a (daemon) | see §6 | see §6 |
 | `shadowfetch-hwscan` | systemd oneshot, and unprivileged CLI | argparse; `--write-state` takes an optional path that only root can use | none | writes `/var/lib/shadowfetch/hwscan.json` |
-| `fireproof-postboot`, `fireproof-session-check`, `phoenix-firstboot`, `phoenix-postboot`, `phoenix-check-layout`, `phoenix-space-check`, `phoenix-desktop-reset`, `phoenix-overlay-banner`, `shadowfetch-migrate-2.1.3-ai`, `shadowfetch-retire-buzz` | systemd / apt hooks only — no polkit action names them and no shipped caller pkexecs them | n/a | none | own state only |
+| `fireproof-postboot`, `fireproof-session-check`, `phoenix-firstboot`, `phoenix-postboot`, `phoenix-check-layout`, `phoenix-space-check`, `phoenix-desktop-reset`, `phoenix-overlay-banner`, `shadowfetch-migrate-2.1.3-ai`, `agent-network-boot.sh` (5.0; stamps `/etc/shadowfetch/agent-network` from `sf.agent-network=` on the kernel command line; `shadowfetch-retire-buzz` was removed in 5.0) | systemd / apt hooks only — no polkit action names them and no shipped caller pkexecs them | n/a | none | own state only |
 
 ---
 

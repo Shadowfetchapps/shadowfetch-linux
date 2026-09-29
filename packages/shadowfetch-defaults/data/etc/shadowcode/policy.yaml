@@ -1,0 +1,18 @@
+# Shadowfetch Linux: system policy for the preinstalled ShadowCode (shadow-code).
+#
+# /usr/bin/shadowcode reads this file itself (updates.rs SYSTEM_POLICY,
+# ShadowCode v0.34.2). The shadow-code package does not own the path, so the
+# distribution ships it; it is a conffile, and an administrator's edit wins.
+#
+# The only section ShadowCode 0.34.2 reads is `updates`, with exactly the keys
+# check, default and message. Any other key under `updates` -- a typo
+# included -- makes ShadowCode treat the whole file as unreadable, turn update
+# checks off and name this file in Settings > About. Keep it that small.
+#
+# Why check: false. Shadowfetch republishes ShadowCode only after verifying the
+# upstream release signature against the pin in tools/release/shadowcode.toml,
+# so a GitHub notice would announce a version this system cannot install yet.
+# The message replaces the upstream update steps in Settings > About.
+updates:
+  check: false
+  message: "ShadowCode updates arrive with Shadowfetch Linux system updates (Control Center > Software) once Shadowfetch has verified the new release."

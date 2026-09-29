@@ -26,7 +26,7 @@ Deliver the complete Mission Control desktop: persistent tasks, visible scopes, 
 
 - Version: 4.0.0; codename/repository suite: Umbra / `umbra`.
 - Architecture: amd64; desktop: KDE Plasma 6; installer: Calamares.
-- Source: `/home/rtx5060ti/projects/shadowfetch-4.0.0`, branch `release/4.0.0`.
+- Source: `~/projects/shadowfetch-4.0.0`, branch `release/4.0.0`.
 - Development mirror: task-owned Mac workspace; builds and publishing execute on Linux.
 - Base snapshot is inherited from 3.5 pending package/build validation; no unsupported claim of a base-OS migration.
 - Exact source commit, ISO size/hash/signature and release date are recorded only after the final build.
@@ -39,7 +39,7 @@ Deliver the complete Mission Control desktop: persistent tasks, visible scopes, 
 
 The user authorized end-to-end GitHub and website publication for 4.0. Publish only after the tested release is concrete. Native vendor apps retain their licenses and account requirements. Never embed keys, credentials, private operating data or account state in source, packages, screenshots or the ISO.
 
-The public distro Worker is `shadowfetch-linux-site`, published by `rtx5060ti` from `/home/rtx5060ti/.sfbuild/release-sources/shadowfetch-linux-site`. Artifacts/APT remain on the established `.com/linux` routes. Worker `shadowfetch-astro` may ship only through the designated Linux release cycle; preserve `/news`. No broad R2 pruning or unrelated service changes are part of this release.
+The public distro Worker is `shadowfetch-linux-site`, published by the release publisher from `~/.sfbuild/release-sources/shadowfetch-linux-site`. Artifacts/APT remain on the established `.com/linux` routes. Worker `shadowfetch-astro` may ship only through the designated Linux release cycle; preserve `/news`. No broad R2 pruning or unrelated service changes are part of this release.
 
 ## Reviewer deliverables
 

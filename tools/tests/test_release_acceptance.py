@@ -217,14 +217,14 @@ class AcceptanceVerifierTests(unittest.TestCase):
         data = base_manifest()
         data["cases"][0]["status"] = "waived"
         self.assertIn("waiver object", " ".join(qa.validate_manifest(data, RELEASE)))
-        data["cases"][0]["waiver"] = {"approver": "R. Corbin", "reason": "   "}
+        data["cases"][0]["waiver"] = {"approver": "release-maintainer", "reason": "   "}
         self.assertIn("waiver.reason", " ".join(qa.validate_manifest(data, RELEASE)))
 
     def test_waived_case_with_written_reason_passes_the_gate(self) -> None:
         data = self.bound_manifest()
         data["cases"][0]["status"] = "waived"
         data["cases"][0]["waiver"] = {
-            "approver": "R. Corbin",
+            "approver": "release-maintainer",
             "reason": "no NVIDIA host available for this candidate; deferred to 4.0.1",
         }
         self.write_manifest(data)
@@ -237,7 +237,7 @@ class AcceptanceVerifierTests(unittest.TestCase):
         self.assertEqual(
             self.record(
                 status="waived",
-                waiver_approver="R. Corbin",
+                waiver_approver="release-maintainer",
                 waiver_reason="hardware unavailable",
             ),
             0,
@@ -245,7 +245,7 @@ class AcceptanceVerifierTests(unittest.TestCase):
         recorded = json.loads(self.manifest.read_text(encoding="utf-8"))
         self.assertEqual(
             recorded["cases"][0]["waiver"],
-            {"approver": "R. Corbin", "reason": "hardware unavailable"},
+            {"approver": "release-maintainer", "reason": "hardware unavailable"},
         )
 
     # ---- junk evidence -----------------------------------------------------

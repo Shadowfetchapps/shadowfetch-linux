@@ -41,7 +41,7 @@ Two residues survive, and they are the whole reason Cursor looks present:
 Both were written by a single run. `strings` on a cache entry names its producer:
 
 ```
-/home/rtx5060ti/projects/shadowfetch-2.1.5/work/qa-2.1.5/vendor-installers/cursor-expanded/6634.index.jsa
+~/projects/shadowfetch-2.1.5/work/qa-2.1.5/vendor-installers/cursor-expanded/6634.index.jsa
 ```
 
 So a Cursor vendor installer was expanded once under the **2.1.5 QA vendor-installer
