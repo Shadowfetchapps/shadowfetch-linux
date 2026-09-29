@@ -13,6 +13,9 @@ Depends:
  ${misc:Depends},
  python3,
  python3-pyqt6,
+# The checkbox tick is an SVG named in the stylesheet; Qt loads it through
+# the SVG image-format plugin.
+ qt6-svg-plugins,
  flatpak,
 # /usr/bin/shadowfetch-welcome imports /usr/lib/shadowfetch/desktop/sf_desktop.py
 # -- the one shared desktop library (W-30) -- for the bundle catalog, the

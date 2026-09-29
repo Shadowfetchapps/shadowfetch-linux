@@ -23,23 +23,46 @@ Presentation
 {
     id: presentation
 
+    // slideshowAPI: 2 (branding.desc). Calamares sets activatedInCalamares
+    // while the install page is showing; a Timer without `running` never
+    // starts, which is why 5.0.0's first builds stayed on slide one.
     Timer {
         interval: 12000
         repeat: true
+        running: presentation.activatedInCalamares
         onTriggered: presentation.goToNextSlide()
     }
+
+    function onActivate() { presentation.currentSlide = 0; }
+    function onLeave() { }
+
+    // The ShadowCode artwork (1000x563) carries the SHADOWFETCH LINUX wordmark
+    // and tagline down to ~78% of its height; below that is only reflection.
+    // The captioned slides show the top 82% of it, fitted ABOVE the caption
+    // band, so the caption never covers the wordmark (it did at the 920x640
+    // window, where a full-bleed crop put the wordmark under the caption).
+    readonly property real artAspect: 1000 / 563
+    readonly property real artShown: 0.82
+    readonly property int captionHeight: 116
 
     // ShadowCode (5.0.0): gold / brushed dark steel on near-black. Colours are
     // tools/truth/palette.json roles: ink #0A0D11, accent #F2B33D, silver #BCC0C6.
 
     Slide {
         Rectangle { anchors.fill: parent; color: "#0A0D11" }
-        Image {
-            anchors.fill: parent
-            source: "slide-shadowcode.jpg"
-            fillMode: Image.PreserveAspectCrop
+        Item {
+            anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter
+            height: parent.height - presentation.captionHeight
+            width: Math.min(parent.width, height / presentation.artShown * presentation.artAspect)
+            clip: true
+            Image {
+                anchors.top: parent.top
+                width: parent.width; height: width / presentation.artAspect
+                source: "slide-shadowcode.jpg"
+                fillMode: Image.PreserveAspectFit
+            }
         }
-        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E60A0D11" }
+        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: presentation.captionHeight; color: "#0A0D11" }
         Text {
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
             anchors.margins: 24; height: 82
@@ -69,13 +92,20 @@ Presentation
 
     Slide {
         Rectangle { anchors.fill: parent; color: "#0A0D11" }
-        Image {
-            anchors.fill: parent
-            source: "slide-shadowcode.jpg"
-            fillMode: Image.PreserveAspectCrop
-            opacity: 0.55
+        Item {
+            anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter
+            height: parent.height - presentation.captionHeight
+            width: Math.min(parent.width, height / presentation.artShown * presentation.artAspect)
+            clip: true
+            Image {
+                anchors.top: parent.top
+                width: parent.width; height: width / presentation.artAspect
+                source: "slide-shadowcode.jpg"
+                fillMode: Image.PreserveAspectFit
+                opacity: 0.55
+            }
         }
-        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: 116; color: "#E60A0D11" }
+        Rectangle { anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; height: presentation.captionHeight; color: "#0A0D11" }
         Text {
             anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
             anchors.margins: 24; height: 82

@@ -148,6 +148,8 @@ def command_run(args: argparse.Namespace) -> int:
         "disk_gib": args.disk_gib,
         "boot_timeout": args.boot_timeout,
         "desktop_settle": args.desktop_settle,
+        "settle_timeout": args.settle_timeout,
+        "network_timeout": args.network_timeout,
         "base_image": args.base_image,
         "upgrade_base_image": args.upgrade_base_image,
         "upgrade_repo": args.upgrade_repo,
@@ -526,6 +528,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--disk-gib", type=int, default=40)
     run_parser.add_argument("--boot-timeout", type=float, default=900.0)
     run_parser.add_argument("--desktop-settle", type=float, default=90.0)
+    run_parser.add_argument(
+        "--settle-timeout", type=float, default=300.0,
+        help="how long systemd may take to leave 'starting' before its state is "
+        "judged (live-boot, install, recovery, upgrade)",
+    )
+    run_parser.add_argument(
+        "--network-timeout", type=float, default=180.0,
+        help="upgrade: how long the guest may take to reach network-online "
+        "before apt; running out is BLOCKED, not FAIL",
+    )
     run_parser.add_argument(
         "--base-image", help="installed image of the release under test (recovery)"
     )

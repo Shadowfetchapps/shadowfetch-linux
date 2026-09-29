@@ -240,6 +240,41 @@ class LookMigrate(unittest.TestCase):
         calls = self.run_script()
         self.assertEqual([["plasma-apply-colorscheme", "ShadowfetchDark"]], calls)
 
+    # -- Konsole default profile (5.0.0 QA: Konsole ignored Shadowfetch.profile) --
+
+    def _gold_desktop(self):
+        # A desktop needing no look change, so only the Konsole step can act.
+        self.write(".config/kdeglobals", textwrap.dedent(f"""\
+            [Colors:Selection]
+            BackgroundNormal={GOLD}
+
+            [General]
+            ColorScheme=ShadowfetchDark
+            """))
+
+    def test_konsole_without_a_default_profile_gets_shadowfetch(self):
+        self._gold_desktop()
+        self.write(".local/share/konsole/Shadowfetch.profile",
+                   "[Appearance]\nColorScheme=ShadowfetchUmbra\n")
+        self.write(".config/konsolerc", "[MainWindow]\nMenuBar=Disabled\n")
+        calls = self.run_script()
+        self.assertEqual([["kwriteconfig6", "--file", str(self.config / "konsolerc"),
+                           "--group", "Desktop Entry", "--key", "DefaultProfile",
+                           "Shadowfetch.profile"]], calls)
+        self.assertTrue(self.stamp.is_file())
+
+    def test_a_chosen_konsole_default_profile_is_kept(self):
+        self._gold_desktop()
+        self.write(".local/share/konsole/Shadowfetch.profile",
+                   "[Appearance]\nColorScheme=ShadowfetchUmbra\n")
+        self.write(".local/share/konsole/Mine.profile", "[Appearance]\nColorScheme=Solarized\n")
+        self.write(".config/konsolerc", "[Desktop Entry]\nDefaultProfile=Mine.profile\n")
+        self.assertEqual([], self.run_script())
+
+    def test_no_default_profile_is_named_when_the_profile_is_absent(self):
+        self._gold_desktop()
+        self.assertEqual([], self.run_script())
+
     def test_a_failed_step_leaves_the_stamp_unwritten(self):
         failing = self.bin / "plasma-apply-colorscheme"
         failing.write_text("#!/bin/sh\nexit 1\n")
@@ -265,6 +300,13 @@ class Packaging(unittest.TestCase):
         self.assertIn("data/usr/lib/shadowfetch/look-migrate.sh", install)
         self.assertIn("data/etc/xdg/autostart/shadowfetch-look-migrate.desktop", install)
         self.assertTrue(os.access(SCRIPT, os.X_OK))
+
+    def test_skel_konsolerc_selects_the_shipped_profile(self):
+        skel = DEFAULTS / "data/etc/skel"
+        rc = (skel / ".config/konsolerc").read_text()
+        self.assertIn("[Desktop Entry]\nDefaultProfile=Shadowfetch.profile\n", rc)
+        self.assertTrue((skel / ".local/share/konsole/Shadowfetch.profile").is_file())
+        self.assertIn("data/etc/skel/.config/konsolerc", INSTALL.read_text().split())
 
     def test_the_script_is_posix_sh(self):
         self.assertTrue(SCRIPT.read_text().startswith("#!/bin/sh\n"))

@@ -181,6 +181,24 @@ GREEN      = "#7FB069"
 RED        = "#E2533B"
 
 
+def _check_mark() -> str:
+    """The tick image for checked checkboxes, as a stylesheet url path.
+
+    A Qt stylesheet that styles QCheckBox::indicator drops the native tick, so
+    a checked box was a plain gold square (5.0.0 QA). The SVG ships with this
+    package; a checkout falls back to the file beside src/.
+    """
+    for candidate in (Path("/usr/share/shadowfetch/welcome/check.svg"),
+                      Path(__file__).resolve().parent.parent
+                      / "data/usr/share/shadowfetch/welcome/check.svg"):
+        if candidate.is_file():
+            return candidate.as_posix()
+    return ""
+
+
+CHECK_MARK = _check_mark()
+
+
 # The optional agents Welcome offers, and only these. Coding tools reached
 # through a subscription (Codex, Claude Code, Cursor, Grok) are connected in
 # ShadowCode on the last page instead.
@@ -2757,21 +2775,27 @@ class ShadowfetchWelcome(QMainWindow):
             QMainWindow {{ background-color: {BG}; }}
             QWidget {{ color: {TEXT}; background-color: {BG}; }}
             QLabel {{ background: transparent; }}
-            QCheckBox {{ spacing: 10px; }}
+            QCheckBox, QRadioButton {{ spacing: 10px; background: transparent; }}
             QCheckBox::indicator {{
                 width: 18px; height: 18px; border: 2px solid {BORDER};
                 border-radius: 4px; background: {CARD};
             }}
             QCheckBox::indicator:checked {{
-                border-color: {GOLD}; background: {GOLD};
+                border-color: {GOLD}; background: {GOLD}; image: url({CHECK_MARK});
             }}
-            QRadioButton {{ spacing: 10px; }}
+            QCheckBox::indicator:disabled {{ border-color: {BORDER}; background: {BG}; }}
+            /* Radio: the border width never changes between states, so the
+               box stays 20x20 and border-radius 10px keeps it a circle. The
+               selected dot is a radial gradient, not a thicker border. */
             QRadioButton::indicator {{
                 width: 16px; height: 16px; border: 2px solid {MUTED};
                 border-radius: 10px; background: {CARD};
             }}
             QRadioButton::indicator:checked {{
-                border: 5px solid {GOLD}; background: {INK};
+                border-color: {GOLD};
+                background: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5,
+                    fx: 0.5, fy: 0.5, stop: 0 {GOLD}, stop: 0.52 {GOLD},
+                    stop: 0.62 {CARD}, stop: 1 {CARD});
             }}
             QPushButton {{
                 background-color: {GOLD}; color: {INK};

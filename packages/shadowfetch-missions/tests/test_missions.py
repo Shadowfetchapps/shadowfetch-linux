@@ -5,6 +5,7 @@ release's required live Codex inference smoke tests. No mocked result is
 reported as a successful model integration.
 """
 import concurrent.futures
+import contextlib
 import importlib.util
 import json
 import os
@@ -748,8 +749,11 @@ class ReadLockRetryTests(unittest.TestCase):
         def op():
             calls["n"] += 1
             raise m.sqlite3.OperationalError("database is locked")
-        with self.assertRaises(m.sqlite3.OperationalError):
+        # Surfaced as DatabaseBusy -- a MissionError the CLI reports as JSON
+        # with "busy": true -- with the SQLite error kept as its cause.
+        with self.assertRaises(m.DatabaseBusy) as caught:
             self.store._read(op)
+        self.assertIsInstance(caught.exception.__cause__, m.sqlite3.OperationalError)
         self.assertEqual(calls["n"], m.READ_LOCK_RETRIES)
 
     def test_get_returns_after_transient_open_lock(self):
@@ -765,6 +769,217 @@ class ReadLockRetryTests(unittest.TestCase):
             got = self.store.get(mission["id"])
         self.assertEqual(got["id"], mission["id"])
         self.assertEqual(state["left"], 0)
+
+
+class WriteLockRetryTests(unittest.TestCase):
+    """The write path under a held database lock (5.0.0 QA stress).
+
+    Under heavy host load `shadowfetch-missions create` failed with "database
+    is locked" after 32-60s and `list` ran past the QA probe's 15s. create is
+    now one retried IMMEDIATE transaction with no side effect outside it; the
+    open no longer queues for the write lock; and a short CLI command answers
+    "busy" inside CLI_LOCK_BUDGET_SECONDS instead of hanging.
+    """
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name).resolve()
+        self.ws = self.base / "Workspaces" / "example"
+        self.ws.mkdir(parents=True)
+        (self.ws / "facts.md").write_text("The launch is Friday.\n")
+        self.state = self.base / "state"
+        self.env = patch.dict(os.environ, {"SHADOWFETCH_AGENT_WORKSPACES": str(self.ws.parent), "SHADOWFETCH_MISSIONS_STATE": str(self.state)})
+        self.env.start()
+        self.store = m.Store()
+        self.holders = []
+    def tearDown(self):
+        for holder in self.holders:
+            try:
+                holder.rollback()
+                holder.close()
+            except Exception:
+                pass
+        self.env.stop()
+        self.temp.cleanup()
+
+    def hold_write_lock(self, release_after=None):
+        """Another process's writer: a connection holding BEGIN IMMEDIATE."""
+        holder = m.sqlite3.connect(self.store.db_path, isolation_level=None,
+                                   check_same_thread=False)
+        holder.execute("BEGIN IMMEDIATE")
+        self.holders.append(holder)
+        if release_after is not None:
+            timer = threading.Timer(release_after, holder.rollback)
+            timer.start()
+            self.addCleanup(timer.cancel)
+        return holder
+
+    def create(self, title="Launch report"):
+        return self.store.create(kind="report", provider_id="codex", workspace_value="example", title=title, prompt="p", inputs=["facts.md"], network="allow")
+
+    def count(self, sql, *args):
+        with self.store.db() as db:
+            return db.execute(sql, args).fetchone()[0]
+
+    def test_create_takes_the_write_lock_up_front(self):
+        statements = []
+        real_db = self.store.db
+        @contextlib.contextmanager
+        def traced():
+            with real_db() as db:
+                db.set_trace_callback(statements.append)
+                yield db
+        with patch.object(self.store, "db", traced):
+            self.create()
+        writes = [s for s in statements if s.startswith(("BEGIN", "INSERT"))]
+        self.assertEqual(writes[0], "BEGIN IMMEDIATE", writes)
+
+    def test_create_succeeds_once_a_concurrent_writer_releases(self):
+        self.store.lock_wait = 0.2
+        self.hold_write_lock(release_after=0.6)
+        started = time.monotonic()
+        mission = self.create()
+        self.assertGreaterEqual(time.monotonic() - started, 0.4, "the held lock was not contended")
+        self.assertEqual(mission["state"], "queued")
+        self.assertEqual(self.count("SELECT COUNT(*) FROM missions"), 1)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM events WHERE mission=?", mission["id"]), 1)
+        self.assertTrue(self.store.verify_chain()["ok"])
+
+    def test_create_gives_up_cleanly_after_the_bound(self):
+        self.store.lock_wait = 0.05
+        events_before = self.count("SELECT COUNT(*) FROM events")
+        holder = self.hold_write_lock()
+        opened = {"n": 0}
+        real_db = self.store.db
+        @contextlib.contextmanager
+        def counted():
+            opened["n"] += 1
+            with real_db() as db:
+                yield db
+        with patch.object(m.time, "sleep", lambda _s: None), \
+                patch.object(self.store, "db", counted):
+            with self.assertRaises(m.DatabaseBusy) as caught:
+                self.create()
+        self.assertIn("NOT created", str(caught.exception))
+        self.assertIsInstance(caught.exception.__cause__, m.sqlite3.OperationalError)
+        self.assertEqual(opened["n"], m.WRITE_LOCK_RETRIES)
+        holder.rollback()
+        self.assertEqual(self.count("SELECT COUNT(*) FROM missions"), 0)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM events"), events_before)
+
+    def test_a_retried_create_never_duplicates_the_mission(self):
+        # The lock error lands INSIDE the transaction, after the INSERT and
+        # before COMMIT -- the rollback case the retry relies on.
+        real_append = self.store._append
+        calls = {"n": 0}
+        def flaky_append(db, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise m.sqlite3.OperationalError("database is locked")
+            return real_append(db, **kwargs)
+        with patch.object(m.time, "sleep", lambda _s: None), \
+                patch.object(self.store, "_append", flaky_append):
+            mission = self.create()
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM missions"), 1)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM events WHERE mission=?", mission["id"]), 1)
+        self.assertTrue(self.store.verify_chain()["ok"])
+
+    def test_an_attempt_that_did_commit_is_recognised_not_repeated(self):
+        real_write = self.store._write
+        def commit_then_report_locked(unit, busy_message=m.DATABASE_BUSY_MESSAGE):
+            first = unit()
+            second = real_write(unit, busy_message)
+            self.assertEqual(first[0]["id"], second[0]["id"])
+            return second
+        with patch.object(self.store, "_write", commit_then_report_locked):
+            mission = self.create()
+        self.assertEqual(self.count("SELECT COUNT(*) FROM missions"), 1)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM events WHERE mission=?", mission["id"]), 1)
+
+    def test_non_lock_errors_propagate_immediately(self):
+        calls = {"n": 0}
+        def broken_append(db, **kwargs):
+            calls["n"] += 1
+            raise m.sqlite3.OperationalError("disk I/O error")
+        with patch.object(self.store, "_append", broken_append):
+            with self.assertRaises(m.sqlite3.OperationalError) as caught:
+                self.create()
+        self.assertNotIsInstance(caught.exception, m.DatabaseBusy)
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(self.count("SELECT COUNT(*) FROM missions"), 0)
+
+    def test_opening_a_current_store_does_not_queue_for_the_write_lock(self):
+        """Every CLI `list` used to take BEGIN IMMEDIATE in Store.__init__."""
+        self.create()
+        self.hold_write_lock()
+        started = time.monotonic()
+        store = m.Store(lock_budget=1)
+        listed = store.page()
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(listed["total"], 1)
+
+    def test_cli_create_says_busy_within_its_budget(self):
+        self.hold_write_lock()
+        printed = []
+        started = time.monotonic()
+        with patch.object(m, "CLI_LOCK_BUDGET_SECONDS", 0.5), \
+                patch("builtins.print", lambda *v, **k: printed.append(" ".join(map(str, v)))):
+            code = m.main(["--json", "create", "--kind", "report", "--provider", "codex",
+                           "--workspace", "example", "--title", "t", "--prompt", "p",
+                           "--input", "facts.md", "--network", "allow"])
+        elapsed = time.monotonic() - started
+        self.assertEqual(code, 1)
+        payload = json.loads(printed[-1])
+        self.assertTrue(payload["busy"])
+        self.assertIn("NOT created", payload["error"])
+        self.assertLess(elapsed, 5, "the CLI waited past its own budget")
+        self.assertEqual(self.count("SELECT COUNT(*) FROM missions"), 0)
+
+    def test_cli_names_a_bare_lock_error_as_busy(self):
+        printed = []
+        with patch.object(m.Store, "page", side_effect=m.sqlite3.OperationalError("database is locked")), \
+                patch("builtins.print", lambda *v, **k: printed.append(" ".join(map(str, v)))):
+            code = m.main(["--json", "list"])
+        self.assertEqual(code, 1)
+        payload = json.loads(printed[-1])
+        self.assertEqual(payload, {"error": m.DATABASE_BUSY_MESSAGE, "busy": True})
+
+    def test_short_commands_are_bounded_and_long_ones_are_not(self):
+        for name in ("list", "show", "create", "cancel", "events", "records"):
+            self.assertIn(name, m.CLI_BOUNDED_COMMANDS)
+        for name in ("run", "review", "worker", "watch", "audit"):
+            self.assertNotIn(name, m.CLI_BOUNDED_COMMANDS)
+        # Below the desktop client's 30s and the QA probe's 15s.
+        self.assertLess(m.CLI_LOCK_BUDGET_SECONDS, 15)
+
+    def test_racing_first_opens_through_the_cli_all_answer(self):
+        """The stress shape: the worker and a CLI call open a brand-new state
+        directory at the same moment. Separate PROCESSES, as in the VM."""
+        fresh = self.base / "fresh-state"
+        backend = SOURCE.parents[3] / "bin/shadowfetch-missions"
+        env = {**os.environ, "SHADOWFETCH_MISSIONS_STATE": str(fresh)}
+        procs = [subprocess.Popen([sys.executable, str(backend), "--json", "list"], env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for _ in range(6)]
+        results = [p.communicate(timeout=120) + (p.returncode,) for p in procs]
+        for out, err, code in results:
+            self.assertEqual(code, 0, out + err)
+            self.assertEqual(json.loads(out), [])
+        store = m.Store(fresh)
+        with store.db() as db:
+            self.assertEqual(db.execute("PRAGMA user_version").fetchone()[0], m.SCHEMA_VERSION)
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM events WHERE event=?", (m.CHAIN_GENESIS,)).fetchone()[0], 1)
+            self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+    def test_an_unconverted_file_is_never_taken_for_a_current_store(self):
+        fresh = self.base / "zero"
+        fresh.mkdir()
+        (fresh / "missions.sqlite3").write_bytes(b"")
+        store = m.Store.__new__(m.Store)
+        store.db_path = fresh / "missions.sqlite3"
+        store.lock_wait, store._lock_deadline = 1, None
+        self.assertFalse(store._schema_current())
+        self.assertTrue(self.store._schema_current())
 
 
 if __name__ == "__main__":

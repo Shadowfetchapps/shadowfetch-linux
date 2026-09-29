@@ -111,6 +111,44 @@ Crashes are read from `coredumpctl` (what DrKonqi's pickup consumes) and from
 kernel fault lines. The expected version and llama.cpp commit are read from the
 pin and the vendored signed `RELEASE-MANIFEST.json`, never restated here.
 
+### Waiting for the guest, not racing it
+
+The guest agent answers long before the guest is ready, and three 5.0.0 runs
+judged a guest that had not finished getting ready. Each wait is bounded, and
+each way of running out says what it is:
+
+* **systemd state.** `live-boot` (like `install`, `recovery` and the upgraded
+  system in `upgrade`) polls `systemctl is-system-running` until it leaves
+  `starting`, for up to `--settle-timeout` (300s), and only then reads the
+  report, so the failed-unit list describes the same moment as the state being
+  judged. `running` and `degraded` pass; `degraded` names its failed units in
+  the check and in the `degraded_failed_units` observation. A system still
+  `starting` at the bound FAILS, saying how long it was given. The first 5.0.0
+  `live-boot` asked 51s after boot, was told `starting`, and failed; systemd
+  reached `running` at about 60s.
+* **network, before apt.** `upgrade` waits for `network-online.target` to be
+  active **and** an IPv4 default route to exist (`nm-online -s` is given a
+  chance first), for up to `--network-timeout` (180s), before it runs apt. The
+  first 5.0.0 upgrade ran apt the moment the agent answered and every fetch
+  from 10.0.2.2 failed with "Address family for hostname not supported".
+  Running out is **BLOCKED**, not FAIL -- the environment, not the upgrade --
+  apt is never run, and the guest's own view of its network is kept as
+  `upgrade-network-wait.log`.
+* **an awake session.** `shadowcode-soak` turns the live session's screen
+  locker off (`kscreenlockerrc [Daemon] Autolock=false`, `LockOnResume=false`,
+  reloaded over D-Bus), turns off display dimming, DPMS and auto-suspend in
+  `powerdevilrc` (plus `xset -dpms` on X11), and holds a logind
+  `idle:sleep` block inhibitor (`systemd-inhibit` in the user unit
+  `sf-acceptance-soak-inhibit`) for the whole soak. The first 5.0.0 soak ran
+  into the locker part-way through, and the idle CPU and MemAvailable readings
+  after it described a locked desktop, not ShadowCode. The setting and the
+  inhibitor are read back and recorded (`soak_session_awake`,
+  `shadowcode-soak-awake.log`); if either did not take, the case is
+  **BLOCKED** before its first cycle. Each cycle also asks
+  `org.freedesktop.ScreenSaver.GetActive` during the hold and the case checks
+  the locker never engaged; if the locker cannot be asked, that is recorded as
+  an observation and no claim is made.
+
 ### Contributing to a required case is not proving it
 
 A case may carry a `manifest_gap`: the part of the required release case it does
@@ -252,7 +290,7 @@ and reach a running systemd. The account check is the end-to-end one: it is the
 same string that went in through the accessibility bus, read back out of
 `/etc/passwd` on a machine booted from the disk.
 
-### Upgrade: what it needs### Upgrade: what it needs
+### Upgrade: what it needs
 
 A previous-release installed image. The 3.5.0 QA base that this tree's existing
 upgrade clones are layered on

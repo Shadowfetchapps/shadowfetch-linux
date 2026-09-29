@@ -51,7 +51,37 @@ chmod 0440 /etc/sudoers.d/shadowfetch-live-shadow
 # (live-config normally does this via cp -a; we do it explicitly.)
 if [ -d /etc/skel ]; then
     cp -a /etc/skel/. /home/$USER/ 2>/dev/null || true
-    chown -R $USER:$USER /home/$USER
 fi
+
+# LIVE SESSION ONLY: never lock. Skel's kscreenlockerrc (shadowfetch-defaults)
+# locks after 15 idle minutes and on resume, which is right for installed
+# accounts; in the live session it demanded a password nobody was told (5.0.0
+# VM qualification). Only the [Daemon] group is replaced, so the ShadowCode
+# lock-screen wallpaper from skel stays. Everything here lives under
+# /home/shadow, which sf-remove-live-user deletes from the installed system,
+# so installed users keep skel's locking.
+LOCKRC=/home/$USER/.config/kscreenlockerrc
+mkdir -p "/home/$USER/.config"
+{
+    printf '%s\n' '[Daemon]' 'Autolock=false' 'LockOnResume=false' 'Timeout=0' ''
+    if [ -f /etc/skel/.config/kscreenlockerrc ]; then
+        awk '/^\[/ { skip = ($0 == "[Daemon]") } !skip' /etc/skel/.config/kscreenlockerrc
+    fi
+} > "$LOCKRC.new"
+mv "$LOCKRC.new" "$LOCKRC"
+grep -qx 'Autolock=false' "$LOCKRC"
+grep -qx 'LockOnResume=false' "$LOCKRC"
+
+# Live account picture: the Shadowfetch mark instead of the Debian swirl that
+# desktop-base puts in /etc/skel/.face. The lock screen and SDDM read
+# ~/.face.icon (skel's is a symlink to .face).
+FACE=/usr/share/sddm/themes/umbra/faces/.face.icon
+if [ -f "$FACE" ]; then
+    rm -f "/home/$USER/.face" "/home/$USER/.face.icon"
+    cp "$FACE" "/home/$USER/.face"
+    ln -s .face "/home/$USER/.face.icon"
+fi
+
+chown -R $USER:$USER /home/$USER
 
 echo "[shadowfetch] Live user 'shadow' created."

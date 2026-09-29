@@ -237,5 +237,25 @@ sequence:
         )
 
 
+class RequiredPayloadTests(unittest.TestCase):
+    """Files the 5.0.0 VM qualification showed the image cannot do without."""
+
+    def test_webkit_generator_is_required_and_executable(self) -> None:
+        path = ("usr/lib/systemd/user-environment-generators/"
+                "60-shadowfetch-webkit-software-rendering")
+        self.assertEqual(path, iso_gate.WEBKIT_GENERATOR)
+        self.assertIn(path, iso_gate.REQUIRED_ROOT_FILES)
+        # systemd silently skips a generator without the execute bit.
+        self.assertIn(path, iso_gate.REQUIRED_EXECUTABLES)
+        source = ROOT / "packages/shadowfetch-defaults/data" / path
+        self.assertTrue(source.is_file())
+        install = (ROOT / "packages/shadowfetch-defaults/debian/"
+                   "shadowfetch-defaults.install").read_text().split()
+        self.assertIn(f"data/{path}", install)
+
+    def test_every_required_executable_is_a_required_file(self) -> None:
+        self.assertLessEqual(iso_gate.REQUIRED_EXECUTABLES, iso_gate.REQUIRED_ROOT_FILES)
+
+
 if __name__ == "__main__":
     unittest.main()

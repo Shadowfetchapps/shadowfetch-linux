@@ -120,6 +120,11 @@ REQUIRED_IMAGE_FILES = {
     "live/vmlinuz",
 }
 
+WEBKIT_GENERATOR = (
+    "usr/lib/systemd/user-environment-generators/"
+    "60-shadowfetch-webkit-software-rendering"
+)
+
 REQUIRED_ROOT_FILES = {
     HELPER,
     DROPIN,
@@ -178,6 +183,10 @@ REQUIRED_ROOT_FILES = {
     # 5.0: ShadowCode's system policy; without it the preinstalled copy nags
     # about GitHub releases that apt, not the user, must install.
     "etc/shadowcode/policy.yaml",
+    # 5.0 QA blocker: without it ShadowCode (WebKitGTK) idles at 120-170% CPU
+    # on machines with no DRM render node. Mode checked below: systemd skips
+    # a generator it cannot execute, silently.
+    WEBKIT_GENERATOR,
 }
 
 REQUIRED_EXECUTABLES = {
@@ -196,6 +205,7 @@ REQUIRED_EXECUTABLES = {
     "usr/libexec/shadowfetch-migrate-2.1.3-ai",
     "usr/libexec/phoenix-apt-repair",
     "usr/local/sbin/sf-remove-live-user",
+    WEBKIT_GENERATOR,
 }
 
 RETIRED_PACKAGE = re.compile(

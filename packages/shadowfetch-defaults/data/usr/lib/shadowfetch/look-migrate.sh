@@ -15,7 +15,8 @@
 # colours, a blank wallpaper, Konsole's default palette). This script repoints
 # ONLY such settings at the ShadowCode equivalent. Anything that names an asset
 # which still exists -- a custom wallpaper, another colour scheme, a user's own
-# Konsole scheme -- is a choice, and is left exactly as it is.
+# Konsole scheme -- is a choice, and is left exactly as it is. The same rule
+# gives Konsole a default profile only when none is set (step 5b).
 #
 # The one exception is re-applying ShadowfetchDark when it is ALREADY the
 # user's scheme: KDE copies a scheme's colours into kdeglobals when it is
@@ -215,6 +216,17 @@ for profile in "$DATA"/konsole/*.profile; do
       && log "konsole: $(basename "$profile") -> $KONSOLE_SCHEME"
   fi
 done
+
+# 5b) Konsole's default profile. Skel shipped Shadowfetch.profile but no
+#     konsolerc naming it before 5.0, so Konsole opened on its built-in profile
+#     (Breeze colours). Point it at Shadowfetch.profile only when the user has
+#     that profile and has not picked a default; an existing DefaultProfile is
+#     a choice and stays.
+if [ -f "$DATA/konsole/Shadowfetch.profile" ] \
+  && [ -z "$(ini_get "$CONFIG/konsolerc" '[Desktop Entry]' DefaultProfile)" ]; then
+  set_key "$CONFIG/konsolerc" DefaultProfile Shadowfetch.profile --group "Desktop Entry" \
+    && log "konsole: default profile Shadowfetch.profile"
+fi
 
 # 6) Menu launchers written by the retired shadowfetch-codex and
 #    shadowfetch-code-agent helpers (ShadowCode connects the vendor CLIs in

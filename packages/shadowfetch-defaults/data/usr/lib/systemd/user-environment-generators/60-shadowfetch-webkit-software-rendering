@@ -1,0 +1,32 @@
+#!/bin/sh
+# Shadowfetch Linux: keep WebKitGTK apps from spinning when there is no GPU.
+#
+# On a machine with no DRM render node (a VM without GPU acceleration, a
+# headless box, a broken driver) WebKitGTK's DMA-BUF renderer falls back to a
+# software path that repaints continuously. Measured in 5.0.0 qualification:
+# ShadowCode's first-run screen held 122-174% CPU while idle, and 3-4% with
+# WEBKIT_DISABLE_DMABUF_RENDERER=1. ShadowCode is an upstream-signed package,
+# so the distro does not wrap or edit /usr/bin/shadowcode; it sets the variable
+# for the whole session instead, and ONLY when there is no render node, so
+# machines with a working GPU keep hardware rendering.
+#
+# This is a systemd user environment generator (systemd.environment-generator(7)).
+# The user manager runs it at start-up and on daemon-reload and adds each
+# VAR=value line it prints to the manager environment. Plasma 6 starts its
+# session as systemd user units (plasma-workspace's startplasma boots through
+# plasma-workspace.target unless startkderc sets systemdBoot=false, which
+# Shadowfetch never does), so plasmashell and krunner, and every app they
+# launch, inherit it.
+#
+# A value the user already set (environment.d, earlier generator) wins; this
+# prints nothing then. The optional first argument replaces /dev/dri and exists
+# for tests only; systemd runs generators without arguments.
+dri=${1:-/dev/dri}
+
+[ -n "${WEBKIT_DISABLE_DMABUF_RENDERER+set}" ] && exit 0
+
+for node in "$dri"/renderD*; do
+    [ -e "$node" ] && exit 0
+done
+
+echo WEBKIT_DISABLE_DMABUF_RENDERER=1

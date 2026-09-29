@@ -300,6 +300,33 @@ LIST_PAGE_LIMIT = 1000
 READ_LOCK_RETRIES = 6
 READ_LOCK_BACKOFF = 0.05
 READ_LOCK_BACKOFF_MAX = 0.5
+# A write TRANSACTION that fails with "database is locked" before COMMIT has
+# rolled back, so re-running the whole unit is safe exactly when the unit has no
+# side effect outside the database. Same shape as the read path. See
+# Store._write.
+WRITE_LOCK_RETRIES = 6
+WRITE_LOCK_BACKOFF = 0.05
+WRITE_LOCK_BACKOFF_MAX = 0.5
+# How long ONE SQLite call may wait on another process's lock (busy_timeout and
+# the WAL conversion loop). The worker and library callers keep this.
+DB_LOCK_WAIT_SECONDS = 30
+# The WHOLE lock-wait budget of one short CLI command (list, show, create ...).
+# Without it the waits stacked: busy_timeout=30s on the open, again on the
+# schema check, again on every one of six read retries -- minutes, while the
+# desktop client kills the command at 30s and the 5.0.0 QA probe at 15s, so a
+# busy database looked like a hang instead of saying it was busy. Below both.
+CLI_LOCK_BUDGET_SECONDS = 10
+# Never shrink one call's busy_timeout below this, even with the budget spent:
+# an UNCONTENDED statement must still succeed; only waiting is what is bounded.
+MIN_LOCK_WAIT_SECONDS = 0.25
+DATABASE_BUSY_MESSAGE = ("Mission Control's database is busy: another Mission "
+                         "Control process is holding it. Try again shortly.")
+CLI_BOUNDED_COMMANDS = frozenset({
+    "list", "show", "events", "diff", "create", "cancel", "retry", "records",
+    "approve", "revoke", "approvals", "policy"})
+CREATE_BUSY_MESSAGE = ("Mission Control's database is busy: another Mission "
+                       "Control process is holding it. The mission was NOT "
+                       "created; try again shortly.")
 TEXT_TYPES = {".txt", ".md", ".rst", ".csv", ".json", ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".go", ".rs", ".c", ".h", ".sh", ".toml", ".yaml", ".yml"}
 PRIVATE_NAMES = {".git", ".env", ".ssh", ".aws", ".config", ".local", "node_modules", ".venv", "venv", "__pycache__", "mission-output"}
 VALIDATION_CONFIG_NAMES = {"conftest.py", "pytest.ini", "tox.ini", "karma.conf.js", ".mocharc.json", ".mocharc.yml", ".mocharc.yaml", ".mocharc.js", ".mocharc.cjs"}
@@ -308,6 +335,22 @@ CHANGE_ADDED, CHANGE_REMOVED, CHANGE_MODIFIED = "added", "removed", "modified"
 
 class MissionError(Exception):
     pass
+
+
+class DatabaseBusy(MissionError):
+    """Another process held the mission database past this caller's bound.
+
+    A MissionError, deliberately NOT a sqlite3.Error: main() reports it as JSON
+    with "busy": true, and the desktop shows the sentence rather than a raw
+    SQLite string. The OperationalError that exhausted the bound is __cause__.
+    """
+
+
+def is_lock_error(exc):
+    """SQLITE_BUSY / SQLITE_LOCKED as Python's sqlite3 spells them."""
+    return (isinstance(exc, sqlite3.OperationalError)
+            and not isinstance(exc, DatabaseBusy)
+            and "locked" in str(exc).lower())
 
 # ------------------------------------------------------------ task states ---
 # Tasks are modelled separately from missions on purpose: a task is a step the
@@ -815,13 +858,100 @@ _REGISTRY = None
 
 
 class Store:
-    def __init__(self, path=None):
+    def __init__(self, path=None, *, lock_budget=None):
+        """Open (creating or migrating if needed) the mission store.
+
+        lock_budget bounds the TOTAL time this Store's calls may spend waiting
+        on other processes' database locks (the CLI passes
+        CLI_LOCK_BUDGET_SECONDS). None keeps the per-call DB_LOCK_WAIT_SECONDS
+        with no overall cap, which is what the worker wants.
+        """
+        self.lock_wait = DB_LOCK_WAIT_SECONDS
+        self._lock_deadline = (time.monotonic() + lock_budget) if lock_budget else None
         self.root = Path(path or os.environ.get("SHADOWFETCH_MISSIONS_STATE", str(Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "shadowfetch/missions"))).expanduser().resolve()
         if self.root == workspace_root() or workspace_root() in self.root.parents:
             raise MissionError("Mission controller state must be outside the workspace root")
         self.root.mkdir(parents=True, mode=0o700, exist_ok=True)
         self.root.chmod(0o700)
         self.db_path = self.root / "missions.sqlite3"
+        self._pending_mirror = []
+        # FAST PATH. Every CLI invocation -- `list` included -- used to run the
+        # schema script and take BEGIN IMMEDIATE here, i.e. queue for the WRITE
+        # lock behind the worker just to learn there was nothing to migrate.
+        # user_version is written last, inside the migration's own transaction,
+        # so "already WAL and already current" proves the schema is complete.
+        if not self._schema_current():
+            with self._schema_lock():
+                self._write(self._initialise_schema)
+        self.db_path.chmod(0o600)
+        # A LIST. It used to hold one row, so the genesis was mirrored and
+        # every other event written during the same migration -- the legacy pin
+        # -- was not. That left a permanent hole in the journal at an honest
+        # seq, and an honest hole is exactly what makes "a seq the journal never
+        # saw" useless as evidence of forgery.
+        for pending in (getattr(self, "_pending_mirror", None) or []):
+            self.mirror(pending)
+        self._pending_mirror = []
+
+    def _schema_current(self):
+        """True only for a database that is already WAL on disk and at
+        SCHEMA_VERSION. Anything else -- missing, empty, rollback-journal,
+        older, newer -- takes the serialized slow path, which also reports a
+        newer schema properly."""
+        try:
+            with self.db_path.open("rb") as handle:
+                header = handle.read(100)
+        except FileNotFoundError:
+            return False
+        # Bytes 18/19 are the file-format read/write versions; 2 means WAL. A
+        # 0-byte or rollback-mode file is exactly the state in which two
+        # openers can deadlock converting it, so it is never opened unlocked.
+        if len(header) < 100 or header[18] != 2 or header[19] != 2:
+            return False
+        def read():
+            with self.db() as db:
+                return db.execute("PRAGMA user_version").fetchone()[0]
+        return self._read(read) == SCHEMA_VERSION
+
+    @contextlib.contextmanager
+    def _schema_lock(self):
+        """Serialize creation, WAL conversion and migration across processes.
+
+        5.0.0 QA stress started the worker and `create` on a brand-new state
+        directory at the same moment, and both first opens failed or hung --
+        one after 32s with the WAL-conversion message, one after 60s with
+        "database is locked" -- leaving a 0-byte database beside a hot
+        rollback journal, or a WAL database whose migration never committed. A
+        rollback-mode file that one connection is converting to WAL while
+        another is writing it through the rollback journal can hold both off
+        until their deadlines. An flock taken before the file is touched means
+        only one process ever creates, converts or migrates it; the others wait
+        here, then find the schema current.
+        """
+        with (self.root / "schema.lock").open("a") as handle:
+            deadline = time.monotonic() + self._lock_wait()
+            while True:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise DatabaseBusy(
+                            "Mission Control's database is being created or "
+                            "upgraded by another Mission Control process. "
+                            "Try again shortly.") from None
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def _initialise_schema(self):
+        """The first-open unit of work: idempotent DDL, then the migration in
+        one IMMEDIATE transaction. Retried whole by _write, so the mirror rows
+        it queues are reset at the start of every attempt -- a rolled-back
+        attempt must not leave a genesis behind to be mirrored."""
+        self._pending_mirror = []
         with self.db() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS missions (
@@ -849,15 +979,6 @@ class Store:
             # held, the loser waits, then re-reads user_version and returns.
             db.execute("BEGIN IMMEDIATE")
             self.migrate(db)
-        self.db_path.chmod(0o600)
-        # A LIST. It used to hold one row, so the genesis was mirrored and
-        # every other event written during the same migration -- the legacy pin
-        # -- was not. That left a permanent hole in the journal at an honest
-        # seq, and an honest hole is exactly what makes "a seq the journal never
-        # saw" useless as evidence of forgery.
-        for pending in (getattr(self, "_pending_mirror", None) or []):
-            self.mirror(pending)
-        self._pending_mirror = []
 
     def migrate(self, db):
         """Bring an existing database forward. Runs inside the caller's
@@ -1083,9 +1204,25 @@ class Store:
                      }, sort_keys=True))
         self._pending_mirror = (getattr(self, "_pending_mirror", None) or []) + [genesis]
 
+    def _lock_wait(self):
+        """Seconds the NEXT SQLite call may wait on another process's lock.
+
+        DB_LOCK_WAIT_SECONDS, capped by what is left of this Store's lock_budget
+        -- never below MIN_LOCK_WAIT_SECONDS, so an uncontended statement still
+        runs after the budget is spent; only WAITING is what gets cut short."""
+        wait = self.lock_wait
+        if self._lock_deadline is not None:
+            wait = min(wait, self._lock_deadline - time.monotonic())
+        return max(wait, MIN_LOCK_WAIT_SECONDS)
+
+    def _budget_spent(self):
+        return (self._lock_deadline is not None
+                and time.monotonic() >= self._lock_deadline)
+
     @contextlib.contextmanager
     def db(self):
-        db = sqlite3.connect(self.db_path, timeout=30)
+        wait = self._lock_wait()
+        db = sqlite3.connect(self.db_path, timeout=wait)
         db.row_factory = sqlite3.Row
         # busy_timeout FIRST. journal_mode=WAL was the opening statement, and
         # converting a rollback-journal database to WAL needs a moment's
@@ -1096,18 +1233,23 @@ class Store:
         # sqlite3.Error is not a MissionError, a ValueError or an OSError.
         # Retrying is correct: the mode is a property of the FILE, so whoever
         # wins sets it once and every later opener inherits it.
-        db.execute("PRAGMA busy_timeout=30000")
-        deadline = time.monotonic() + 30
+        db.execute(f"PRAGMA busy_timeout={int(wait * 1000)}")
+        deadline = time.monotonic() + wait
         while True:
             try:
                 db.execute("PRAGMA journal_mode=WAL")
                 break
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError as exc:
+                # Only a LOCK is worth waiting out. A disk I/O error, a corrupt
+                # file or a permission problem used to spin here for 30s too.
+                if not is_lock_error(exc):
+                    db.close()
+                    raise
                 if time.monotonic() >= deadline:
                     db.close()
-                    raise MissionError(
+                    raise DatabaseBusy(
                         "The mission database is busy while another Mission "
-                        "Control process is opening it; try again shortly")
+                        "Control process is opening it; try again shortly") from exc
                 time.sleep(0.02)
         try:
             with db:
@@ -1115,10 +1257,30 @@ class Store:
         finally:
             db.close()
 
+    def _retry_on_lock(self, operation, retries, backoff, backoff_max, busy_message):
+        """Run operation(); on "database is locked" run it AGAIN, bounded.
+
+        The one retry loop behind _read and _write. Gives up after `retries`
+        attempts, or earlier once this Store's lock_budget is spent, and then
+        raises DatabaseBusy with the lock error as its cause. Any other error --
+        including a non-lock OperationalError -- propagates on the first try.
+        """
+        delay = backoff
+        for attempt in range(retries):
+            try:
+                return operation()
+            except sqlite3.OperationalError as exc:
+                if not is_lock_error(exc):
+                    raise
+                if attempt == retries - 1 or self._budget_spent():
+                    raise DatabaseBusy(busy_message) from exc
+                time.sleep(delay)
+                delay = min(delay * 2, backoff_max)
+
     def _read(self, operation):
         """Run a read-only DB operation, retrying briefly on a transient lock.
 
-        db() already sets PRAGMA busy_timeout=30000, so SQLite normally waits a
+        db() already sets PRAGMA busy_timeout, so SQLite normally waits a
         contended lock out inside its C busy handler. That handler is a sleep
         loop, though, and when every core is pegged by running missions the
         sleeping reader can be starved of the CPU it needs to re-check before
@@ -1126,18 +1288,30 @@ class Store:
         under a full four-core workload while writers held the write lock for
         sub-millisecond bursts. A read holds no transaction, so re-running the
         whole open-and-query a few times with a short backoff turns that into a
-        wait rather than an error. Only reads retry here; the worker's write
-        path is deliberately left to fail loudly.
+        wait rather than an error. A lock that never clears becomes
+        DatabaseBusy -- a sentence the CLI and the desktop can show.
         """
-        delay = READ_LOCK_BACKOFF
-        for attempt in range(READ_LOCK_RETRIES):
-            try:
-                return operation()
-            except sqlite3.OperationalError as exc:
-                if "locked" not in str(exc).lower() or attempt == READ_LOCK_RETRIES - 1:
-                    raise
-                time.sleep(delay)
-                delay = min(delay * 2, READ_LOCK_BACKOFF_MAX)
+        return self._retry_on_lock(operation, READ_LOCK_RETRIES, READ_LOCK_BACKOFF,
+                                   READ_LOCK_BACKOFF_MAX, DATABASE_BUSY_MESSAGE)
+
+    def _write(self, operation, busy_message=DATABASE_BUSY_MESSAGE):
+        """Run ONE complete write transaction, retrying it whole on a lock.
+
+        THE CONTRACT, which is what makes the retry safe: `operation` opens its
+        own db(), takes BEGIN IMMEDIATE (so the write lock is acquired up front,
+        where a busy database fails BEFORE anything is written, rather than at
+        COMMIT), does its work and commits by leaving the block -- and it has NO
+        side effect outside that transaction. No file, checkpoint, journal
+        mirror, wake-up or subprocess happens inside it; the caller does those
+        after _write returns, i.e. after a successful COMMIT. A lock error
+        raised inside the unit means SQLite rolled the transaction back (db()
+        closes the connection, which discards an uncommitted transaction), so
+        running the unit again cannot apply anything twice. Units that could
+        in principle meet their own earlier commit are written to recognise it
+        (see create()).
+        """
+        return self._retry_on_lock(operation, WRITE_LOCK_RETRIES, WRITE_LOCK_BACKOFF,
+                                   WRITE_LOCK_BACKOFF_MAX, busy_message)
 
     def _append(self, db, *, mission, event, detail="", actor=ACTOR_ORCHESTRATOR,
                 task_id=None, session_id=None, tool_execution_id=None, at=None,
@@ -2870,15 +3044,40 @@ class Store:
         # with no events at all -- which is the exact shape a fabricated row has,
         # and the reason the verifier could not tell the two apart. Making this
         # atomic is what lets the verifier stop excusing event-less rows.
-        with self.db() as db:
-            db.execute("BEGIN IMMEDIATE")
-            db.execute("INSERT INTO missions(id,title,kind,capability,provider_id,state,workspace,prompt,config,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (mid, title.strip(), kind, capability, provider.id, MissionState.QUEUED, str(ws), prompt, json.dumps(config), timestamp, timestamp))
-            appended = self._append(
-                db, mission=mid, event=created_event, at=timestamp,
-                actor=ACTOR_USER,
-                detail=f"{capability} via {provider.id}; scope={ws}; network={network}")
-        self.mirror(appended)
-        return self.get(mid)
+        #
+        # And it is the WHOLE unit _write may retry (5.0.0 QA stress: create
+        # failed on "database is locked" under host load). Everything above is
+        # validation that writes nothing; nothing outside the database happens
+        # inside the unit -- no workspace directory, checkpoint or queue file is
+        # made at creation, and the worker is woken by inotify on the database
+        # COMMIT itself. The journal mirror runs only after a successful commit.
+        # The id is fixed before the first attempt, so a retry can never mint a
+        # second mission; and should an attempt ever commit yet still report a
+        # lock, the next attempt finds its own row and returns it unchanged.
+        def unit():
+            with self.db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute("SELECT * FROM missions WHERE id=?", (mid,)).fetchone()
+                if row is not None:
+                    event = db.execute(
+                        "SELECT * FROM events WHERE mission=? AND event=? ORDER BY seq LIMIT 1",
+                        (mid, created_event)).fetchone()
+                    return row, (dict(event) if event else None)
+                db.execute("INSERT INTO missions(id,title,kind,capability,provider_id,state,workspace,prompt,config,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", (mid, title.strip(), kind, capability, provider.id, MissionState.QUEUED, str(ws), prompt, json.dumps(config), timestamp, timestamp))
+                appended = self._append(
+                    db, mission=mid, event=created_event, at=timestamp,
+                    actor=ACTOR_USER,
+                    detail=f"{capability} via {provider.id}; scope={ws}; network={network}")
+                # Read back INSIDE the transaction: once COMMIT succeeds this
+                # call must not fail on a busy database, or the caller is told
+                # "busy" about a mission that exists and creates it twice.
+                row = db.execute("SELECT * FROM missions WHERE id=?", (mid,)).fetchone()
+                return row, appended
+        row, appended = self._write(
+            unit, busy_message=CREATE_BUSY_MESSAGE)
+        if appended is not None:
+            self.mirror(appended)
+        return self.unpack(row)
 
     def cancel(self, mid):
         mission = self.get(mid)
@@ -5113,11 +5312,15 @@ def main(argv=None):
     audit_sub = audit.add_subparsers(dest="audit_command", required=True)
     audit_sub.add_parser("verify")
     args = parser.parse_args(argv)
+    # Short, database-only commands answer within CLI_LOCK_BUDGET_SECONDS or say
+    # the database is busy. run/review/worker/watch/audit do real work between
+    # their queries and keep the per-call wait with no overall cap.
+    budget = CLI_LOCK_BUDGET_SECONDS if args.command in CLI_BOUNDED_COMMANDS else None
     try:
         if args.command == "capabilities":
             result = capabilities()
         elif args.command == "watch":
-            store = Store()
+            store = Store(lock_budget=budget)
             # Written as it arrives and flushed per event: a stream a consumer
             # only sees in 4 KB blocks is not a stream.
             for row in stream_events(store, since=args.since,
@@ -5126,7 +5329,7 @@ def main(argv=None):
                 sys.stdout.flush()
             return 0
         elif args.command == "records":
-            store = Store()
+            store = Store(lock_budget=budget)
             # Everything the engine knows about one mission that `show` does
             # not return. Without this the desktop had to infer a task state
             # machine from event names, which is the duplication Phase 3 exists
@@ -5143,7 +5346,7 @@ def main(argv=None):
                 "approvals": store.approvals("mission:" + args.id),
             }
         elif args.command == "approve":
-            store = Store()
+            store = Store(lock_budget=budget)
             mission = store.get(args.id)
             decision, _ceiling = mission_decision(store, mission)
             if decision is None:
@@ -5164,23 +5367,23 @@ def main(argv=None):
                           "reasons": list(decision.reasons),
                           "not_enforced": list(decision.advisory_fields)}
         elif args.command == "revoke":
-            store = Store()
+            store = Store(lock_budget=budget)
             store.revoke_approval(args.approval, reason=args.reason)
             result = {"revoked": args.approval}
         elif args.command == "approvals":
-            store = Store()
+            store = Store(lock_budget=budget)
             result = store.approvals("mission:" + args.id if args.id else None)
         elif args.command == "policy":
             if args.policy_command == "matrix":
                 result = sf_policy.PolicyEngine.capability_matrix()
             else:
-                store = Store()
+                store = Store(lock_budget=budget)
                 decision, _ceiling = mission_decision(store, store.get(args.id))
                 if decision is None:
                     raise MissionError("This mission uses a retired provider")
                 result = decision.as_dict()
         elif args.command == "audit":
-            store = Store()
+            store = Store(lock_budget=budget)
             result = store.verify_chain()
             # ONE ladder, computed from the report before anything is rendered.
             # It used to sit inside `if not args.json`, so the caller most
@@ -5226,7 +5429,7 @@ def main(argv=None):
                 print(json.dumps(result, indent=2))
             return code
         else:
-            store = Store()
+            store = Store(lock_budget=budget)
             if args.command == "list":
                 # stdout stays a plain JSON array; a short page is announced, never silent.
                 listed = store.page(limit=args.limit or None, offset=args.offset)
@@ -5259,6 +5462,12 @@ def main(argv=None):
     # empty stdout, a traceback on stderr, and a desktop client that parses
     # stdout as JSON handed nothing at all.
     except (MissionError, ValueError, OSError, sqlite3.Error) as exc:
+        # A busy database is said as such, with a flag a client can act on --
+        # including a lock error from a write path that has no retry of its own.
+        if isinstance(exc, DatabaseBusy) or is_lock_error(exc):
+            message = str(exc) if isinstance(exc, DatabaseBusy) else DATABASE_BUSY_MESSAGE
+            print(json.dumps({"error": clean(message), "busy": True}))
+            return 1
         print(json.dumps({"error": clean(exc)}))
         return 1
     except StopIteration as exc:

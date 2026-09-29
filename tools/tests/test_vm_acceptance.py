@@ -17,6 +17,7 @@ import struct
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import zlib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -661,6 +662,248 @@ class CaseRegistryTests(unittest.TestCase):
         with self.assertRaises(Blocked) as caught:
             CASES["upgrade"].run(ctx)
         self.assertIn("previous-release installed image", str(caught.exception))
+
+
+class FakeGuest:
+    """A guest whose agent answers from a handler. Records every command, in order."""
+
+    def __init__(self, root: Path, handler) -> None:
+        self.handler = handler
+        self.commands: list[str] = []
+        self.serial_log = root / "serial.log"
+        self.qemu_log = root / "qemu.log"
+
+    def run(self, command: str, timeout: float = 300.0, *, check: bool = False) -> dict:
+        self.commands.append(command)
+        result = self.handler(command)
+        if result is None:
+            result = ""
+        if isinstance(result, str):
+            result = {"exitcode": 0, "stdout": result, "stderr": ""}
+        return result
+
+    def out(self, command: str, timeout: float = 120.0) -> str:
+        return self.run(command, timeout=timeout)["stdout"].strip()
+
+    def create_disk(self, gib: int) -> None:
+        pass
+
+    def boot(self, *args, **kwargs) -> None:
+        pass
+
+    def wait_agent(self, timeout: float) -> float:
+        return 51.0
+
+    def clone_disk(self, base: Path) -> dict:
+        return {"base": str(base)}
+
+    def reboot(self, timeout: float) -> dict:
+        return {}
+
+    def screenshot(self, target: Path) -> dict:
+        make_png(target, 1920, 1080)
+        return {"width": 1920, "height": 1080}
+
+    def shutdown(self) -> None:
+        pass
+
+    def is_running(self) -> bool:
+        return False
+
+
+class GuestRaceTests(unittest.TestCase):
+    """The three 5.0.0 VM-qualification races, replayed against a fake guest.
+
+    live-boot judged systemd 51s after boot while it still said "starting";
+    upgrade ran apt before the guest had an IPv4 address; the soak measured a
+    session the screen locker had taken over. Each case must now wait (bounded)
+    or refuse -- and a refusal is BLOCKED, never a PASS.
+    """
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        # The cases poll in 5s steps; the steps are not what is under test.
+        from acceptance import cases
+        self.cases = cases
+        sleeper = unittest.mock.patch.object(cases.time, "sleep", lambda _s: None)
+        sleeper.start()
+        self.addCleanup(sleeper.stop)
+
+    def context(self, name: str, guest: FakeGuest, **options) -> Context:
+        ctx = Context(
+            name=name,
+            repo_root=REPO_ROOT,
+            run_dir=self.root / "run",
+            evidence=EvidenceSet(REPO_ROOT, self.root / "evidence"),
+            artifact={"path": str(self.root / "unit.iso"), "sha256": "b" * 64},
+            options={"version": "5.0.0", "desktop_settle": 0, **options},
+        )
+        ctx.guest = lambda *_a, **_k: guest  # type: ignore[method-assign]
+        return ctx
+
+    @staticmethod
+    def live_handler(states: list[str], failed: str = ""):
+        def handler(command: str):
+            if command.startswith("systemctl is-system-running"):
+                return states.pop(0) if len(states) > 1 else states[0]
+            if command.startswith("systemctl --failed"):
+                return failed
+            if command == "cat /proc/cmdline":
+                return "BOOT_IMAGE=/live/vmlinuz boot=live quiet"
+            if command.startswith("cat /usr/share/shadowfetch/version"):
+                return "5.0.0"
+            if command == "cat /etc/os-release":
+                return 'NAME="Shadowfetch Linux"\nVERSION_ID="5.0.0"'
+            return ""
+        return handler
+
+    # -- live-boot ----------------------------------------------------------
+
+    def test_live_boot_waits_for_systemd_to_leave_starting(self) -> None:
+        guest = FakeGuest(self.root, self.live_handler(["starting", "starting", "running"]))
+        ctx = self.context("live-boot", guest)
+        CASES["live-boot"].run(ctx)
+        state = [c for c in ctx.checks if c["name"] == "systemd reaches a running state"]
+        self.assertEqual(state[0]["state"], "PASSED", state)
+        polls = [c for c in guest.commands if c.startswith("systemctl is-system-running")]
+        self.assertGreaterEqual(len(polls), 3, "the state was judged before systemd settled")
+        self.assertEqual(ctx.observations["live_systemd_settle"]["state"], "running")
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS")
+
+    def test_live_boot_reports_degraded_with_its_failed_units(self) -> None:
+        guest = FakeGuest(self.root, self.live_handler(
+            ["starting", "degraded"], failed="foo.service loaded failed failed Foo"))
+        ctx = self.context("live-boot", guest)
+        CASES["live-boot"].run(ctx)
+        state = [c for c in ctx.checks if c["name"] == "systemd reaches a running state"][0]
+        self.assertEqual(state["state"], "PASSED")
+        self.assertIn("'degraded'", state["detail"])
+        self.assertIn("foo.service", state["detail"])
+        self.assertIn("foo.service", ctx.observations["degraded_failed_units"])
+
+    def test_live_boot_that_never_settles_fails_saying_how_long_it_waited(self) -> None:
+        guest = FakeGuest(self.root, self.live_handler(["starting"]))
+        ctx = self.context("live-boot", guest, settle_timeout=0.05)
+        CASES["live-boot"].run(ctx)
+        state = [c for c in ctx.checks if c["name"] == "systemd reaches a running state"][0]
+        self.assertEqual(state["state"], "FAILED")
+        self.assertIn("still not settled", state["detail"])
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "FAIL")
+
+    # -- upgrade ------------------------------------------------------------
+
+    def upgrade_context(self, guest: FakeGuest, **options) -> Context:
+        base = self.root / "base.qcow2"
+        base.write_bytes(b"not really a disk")
+        return self.context(
+            "upgrade", guest, upgrade_base_image=str(base),
+            upgrade_repo="shadowfetch-missions", upgrade_from_version="4.1.0",
+            **options)
+
+    def upgrade_handler(self, online_after: int | None):
+        state = {"probes": 0, "upgraded": False}
+
+        def handler(command: str):
+            if command == self.cases.NETWORK_ONLINE_PROBE:
+                state["probes"] += 1
+                ready = online_after is not None and state["probes"] > online_after
+                return {"exitcode": 0 if ready else 1, "stdout": "", "stderr": ""}
+            if "apt-get" in command:
+                state["upgraded"] = True
+                return "Setting up shadowfetch-missions (5.0.0-1) ..."
+            if command.startswith("cat /usr/share/shadowfetch/version"):
+                return "5.0.0" if state["upgraded"] else "4.1.0"
+            if command.startswith("systemctl is-system-running"):
+                return "running"
+            if command.startswith("sha256sum"):
+                return "a" * 64
+            if command.startswith("cat /etc/machine-id"):
+                return "c" * 32
+            return ""
+        return handler, state
+
+    def test_upgrade_waits_for_network_online_before_apt(self) -> None:
+        handler, state = self.upgrade_handler(online_after=2)
+        guest = FakeGuest(self.root, handler)
+        ctx = self.upgrade_context(guest)
+        CASES["upgrade"].run(ctx)
+        probes = [i for i, c in enumerate(guest.commands)
+                  if c == self.cases.NETWORK_ONLINE_PROBE]
+        apt = [i for i, c in enumerate(guest.commands) if "apt-get" in c]
+        self.assertEqual(state["probes"], 3)
+        self.assertTrue(apt and probes[-1] < apt[0], "apt ran before the network was online")
+        self.assertIn("upgrade_network_online_seconds", ctx.observations)
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS", ctx.checks)
+
+    def test_upgrade_without_network_is_blocked_and_never_runs_apt(self) -> None:
+        handler, _state = self.upgrade_handler(online_after=None)
+        guest = FakeGuest(self.root, handler)
+        ctx = self.upgrade_context(guest, network_timeout=0.05)
+        with self.assertRaises(Blocked) as caught:
+            CASES["upgrade"].run(ctx)
+        self.assertIn("did not come online", str(caught.exception))
+        self.assertIn("apt was not run", str(caught.exception))
+        self.assertFalse(any("apt-get" in c for c in guest.commands))
+        self.assertTrue((self.root / "evidence" / "upgrade-network-wait.log").is_file())
+        self.assertFalse(any(c["name"].startswith("the upgrade installs") for c in ctx.checks))
+
+    # -- shadowcode-soak ----------------------------------------------------
+
+    SESSION = {"user": "live", "uid": "1000", "display": "", "wayland_display": "wayland-0",
+               "home": "/home/live"}
+
+    def awake_handler(self, autolock: str, inhibited: bool):
+        def handler(command: str):
+            if "kreadconfig6" in command:
+                return autolock
+            if command.startswith("/usr/bin/systemd-inhibit --list"):
+                return (f"WHO {self.cases.SOAK_INHIBIT_WHO} UID 1000 WHAT idle:sleep\n"
+                        if inhibited else "0 inhibitors listed.\n")
+            if "is-active " + self.cases.SOAK_INHIBIT_UNIT in command:
+                return "active" if inhibited else "inactive"
+            return ""
+        return handler
+
+    def test_soak_disables_the_screen_locker_and_holds_an_inhibitor(self) -> None:
+        guest = FakeGuest(self.root, self.awake_handler("false", True))
+        ctx = self.context("shadowcode-soak", guest)
+        record = self.cases._hold_session_awake(ctx, guest, dict(self.SESSION))
+        self.assertTrue(record["inhibitor_held"])
+        self.assertEqual(record["screen_locker_autolock"], "false")
+        setup = guest.commands[0]
+        self.assertIn("kscreenlockerrc --group Daemon --key Autolock false", setup)
+        self.assertIn("TurnOffDisplayWhenIdle false", setup)
+        self.assertIn("systemd-inhibit --what=idle:sleep --mode=block", setup)
+        self.assertEqual(ctx.observations["soak_session_awake"], record)
+        self.assertTrue((self.root / "evidence" / "shadowcode-soak-awake.log").is_file())
+
+    def test_soak_that_cannot_hold_the_session_awake_is_blocked(self) -> None:
+        for autolock, inhibited in (("true", True), ("false", False)):
+            with self.subTest(autolock=autolock, inhibited=inhibited):
+                guest = FakeGuest(self.root, self.awake_handler(autolock, inhibited))
+                ctx = self.context("shadowcode-soak", guest)
+                with self.assertRaises(Blocked):
+                    self.cases._hold_session_awake(ctx, guest, dict(self.SESSION))
+                self.assertEqual(ctx.checks, [])
+
+    def test_screen_locker_state_is_read_not_assumed(self) -> None:
+        for reply, expected in (
+            ({"exitcode": 0, "stdout": "   boolean true\n", "stderr": ""}, True),
+            ({"exitcode": 0, "stdout": "   boolean false\n", "stderr": ""}, False),
+            ({"exitcode": 1, "stdout": "", "stderr": "no such name"}, None),
+        ):
+            guest = FakeGuest(self.root, lambda _c, r=reply: r)
+            self.assertIs(self.cases._screen_locked(guest, dict(self.SESSION)), expected)
+
+    def test_the_soak_holds_the_session_awake_before_its_first_cycle(self) -> None:
+        import inspect
+        source = inspect.getsource(self.cases.case_shadowcode_soak)
+        self.assertLess(source.index("_hold_session_awake("),
+                        source.index("while time.monotonic() < deadline"))
+        self.assertIn("_screen_locked(", source)
+        self.assertIn("_release_session_awake(", source)
 
 
 class FramebufferTests(unittest.TestCase):

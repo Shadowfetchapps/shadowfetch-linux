@@ -151,6 +151,53 @@ def system_report(machine: Guest) -> dict[str, Any]:
     }
 
 
+SETTLED_STATES = ("running", "degraded")
+
+
+def settled_report(ctx: Context, machine: Guest, label: str) -> dict[str, Any]:
+    """system_report() taken only after systemd has stopped saying "starting".
+
+    The guest agent answers long before boot finishes, so a state read at
+    that moment is the question asked too early, not an answer. Bounded by
+    --settle-timeout; a system still "starting" at the bound is reported as
+    exactly that, and check_system_state() fails it with the time it was given.
+    """
+    bound = float(ctx.options.get("settle_timeout", 300))
+    started = time.monotonic()
+    settled = _settle_system(machine, bound)
+    seconds = round(time.monotonic() - started, 1)
+    report = system_report(machine)
+    report["settled_state"] = settled
+    report["settle_seconds"] = seconds
+    report["settle_timeout_seconds"] = bound
+    # The judged state is the settled one; system_report's own read happened a
+    # moment later and is kept as observed, not substituted.
+    report["system_state"] = settled or report["system_state"]
+    ctx.observe(f"{label}_systemd_settle", {"state": settled, "seconds": seconds,
+                                             "bound_seconds": bound})
+    return report
+
+
+def check_system_state(ctx: Context, name: str, report: dict[str, Any]) -> bool:
+    """One wording for "systemd came up", shared by every case that judges it.
+
+    "degraded" still passes, as it always has here -- but never silently: the
+    failed units are named in the check and recorded as an observation. A
+    state that never left "starting" says how long it was waited for.
+    """
+    state = report["system_state"]
+    detail = f"systemctl is-system-running = {state!r}"
+    if state == "degraded":
+        detail += f"; failed units: {report.get('failed_units') or '(none listed)'}"
+        ctx.observe("degraded_failed_units", report.get("failed_units") or "")
+    elif report.get("failed_units"):
+        detail += f"; failed units: {report['failed_units']}"
+    if state not in SETTLED_STATES and "settle_timeout_seconds" in report:
+        detail += (f"; still not settled after {report['settle_seconds']}s "
+                   f"(bound {report['settle_timeout_seconds']:g}s)")
+    return ctx.check(name, state in SETTLED_STATES, detail)
+
+
 def push_script(machine: Guest, path: str, source: str) -> None:
     """Write a helper into the guest without trusting anything in its PATH."""
     encoded = base64.b64encode(source.encode()).decode()
@@ -177,7 +224,10 @@ def case_live_boot(ctx: Context) -> None:
     try:
         waited = machine.wait_agent(float(ctx.options.get("boot_timeout", 900)))
         ctx.observe("guest_agent_seconds", round(waited, 1))
-        report = system_report(machine)
+        # Settle FIRST, then read the report, so failed_units describes the
+        # same moment as the state being judged. The first 5.0.0 run asked 51s
+        # after boot and was told "starting"; systemd reached "running" at ~60s.
+        report = settled_report(ctx, machine, "live")
         ctx.evidence.write_json("live-system-report.json", report)
 
         ctx.check(
@@ -194,12 +244,7 @@ def case_live_boot(ctx: Context) -> None:
             "live os-release matches the release version",
             f'VERSION_ID="{ctx.options["version"]}"' in report["os_release"],
         )
-        ctx.check(
-            "systemd reaches a running state",
-            report["system_state"] in ("running", "degraded"),
-            f"systemctl is-system-running = {report['system_state']!r}"
-            + (f"; failed units: {report['failed_units']}" if report["failed_units"] else ""),
-        )
+        check_system_state(ctx, "systemd reaches a running state", report)
         # Give the desktop session time to paint before the screenshot: an
         # empty framebuffer is not evidence that a desktop came up.
         settle = float(ctx.options.get("desktop_settle", 90))
@@ -812,6 +857,11 @@ def case_upgrade(ctx: Context) -> None:
         machine.run(f"printf %s {shlex.quote(content)} > {shlex.quote(keepsake)}", check=True)
         digest = machine.out(f"sha256sum {shlex.quote(keepsake)} | cut -d' ' -f1")
 
+        # The first 5.0.0 run ran apt the moment the agent answered and every
+        # fetch from 10.0.2.2 failed with "Address family for hostname not
+        # supported": no IPv4 address yet. A network that never comes up is the
+        # environment, not the upgrade, so it is BLOCKED -- and apt never runs.
+        _await_network(ctx, machine, "upgrade")
         install = machine.run(
             "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=180 "
             f"--no-remove -y install {repo}",
@@ -830,9 +880,7 @@ def case_upgrade(ctx: Context) -> None:
             f"apt-get exit {install['exitcode']}",
         )
         machine.reboot(float(ctx.options.get("boot_timeout", 900)))
-        after = system_report(machine)
-        after["settled_state"] = _settle_system(machine)
-        after["system_state"] = after["settled_state"] or after["system_state"]
+        after = settled_report(ctx, machine, "upgrade_after")
         ctx.evidence.write_json("upgrade-after.json", after)
         ctx.check(
             "the upgraded system is the release under test",
@@ -852,17 +900,55 @@ def case_upgrade(ctx: Context) -> None:
             after["dpkg_audit"] == "",
             after["dpkg_audit"][:300] or "dpkg --audit is clean",
         )
-        ctx.check(
-            "the upgraded system reaches a running state",
-            after["system_state"] in ("running", "degraded"),
-            f"systemctl is-system-running = {after['system_state']!r}",
-        )
+        check_system_state(ctx, "the upgraded system reaches a running state", after)
         ctx.snap(machine, "upgrade-after.png")
     finally:
         try:
             machine.shutdown()
         finally:
             ctx.collect_machine_evidence(machine, "upgrade")
+
+
+# A guest is "online" for apt when network-online.target is active AND it has
+# an IPv4 default route: the target alone can be reached by a wait-online that
+# gave up, and the route is what a fetch from the host's 10.0.2.2 needs.
+NETWORK_ONLINE_PROBE = (
+    "systemctl is-active --quiet network-online.target "
+    "&& ip -4 route show default | grep -q ."
+)
+
+
+def _await_network(ctx: Context, machine: Guest, label: str) -> float:
+    """Wait, bounded by --network-timeout, for the guest network to be online.
+
+    Returns the seconds waited and records them. Running out raises Blocked with
+    the guest's own view of its network written to evidence first: the case
+    could not be executed, which is not a verdict on the artifact.
+    """
+    bound = float(ctx.options.get("network_timeout", 180))
+    started = time.monotonic()
+    deadline = started + bound
+    while True:
+        # nm-online returns as soon as NetworkManager's startup is complete, or
+        # after its own -t; missing on a non-NM image, it simply fails fast.
+        machine.run("nm-online -s -q -t 20 2>/dev/null", timeout=60)
+        if machine.run(NETWORK_ONLINE_PROBE, timeout=60)["exitcode"] == 0:
+            waited = round(time.monotonic() - started, 1)
+            ctx.observe(f"{label}_network_online_seconds", waited)
+            return waited
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(5)
+    state = machine.out(
+        "{ systemctl is-active network-online.target; ip -4 addr; "
+        "ip -4 route; nmcli -t general status; } 2>&1", timeout=60)
+    ctx.evidence.write_text(f"{label}-network-wait.log", state or "(no output)")
+    ctx.blocked(
+        f"the guest network did not come online within {bound:g}s "
+        "(network-online.target active with an IPv4 default route), so the "
+        "package source could not be reached; apt was not run"
+    )
+    return 0.0  # unreachable: blocked() raises
 
 
 # --- INSTALL ------------------------------------------------------------------
@@ -1408,7 +1494,7 @@ def _settle_system(machine: Guest, seconds: float = 300) -> str:
 
 
 def _installed_report(ctx: Context, machine: Guest, prefix: str) -> dict:
-    settled = _settle_system(machine)
+    settled = _settle_system(machine, float(ctx.options.get("settle_timeout", 300)))
     report = system_report(machine)
     report["settled_state"] = settled
     report["efi"] = machine.out("test -d /sys/firmware/efi && echo yes || echo no")
@@ -2603,6 +2689,117 @@ def case_shadowcode(ctx: Context) -> None:
             ctx.collect_machine_evidence(machine, "shadowcode")
 
 
+SOAK_INHIBIT_UNIT = "sf-acceptance-soak-inhibit"
+SOAK_INHIBIT_WHO = "shadowfetch-vm-acceptance"
+
+
+def _hold_session_awake(
+    ctx: Context, machine: Guest, session: dict[str, str]
+) -> dict[str, Any]:
+    """Keep the live session unlocked and its display on for the whole soak.
+
+    The first 5.0.0 soak ran into the live session's screen locker: it engaged
+    part-way through, the compositor stopped painting ShadowCode's window, and
+    the per-cycle idle CPU and MemAvailable readings afterwards described a
+    locked desktop rather than the app. Those numbers are not comparable, so
+    the soak now turns the locker and display power management off for its
+    duration and holds a logind idle/sleep inhibitor, and records that it did.
+
+    Everything is read back. If the locker is still configured to lock, or the
+    inhibitor is not held, the case is BLOCKED -- a soak that cannot keep the
+    session awake cannot measure what it claims to.
+    """
+    kw = "/usr/bin/kwriteconfig6"
+    power = " ".join(
+        f"{kw} --file powerdevilrc --group {profile} --group Display "
+        f"--key TurnOffDisplayWhenIdle false; "
+        f"{kw} --file powerdevilrc --group {profile} --group Display "
+        f"--key DimDisplayWhenIdle false; "
+        f"{kw} --file powerdevilrc --group {profile} --group SuspendAndShutdown "
+        f"--key AutoSuspendAction 0;"
+        for profile in ("AC", "Battery", "LowBattery")
+    )
+    setup = _as_session(
+        machine, session,
+        f"{kw} --file kscreenlockerrc --group Daemon --key Autolock false; "
+        f"{kw} --file kscreenlockerrc --group Daemon --key LockOnResume false; "
+        f"{power} "
+        "/usr/bin/dbus-send --session --type=method_call "
+        "--dest=org.freedesktop.ScreenSaver /ScreenSaver "
+        "org.kde.screensaver.configure; "
+        "/usr/bin/dbus-send --session --type=method_call "
+        "--dest=org.kde.Solid.PowerManagement /org/kde/Solid/PowerManagement "
+        "org.kde.Solid.PowerManagement.reparseConfiguration; "
+        # X11 only; a Wayland session has no xset and this is a no-op there.
+        "{ test -n \"$DISPLAY\" && command -v xset >/dev/null && xset s off -dpms; } ; "
+        f"/usr/bin/systemctl --user reset-failed {SOAK_INHIBIT_UNIT} >/dev/null 2>&1; "
+        f"/usr/bin/systemd-run --user --unit={SOAK_INHIBIT_UNIT} "
+        f"/usr/bin/systemd-inhibit --what=idle:sleep --mode=block "
+        f"--who={SOAK_INHIBIT_WHO} "
+        "--why='ShadowCode soak: CPU and memory must be measured on an unlocked desktop' "
+        "/usr/bin/sleep infinity",
+        timeout=120,
+    )
+    time.sleep(2)
+    autolock = _as_session(
+        machine, session,
+        "/usr/bin/kreadconfig6 --file kscreenlockerrc --group Daemon --key Autolock",
+    )["stdout"].strip()
+    inhibitors = machine.run("/usr/bin/systemd-inhibit --list --no-pager 2>&1",
+                             timeout=60)["stdout"]
+    unit_state = _as_session(
+        machine, session, f"/usr/bin/systemctl --user is-active {SOAK_INHIBIT_UNIT}"
+    )["stdout"].strip()
+    record = {
+        "screen_locker_autolock": autolock,
+        "inhibitor_unit": SOAK_INHIBIT_UNIT,
+        "inhibitor_unit_state": unit_state,
+        "inhibitor_held": SOAK_INHIBIT_WHO in inhibitors and unit_state == "active",
+        "dpms": "powerdevilrc TurnOffDisplayWhenIdle/DimDisplayWhenIdle=false, "
+                "AutoSuspendAction=0 (AC, Battery, LowBattery); xset -dpms on X11",
+        "setup_exit": setup["exitcode"],
+    }
+    ctx.evidence.write_text(
+        "shadowcode-soak-awake.log",
+        f"setup exit={setup['exitcode']}\n{setup['stdout']}{setup['stderr']}\n"
+        f"kscreenlockerrc [Daemon] Autolock = {autolock!r}\n"
+        f"{SOAK_INHIBIT_UNIT}: {unit_state!r}\n\n$ systemd-inhibit --list\n{inhibitors}",
+    )
+    ctx.observe("soak_session_awake", record)
+    if autolock != "false" or not record["inhibitor_held"]:
+        ctx.blocked(
+            "the live session could not be held awake for the soak (screen locker "
+            f"Autolock read back as {autolock!r}; idle inhibitor held: "
+            f"{record['inhibitor_held']}), so its CPU and memory readings would "
+            "describe a locked desktop rather than ShadowCode"
+        )
+    return record
+
+
+def _release_session_awake(machine: Guest, session: dict[str, str]) -> None:
+    """Drop the inhibitor. Best effort: the live guest is discarded anyway."""
+    try:
+        _as_session(machine, session,
+                    f"/usr/bin/systemctl --user stop {SOAK_INHIBIT_UNIT}", timeout=60)
+    except GuestError:
+        pass
+
+
+def _screen_locked(machine: Guest, session: dict[str, str]) -> bool | None:
+    """The screen locker's own answer, or None when it cannot be asked."""
+    reply = _as_session(
+        machine, session,
+        "/usr/bin/dbus-send --session --print-reply=literal "
+        "--dest=org.freedesktop.ScreenSaver /ScreenSaver "
+        "org.freedesktop.ScreenSaver.GetActive",
+        timeout=60,
+    )
+    words = reply["stdout"].split()
+    if reply["exitcode"] != 0 or len(words) < 2 or words[-2] != "boolean":
+        return None
+    return words[-1] == "true"
+
+
 def case_shadowcode_soak(ctx: Context) -> None:
     """Open and close ShadowCode repeatedly; watch crashes, leaks, CPU and exits."""
     pin = _shadowcode_pin(ctx)
@@ -2614,14 +2811,18 @@ def case_shadowcode_soak(ctx: Context) -> None:
         "minutes": soak_minutes, "hold_seconds": hold,
         "max_mem_available_drop_mib": drift_mib, "max_idle_cpu_percent": cpu_limit,
         "close_method": "systemctl --user stop (SIGTERM, 20s before SIGKILL)",
+        "session_awake": "screen locker Autolock=false, DPMS/dim/suspend off, "
+                         "logind idle:sleep inhibitor held for the whole soak",
     })
     machine = _boot_live_for_shadowcode(ctx, "shadowcode-soak")
+    session: dict[str, str] | None = None
     try:
         ctx.observe("guest_agent_seconds",
                     round(machine.wait_agent(float(ctx.options.get("boot_timeout", 900))), 1))
         session = _await_session(ctx, machine)
         _shadowcode_install_checks(ctx, machine, session, pin)
         _require_window_probe(ctx, machine, session)
+        awake = _hold_session_awake(ctx, machine, session)
 
         since = machine.out("/usr/bin/date +%s")
         baseline = _mem_available_kib(machine)
@@ -2652,6 +2853,8 @@ def case_shadowcode_soak(ctx: Context) -> None:
                 ) if elapsed > 0 else None
             if index == 1:
                 ctx.snap(machine, "shadowcode-soak-window.png", required=True)
+            # Asked while the app is still open, i.e. during the measured hold.
+            cycle["screen_locked"] = _screen_locked(machine, session)
             cycle["stop"] = _stop_shadowcode(machine, session, unit)
             time.sleep(5)
             cycle["mem_available_after_close_kib"] = _mem_available_kib(machine)
@@ -2664,7 +2867,8 @@ def case_shadowcode_soak(ctx: Context) -> None:
             if not cycle["started"] or seconds is None or not cycle["held"]:
                 break
         ctx.evidence.write_json("shadowcode-soak-cycles.json", {
-            "baseline_mem_available_kib": baseline, "cycles": cycles,
+            "baseline_mem_available_kib": baseline, "session_awake": awake,
+            "cycles": cycles,
         })
         ctx.observe("soak_cycles", len(cycles))
         if len(cycles) < 3 and all(c["started"] and c["window_seconds"] is not None and c["held"]
@@ -2713,8 +2917,22 @@ def case_shadowcode_soak(ctx: Context) -> None:
         crashes = _crashes_since(ctx, machine, since, "shadowcode-soak")
         ctx.check(f"no ShadowCode crash across {len(cycles)} cycles",
                   not crashes, "; ".join(crashes)[:400])
+        locked = [c.get("screen_locked") for c in cycles]
+        if any(value is not None for value in locked):
+            ctx.check(
+                "the screen locker never engaged during the soak",
+                not any(value is True for value in locked),
+                f"per-cycle screen locked: {locked}",
+            )
+        else:
+            ctx.observe("screen_locker_state_unobserved",
+                        "org.freedesktop.ScreenSaver.GetActive did not answer; the "
+                        "locker was disabled and inhibited (soak_session_awake) but "
+                        "its state during the holds is not claimed")
     finally:
         try:
+            if session is not None:
+                _release_session_awake(machine, session)
             machine.shutdown()
         finally:
             ctx.collect_machine_evidence(machine, "shadowcode-soak")
