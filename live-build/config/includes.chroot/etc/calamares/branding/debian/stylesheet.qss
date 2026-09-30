@@ -1,4 +1,34 @@
 /*
- * Shadowfetch deliberately inherits the active Qt widget style. The file is
- * present so Calamares treats that choice as an explicit branding decision.
+ * Shadowfetch deliberately inherits the active Qt widget style. Calamares
+ * (3.4) loads this file from the branding directory by name and applies it to
+ * the installer window, so it overrides only the two places where that style
+ * showed Breeze blue instead of the ShadowCode gold (5.0.0 VM QA, 2abd1f6f):
+ * the install progress bar and list/text selection.
+ *
+ * Every value is a tools/truth/palette.json role, the same ones branding.desc
+ * uses for the sidebar: gold #F2B33D (elements.shadowcode.accent), ink
+ * #0A0D11, graphite #4A4F56 and text #D6DBE1 (surfaces.desktop.roles).
+ * Ink on gold is 10.5:1.
  */
+
+QProgressBar {
+    border: 1px solid #4A4F56;
+    border-radius: 3px;
+    background: #D6DBE1;
+    color: #0A0D11;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background: #F2B33D;
+    border-radius: 2px;
+}
+
+QAbstractItemView,
+QLineEdit,
+QTextEdit,
+QPlainTextEdit,
+QComboBox {
+    selection-background-color: #F2B33D;
+    selection-color: #0A0D11;
+}

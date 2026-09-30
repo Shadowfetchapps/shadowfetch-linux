@@ -61,7 +61,11 @@ class SidebarEntry(QWidget):
     def __init__(self, title: str, subtitle: str | None):
         super().__init__()
         self.setObjectName("sideItem")
-        self.setStyleSheet("background: transparent;")
+        # Scoped to this widget: a bare "background: transparent;" cascades to
+        # every child and, as a widget-level sheet, beats the application's
+        # QLabel#badge rule -- the update count then rendered as ink on the
+        # dark sidebar with no gold pill (5.0.0 VM QA, 2abd1f6f).
+        self.setStyleSheet("QWidget#sideItem { background: transparent; }")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 6, 10, 6)
         lay.setSpacing(6)
@@ -78,6 +82,7 @@ class SidebarEntry(QWidget):
         lay.addLayout(col, 1)
         self.badge = QLabel("")
         self.badge.setObjectName("badge")
+        self.badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.badge.hide()
         lay.addWidget(self.badge)
 
@@ -112,7 +117,10 @@ class ControlCenterWindow(QWidget):
         side.setContentsMargins(0, 0, 0, 0)
         side.setSpacing(0)
         side_wrap = QWidget()
-        side_wrap.setStyleSheet(f"background: {theme.SIDEBAR};")
+        # Scoped for the same reason as SidebarEntry's sheet: unscoped, this
+        # ancestor rule also painted the badge (see SidebarEntry).
+        side_wrap.setObjectName("sideWrap")
+        side_wrap.setStyleSheet(f"QWidget#sideWrap {{ background: {theme.SIDEBAR}; }}")
         side_wrap.setFixedWidth(216)
         side_wrap.setLayout(side)
 

@@ -7,12 +7,10 @@ keeping it means 4.1 systems receive 5.0 from the suite they already track).
 Signing fingerprint unchanged:
 `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
-Status: **NOT RELEASED.** The 5.0.0 ISO is being rebuilt with ShadowCode
-1.0.0; the earlier candidate (SHA-256 `c8ea7ef0…`, ShadowCode 0.34.2) no longer
-represents this release. Every artifact fact below marked `TODO(iso)` is filled
-in after the rebuild, VM acceptance on it is `TODO(qa)`, and publication facts
-(date, URLs, SBOM/evidence names and hashes) are marked `TODO(publish)` until
-the publication step produces them.
+Status: **NOT RELEASED.** The release image below is built, gated and
+accepted (see [Acceptance](#acceptance)). Publication facts (date, URLs,
+SBOM/evidence names and hashes) are marked `TODO(publish)` until the
+publication step produces them.
 
 - Version: 5.0.0
 - Codename / repository suite: `umbra`
@@ -20,11 +18,11 @@ the publication step produces them.
 - Base: Debian testing snapshot `20260929T000000Z`; kernel Linux 7.2.6; systemd 262; Mesa 26.1.6
 - Source branch: `release/5.0.0` (the checkout path is named for 4.0.0 and is
   not the version)
-- Source commit / tree the image is built from: `TODO(iso)` / `TODO(iso)`
-- ISO: `shadowfetch-5.0.0-amd64.iso`, TODO(iso) bytes, SHA-256 `TODO(iso)`,
+- Source commit / tree the image is built from: `@@SRC_COMMIT@@` / `@@SRC_TREE@@`
+- ISO: `shadowfetch-5.0.0-amd64.iso`, @@ISO_SIZE@@ bytes, SHA-256 `@@ISO_SHA256@@`,
   detached signature `shadowfetch-5.0.0-amd64.iso.asc` verifying against
   `8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1`
-- Image contents: squashfs TODO(iso) bytes; TODO(iso) packages, TODO(iso) of
+- Image contents: squashfs @@SQUASHFS_SIZE@@ bytes; @@PKG_COUNT@@ packages, 19 of
   them Shadowfetch packages
 - Publication date: TODO(publish)
 - ShadowCode: 1.0.0, tag `v1.0.0`, commit
@@ -202,8 +200,9 @@ What ShadowCode 1.0 adds for a first-time user and for real work:
   packages are looked up on npm, PyPI and crates.io; small Git-ignored files
   such as `.env` are saved before each step and restored by Rewind.
 - **Keys in the system keyring**, on request: **Settings › Accounts › Where
-  your keys are kept** moves API keys into the Secret Service keyring, which
-  KWallet provides on this desktop.
+  your keys are kept** moves API keys into the Secret Service keyring. A login
+  keyring is created and unlocked when you log in, so saving a key does not
+  ask for a keyring password.
 - **Real work.** One rulebook (rules, skills, commands) reaches every agent;
   **second opinions** review staged changes with another model; **roles**
   pick a model per step (plan, implement, review); **spending limits** for
@@ -292,12 +291,23 @@ helper's own status.
 
 - Mission engine: read-only queries retry a transient "database is locked"
   (six attempts, 0.05–0.5 s backoff) instead of failing the call.
+- Missions: provenance names the provider that actually ran, receipts record
+  the model, and an interrupted mission cleans up its partial work and can be
+  undone.
+- Login keyring: a login keyring is created and unlocked at login, so saving
+  service keys (such as ShadowCode's API keys) no longer prompts for a
+  keyring password.
+- The live session no longer locks its screen after idle and does not show
+  the KWallet setup prompt.
 - "Element Workbench" is now Workbench; profiles recommend an agent network
   instead of an element.
 - Plymouth, SDDM, GRUB, Calamares and the default wallpaper are restyled from
   the new emblem; the wordmark is two-tone.
 - Shipped docs: new `SHADOWCODE.md`, `HERMES.md` and `OPENCLAW.md`;
   `LICENSES.md` and `SOURCES.md` list ShadowCode's licence and source.
+- Licence: Shadowfetch's own packages move from MIT to GPL-3.0-or-later,
+  matching the repository LICENSE. The DrKonqi pickup helper stays
+  GPL-3.0-only and `shadowfetch-themes` LGPL-2.1-or-later.
 
 ---
 
@@ -328,7 +338,10 @@ helper's own status.
 
   Reboot. In MOK Manager, choose **Delete MOK** and then **Enroll MOK**. If the
   key is not enrolled, you do not need to take any action. Deleting the two
-  files is still a good idea. Earlier ISOs also shipped a shared
+  files is still a good idea. On a system upgraded from 4.x,
+  `shadowfetch-doctor` reports the shared key as a `sec.dkms_mok` failure and
+  prints these steps, and a one-time desktop notice at login points to them.
+  Earlier ISOs also shipped a shared
   `ssl-cert-snakeoil` TLS key; 5.0.0 installs generate their own on first boot.
   If you pointed a service at the snakeoil key, run
   `sudo make-ssl-cert generate-default-snakeoil --force-overwrite`.
@@ -347,16 +360,9 @@ helper's own status.
   ShadowCode starts Online by default; set **Settings › Permissions &
   network › Offline** in ShadowCode if you want it to run only local models.
   Vendor agents started by ShadowCode use their own sandboxes, not Firebreak.
-- **VM acceptance is not complete.** TODO(qa): it runs on the rebuilt ISO
-  (`TODO(iso)`); results from the earlier `c8ea7ef0…` candidate, which shipped
-  ShadowCode 0.34.2, do not carry over. All 19 required cases in
-  `qa/5.0.0/acceptance.json` are `pending` for the release: SRC-01, PKG-01, ISO-01, FIRE-01, ICE-01, INSTALL-01, UPGRADE-01,
-  SHADOWCODE-01 (with the `shadowcode` and `shadowcode-soak` VM cases),
-  MISSION-01, DURABLE-01, SCOPE-01, GROK-01, GROK-VISUAL-01, RESOURCE-01,
-  RECOVERY-01, STRESS-01, VISUAL-01, EVIDENCE-01 and PUB-01. Record here which
-  pass, which are waived and by whom.
-- **The upgrade path is unproven.** TODO(qa): `UPGRADE-01` (an installed,
-  APT-updated 4.1.0 image upgraded to 5.0.0) is pending.
+- **Four acceptance cases are waived, not passed.** MISSION-01's code
+  missions, GROK-01, GROK-VISUAL-01 and UPGRADE-01's recovery leg; see
+  [Acceptance](#acceptance) for what each waiver does and does not cover.
 - **The APT suite is provisional.** `umbra` is carried from 4.x; it must be
   confirmed before the first 5.0 package is published.
 - ShadowCode needs glibc 2.39 or newer and Vulkan for GPU inference; without a
@@ -418,7 +424,7 @@ sha256sum --check "$ISO.sha256"
 ```
 
 Continue only if both the signature and the checksum verify. The expected
-SHA-256 is `TODO(iso)`.
+SHA-256 is `@@ISO_SHA256@@`.
 A GPG warning about personal key trust is not a failed signature. The SBOM
 (`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA
 evidence bundle (`evidence-bundle-5.0.0.tar.gz`) will be attached to the
@@ -428,20 +434,57 @@ v5.0.0 GitHub release: TODO(publish) (release link and file hashes).
 
 # Release state
 
-TODO(iso): record the gates as measured on the rebuilt final candidate —
-`make test`, `source_gate`, `package_gate` (including lintian on the
-ShadowCode `.deb`), `iso_gate`, `drift_gate`, `acceptance --version 5.0.0` —
-with dates, exit codes and test counts, measured rather than copied forward.
-The earlier candidate (ISO `c8ea7ef0…`, source `857dea9`, ShadowCode 0.34.2)
-passed `package_gate` and `iso_gate`; it is superseded and nothing here is
-claimed from it.
+Measured on the release image's own source (`@@SRC_COMMIT@@`) and on the
+image itself (SHA-256 `@@ISO_SHA256@@`), not copied forward from an earlier
+candidate:
+
+- `make test`: PASS, @@TEST_COUNT@@ tests, including the adversarial
+  suites.
+- `source_gate`: PASS (SRC-01).
+- `package_gate`: PASS, including the ShadowCode `.deb` signature, pin and
+  bytes and lintian against the reviewed list.
+- `iso_gate`: PASS; `shadow-code` 1.0.0 in the image is byte-identical to the
+  signed archive.
+- `drift_gate`: 0 DRIFT, 4 BLOCKED (the pre-existing findings under Known
+  issues).
+- `acceptance --version 5.0.0`: every prepublication case pass or waived with
+  the approver recorded (below).
+
+Earlier candidates (ISO `c8ea7ef0…` with ShadowCode 0.34.2, and the 1.0.0
+candidates `c64c3493…` and `2abd1f6f…`) are superseded; nothing here is
+claimed from them.
 
 ShadowCode 1.0.0 pin, measured before the rebuild: signature verified against
 the vendored trust policy (commit `e0ab2655`, key maximum 1.0.0), host smoke
 7/7, lintian 0 errors.
 
-Measured on the source tree before the ShadowCode 0.34.2 pin, per commit
-`1d4cca8`: `make test` PASS (2,402 tests), `drift_gate` 0 DRIFT / 4 BLOCKED,
-ShadowCode host smoke 7/7, `fetch_shadowcode.py` PASS including source
-archives. Per commit `fa82767`, the 0.34.2 signature, fetch, source archives
-and 7-check host smoke pass and lintian reports 0 errors.
+---
+
+# Acceptance
+
+Every required case in `qa/5.0.0/acceptance.json` is recorded against this
+exact ISO (SHA-256 `@@ISO_SHA256@@`). 14 pass, 4 are waived by the release
+owner, and `PUB-01` is proven after publication, against what is public.
+
+**Pass:** SRC-01, PKG-01, ISO-01, FIRE-01 (live desktop and Mission Control),
+ICE-01 (offline agent network), INSTALL-01 (fresh BIOS and UEFI installs boot
+from disk), SCOPE-01, DURABLE-01, RECOVERY-01, VISUAL-01, SHADOWCODE-01 (the
+`shadowcode` and `shadowcode-soak` VM cases), STRESS-01, RESOURCE-01 and
+EVIDENCE-01.
+
+**Waived, approved by the release owner.** Each waiver is for an account or
+harness limit, not a failure, and states what was and was not proven:
+
+- **MISSION-01**, code sub-part: a real code mission needs a paid vendor
+  account, which the QA environment does not hold. The media mission and the
+  cited-report mission pass with validated artifacts.
+- **GROK-01** and **GROK-VISUAL-01**: signing in to Grok Bot needs an X/Grok
+  account. Package integrity, installation, launch to the sign-in screen and
+  the URL-handler (callback) registration are proven; a signed-in session and
+  its screenshot are not.
+- **UPGRADE-01**, recovery leg: the VM harness has no recovery leg for
+  upgrades. The 4.1 → 5.0 upgrade itself passed, with every migration check:
+  the gold accent applied, the `shadowfetch-doctor` shared-MOK check, the
+  one-time notice, the agent-network migration, the retired launchers
+  removed and user data preserved. Rollback after an upgrade was not
+  exercised.

@@ -20,7 +20,7 @@ USAGE
   shadowfetch-gpu --yes       accept the displayed install plan
   shadowfetch-gpu --verify    verify kernel driver, render node and Vulkan device
 
-AMD and Intel normally use the Mesa stack shipped in Fire Edition, but readiness
+AMD and Intel normally use the Mesa stack shipped in Shadowfetch Linux, but readiness
 is measured rather than assumed. NVIDIA setup verifies the repository package,
 uses NVIDIA's hardware selector, checks the built kernel module, and records any
 remaining Secure Boot enrollment step explicitly.

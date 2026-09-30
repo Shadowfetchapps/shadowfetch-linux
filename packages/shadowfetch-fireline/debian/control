@@ -31,7 +31,7 @@ Suggests:
 # configuration package onto a headless Firebreak install.
  shadowfetch-defaults
 Description: Shadowfetch Fireline - contain, checkpoint and audit local AI agents
- Fireline is the agent-safety system of Shadowfetch Linux Fire and Ice. It lets
+ Fireline is the agent-safety system of Shadowfetch Linux. It lets
  you run any coding agent full-auto without handing it your whole machine.
  .
  shadowfetch-firebreak runs an agent inside bubblewrap with public system runtimes mounted

@@ -62,6 +62,20 @@ class CalamaresContractTests(unittest.TestCase):
         self.assertTrue(stylesheet.is_file())
         self.assertIn("inherits the active Qt widget style", stylesheet.read_text())
 
+    def test_stylesheet_paints_progress_and_selection_gold(self) -> None:
+        # 5.0.0 VM QA (2abd1f6f): the progress bar and list selection fell
+        # back to Breeze blue. Both must carry the ShadowCode accent.
+        import json
+        import re
+
+        palette = json.loads((ROOT / "tools/truth/palette.json").read_text())
+        gold = palette["elements"]["shadowcode"]["accent"].lower()
+        qss = (CALAMARES / "branding/debian/stylesheet.qss").read_text().lower()
+        chunk = re.search(r"qprogressbar::chunk\s*\{([^}]*)\}", qss)
+        self.assertIsNotNone(chunk)
+        self.assertIn(gold, chunk.group(1))
+        self.assertRegex(qss, rf"selection-background-color:\s*{gold}")
+
 
 if __name__ == "__main__":
     unittest.main()

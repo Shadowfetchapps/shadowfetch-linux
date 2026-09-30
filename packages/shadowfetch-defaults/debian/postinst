@@ -62,6 +62,21 @@ if [ "$1" = "configure" ] && [ -n "${2:-}" ] \
     fi
 fi
 
+# The login keyring. Debian's sddm 0.21.0+git20260801-3 dropped its own
+# "-session pam_gnome_keyring.so auto_start" line on the grounds that
+# libpam-gnome-keyring now owns the PAM integration (#1142693), but
+# libpam-gnome-keyring 51.1-1's pam-auth-update profile still covers only
+# password changes. Nothing opened the login keyring at login, so the first
+# Secret Service store (ShadowCode's API keys) asked for a new keyring
+# password. Our profile adds the session half to common-session; sddm's own
+# "-auth" line hands it the login password. Runs on every configure so
+# fresh installs and upgraded 4.x systems (whose /etc/pam.d/sddm the sddm
+# upgrade replaced) both get it; pam-auth-update is idempotent and leaves
+# locally edited common-* files alone.
+if [ "$1" = "configure" ] && command -v pam-auth-update >/dev/null 2>&1; then
+    pam-auth-update --package
+fi
+
 #DEBHELPER#
 
 exit 0

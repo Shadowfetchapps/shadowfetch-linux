@@ -45,7 +45,7 @@ check "release is 5.0.0" "grep -qx 5.0.0 <(head -1 '$out/version.txt')"
 check "/etc/shadowfetch/element removed by the upgrade" "grep -q element-file-absent '$out/etc-shadowfetch.txt'"
 check "system agent-network file says offline" "grep -qx offline <(sed -n '/^offline\$\|^online\$/p' '$out/etc-shadowfetch.txt')"
 check "shadowfetch-agent-network resolves to offline for the user" "head -1 '$out/agent-network.txt' | grep -qx offline"
-check "look migration stamp written (shadowcode)" "grep -A1 -- '--- stamp' '$out/look.txt' | grep -qx shadowcode"
+check "look migration stamp written (shadowcode-2)" "grep -A1 -- '--- stamp' '$out/look.txt' | grep -qx shadowcode-2"
 # KDE omits a value equal to ~/.config/kdedefaults/kdeglobals, so the effective
 # scheme is the user's key if set, else the kdedefaults one.
 check "colour scheme is ShadowfetchDark" "grep -qx 'effective ColorScheme=ShadowfetchDark' '$out/look.txt'"

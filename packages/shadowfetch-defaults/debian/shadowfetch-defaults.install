@@ -96,3 +96,4 @@ data/etc/skel/.local/bin/.keep  etc/skel/.local/bin/
 data/usr/lib/systemd/user-environment-generators/60-shadowfetch-webkit-software-rendering  usr/lib/systemd/user-environment-generators/
 data/etc/skel/.config/konsolerc  etc/skel/.config/
 data/etc/skel/.config/kwalletrc  etc/skel/.config/
+data/usr/share/pam-configs/shadowfetch-gnome-keyring  usr/share/pam-configs/

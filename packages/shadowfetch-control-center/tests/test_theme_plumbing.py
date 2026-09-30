@@ -60,5 +60,43 @@ class TheShellPaintsFromTheme(unittest.TestCase):
         self.assertEqual("#101114", theme.SIDEBAR)
 
 
+class TheSidebarBadgeIsAGoldPill(unittest.TestCase):
+    """5.0.0 VM QA (2abd1f6f): the Software update count rendered as ink on
+    the dark sidebar with no pill. Unscoped widget-level sheets on the entry
+    and on the sidebar well outranked the application's QLabel#badge rule."""
+
+    def test_badge_background_is_the_gold(self):
+        from PyQt6.QtCore import QSize
+        from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
+        from sfcc import app as ccapp
+
+        window = QWidget()
+        window.setStyleSheet(theme.STYLESHEET)
+        well = QWidget(window)
+        # An unscoped ancestor sheet is what hid the pill; this one mimics a
+        # container that still carries one, so the badge must hold its own.
+        well.setStyleSheet(f"QWidget#sideWrap {{ background: {theme.SIDEBAR}; }}")
+        well.setObjectName("sideWrap")
+        sidebar = QListWidget()
+        sidebar.setObjectName("sidebar")
+        entry = ccapp.SidebarEntry("Software", "Updates & bundles")
+        item = QListWidgetItem()
+        item.setSizeHint(QSize(200, 46))
+        sidebar.addItem(item)
+        sidebar.setItemWidget(item, entry)
+        QVBoxLayout(well).addWidget(sidebar)
+        well.resize(216, 120)
+        entry.set_badge(44)
+        window.show()
+        APP.processEvents()
+        image = entry.badge.grab().toImage()
+        self.assertEqual(theme.GOLD, image.pixelColor(image.width() // 2, 2).name())
+
+    def test_no_unscoped_background_sheet_in_the_shell(self):
+        source = (SFCC / "app.py").read_text(encoding="utf-8")
+        self.assertNotIn('setStyleSheet("background: transparent;")', source)
+        self.assertNotIn('setStyleSheet(f"background: {theme.SIDEBAR};")', source)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

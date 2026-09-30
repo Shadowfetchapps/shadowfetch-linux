@@ -21,7 +21,7 @@ Recommends:
  linux-cpupower,
  shadowfetch-firewatchd
 Description: Shadowfetch Ember Mode engine (one switch, auto-return to Balanced)
- Ember Mode is the Fire Edition speed switch. When armed it holds the
+ Ember Mode is the Shadowfetch speed switch. When armed it holds the
  'performance' power profile via power-profiles-daemon (falling back to
  the cpupower governor on hardware without a ppd performance profile),
  pauses a small curated list of background services (PackageKit, fwupd,

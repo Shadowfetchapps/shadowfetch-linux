@@ -14,7 +14,11 @@ ShadowCode 1.0 explains itself: every approval card says what the action does, h
 
 Nothing is connected until you sign in. Welcome's last step opens ShadowCode so you can connect what you have. 5.0 also **changes behaviour that 4.1 setups depend on**: Fire and Ice are gone, several commands are removed, and the Fire/Ice network switch is now a separate setting. Read the [release notes](RELEASE-5.0.0.md) before upgrading.
 
-<!-- TODO(iso): add 5.0 screenshots (ShadowCode 1.0, Welcome, Mission Control) once VISUAL-01 has captured them from the rebuilt release ISO; captures from the superseded c8ea7ef0… candidate (ShadowCode 0.34.2) do not count. -->
+![ShadowCode 1.0 on the Shadowfetch Linux 5.0 desktop](https://www.shadowfetchlinux.org/linux-assets/linux-5.0.0-shadowcode.webp)
+
+![Shadowfetch Linux 5.0 Welcome, with Open ShadowCode first](https://www.shadowfetchlinux.org/linux-assets/linux-5.0.0-welcome.webp)
+
+![Mission Control 5.0 with ShadowCode, Grok Bot and Hermes & OpenClaw in the sidebar](https://www.shadowfetchlinux.org/linux-assets/linux-5.0.0-mission-control.webp)
 
 [Download](https://www.shadowfetchlinux.org/download) · [Screenshots](https://www.shadowfetchlinux.org/screenshots) · [Release notes](RELEASE-5.0.0.md) · [ShadowCode](https://github.com/Shadowfetchapps/ShadowCode)
 
@@ -26,14 +30,14 @@ Nothing is connected until you sign in. Welcome's last step opens ShadowCode so 
 | Edition | ShadowCode — "One Harness. All Models." |
 | Publication date / channel | TODO(publish): not yet published / stable |
 | ISO | shadowfetch-5.0.0-amd64.iso |
-| Size | TODO(iso) bytes |
-| SHA-256 | `TODO(iso)` |
-| ISO product source commit / tree | `TODO(iso)` / `TODO(iso)` |
+| Size | @@ISO_SIZE@@ bytes |
+| SHA-256 | `@@ISO_SHA256@@` |
+| ISO product source commit / tree | `@@SRC_COMMIT@@` / `@@SRC_TREE@@` |
 | Base / desktop | Debian testing snapshot 20260929T000000Z / KDE Plasma 6.7.4 |
 | Kernel | Linux 7.2.6 |
 | ShadowCode | 1.0.0 (`shadow-code`, republished unmodified from the signed upstream `.deb`) |
 | Architecture / APT suite | amd64 / `umbra` |
-| Final boot acceptance | TODO(iso): VM acceptance runs on the rebuilt ISO; all 19 cases in `qa/5.0.0/acceptance.json` are pending for it |
+| Final boot acceptance | 18 prepublication cases in `qa/5.0.0/acceptance.json` proven against this ISO: 14 pass, 4 waived by the release owner with written reasons; `PUB-01` is proven after publication |
 
 Signing-key fingerprint: `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
@@ -88,7 +92,7 @@ Use a 64-bit Intel/AMD computer. Plan for 8 GB RAM and 100 GB disk space for a c
 
 Secure Boot has no Microsoft-trusted shim. Intel/AMD use Mesa; NVIDIA setup is an explicit, simulate-first workflow. VM rendering tests do not establish physical GPU acceleration performance, and hybrid laptops need their own validation. Phoenix Points require a supported Btrfs root; ext4 does not provide the same snapshot recovery. Debian testing can change faster than Debian stable.
 
-TODO(iso): acceptance summary. VM acceptance runs on the rebuilt ISO; results recorded against the superseded `c8ea7ef0…` candidate (ShadowCode 0.34.2) do not count for it, so every case in `qa/5.0.0/acceptance.json` is pending for the release (SRC-01, PKG-01, ISO-01, FIRE-01, ICE-01, INSTALL-01, UPGRADE-01, SHADOWCODE-01, MISSION-01, DURABLE-01, SCOPE-01, GROK-01, GROK-VISUAL-01, RESOURCE-01, RECOVERY-01, STRESS-01, VISUAL-01, EVIDENCE-01, PUB-01). The release notes will record which pass, which are waived and why.
+Acceptance, recorded in `qa/5.0.0/acceptance.json` against this exact ISO: SRC-01, PKG-01, ISO-01, FIRE-01, ICE-01, INSTALL-01 (BIOS and UEFI), SCOPE-01, DURABLE-01, RECOVERY-01, VISUAL-01, SHADOWCODE-01, STRESS-01, RESOURCE-01 and EVIDENCE-01 pass. Four are waived by the release owner, each for an account or harness limit rather than a failure: MISSION-01's code sub-part (needs a paid vendor account; the media and cited-report missions pass), GROK-01 and GROK-VISUAL-01 (need an X/Grok account; install, integrity, launch to sign-in and the URL handler are proven), and UPGRADE-01's recovery leg (the harness has none for upgrades; the 4.1 → 5.0 upgrade itself and every migration check pass). `PUB-01` is proven after publication, against what is public. The [release notes](RELEASE-5.0.0.md#acceptance) give the details.
 
 ## Build from source
 
@@ -123,6 +127,6 @@ Patches to packages, build tools, tests and documentation are welcome. Run `make
 
 ## Licensing
 
-The ISO aggregates upstream packages under their respective licenses. Each Shadowfetch package states its license in its `debian/copyright`: most are MIT; `shadowfetch-fireline` and `grub-btrfs` are GPL-3.0-or-later; the Breeze-derived `shadowfetch-themes` is LGPL-2.1-or-later. The DrKonqi pickup helper's own code and packaging use **GPL-3.0-only**; its compiled KDE source retains **GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL**, and its source package includes the upstream archive, signature, release key and downstream patch. This repository's [LICENSE](LICENSE) is GPL-3.0. ShadowCode is **Apache-2.0** and its bundled components keep their own licenses; its corresponding source is published beside the APT repository under `pool/third-party-source/shadow-code/`. Other upstream source retains its original license notices. Shadowfetch and Umbra names, marks and artwork are reserved under [TRADEMARKS.md](TRADEMARKS.md); rebrand derivative distributions. Optional vendor applications retain their own licenses and terms. Shadowfetch Linux is independent and does not imply Debian or vendor endorsement.
+The ISO aggregates upstream packages under their respective licenses. Each Shadowfetch package states its license in its `debian/copyright`: Shadowfetch's own packages (and the packaged `grub-btrfs`) are GPL-3.0-or-later, matching this repository's [LICENSE](LICENSE); the Breeze-derived `shadowfetch-themes` is LGPL-2.1-or-later. The DrKonqi pickup helper's own code and packaging use **GPL-3.0-only**; its compiled KDE source retains **GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL**, and its source package includes the upstream archive, signature, release key and downstream patch. ShadowCode is **Apache-2.0** and its bundled components keep their own licenses; its corresponding source is published beside the APT repository under `pool/third-party-source/shadow-code/`. Other upstream source retains its original license notices. Shadowfetch and Umbra names, marks and artwork are reserved under [TRADEMARKS.md](TRADEMARKS.md); rebrand derivative distributions. Optional vendor applications retain their own licenses and terms. Shadowfetch Linux is independent and does not imply Debian or vendor endorsement.
 
 [Docs](https://www.shadowfetchlinux.org/docs) · [Security model](https://www.shadowfetchlinux.org/security) · [Release feed](https://www.shadowfetchlinux.org/releases.json) · [Previous 4.1 release](RELEASE-4.1.0.md)

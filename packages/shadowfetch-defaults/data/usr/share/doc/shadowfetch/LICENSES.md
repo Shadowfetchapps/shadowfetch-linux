@@ -9,9 +9,10 @@ others). Those licenses and the corresponding source are available from Debian
 ## Shadowfetch's own components
 
 Each Shadowfetch package states its license in
-`/usr/share/doc/<package>/copyright`, and that file is authoritative. Most
-Shadowfetch packages are published under the MIT License. The exceptions:
-shadowfetch-fireline and grub-btrfs are GPL-3.0-or-later; the DrKonqi pickup
+`/usr/share/doc/<package>/copyright`, and that file is authoritative.
+Shadowfetch packages are published under the GNU General Public License,
+version 3 or (at your option) any later version (GPL-3.0-or-later), as is
+grub-btrfs. The exceptions: the DrKonqi pickup
 helper is GPL-3.0-only (its compiled KDE source keeps GPL-3.0-only OR
 LicenseRef-KDE-Accepted-GPL); and the theme assets derived from KDE's Breeze
 (shadowfetch-themes: colour schemes, SDDM theme, look-and-feel) remain under

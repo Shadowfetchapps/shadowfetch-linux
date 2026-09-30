@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+# Drop the login-keyring session line (see postinst) before the profile file
+# that declares it disappears, as libpam-kwallet5 does for its own.
+if [ "$1" = "remove" ] && command -v pam-auth-update >/dev/null 2>&1; then
+    pam-auth-update --package --remove shadowfetch-gnome-keyring
+fi
+
+#DEBHELPER#
+
+exit 0

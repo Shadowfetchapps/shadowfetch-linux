@@ -22,7 +22,7 @@ Recommends:
  smartmontools,
  inxi
 Description: Shadowfetch Phoenix Recovery (safety pillar)
- Phoenix Recovery for Shadowfetch Linux 2.1.5 "Fire Edition". On a Btrfs
+ Phoenix Recovery for Shadowfetch Linux. On a Btrfs
  root it arms snapper at first boot (so Debian snapper's shipped 80snapper
  apt hook wraps every dpkg run in pre/post Phoenix Points), keeps free
  space ahead of package transactions (79phoenix-space, sorted before

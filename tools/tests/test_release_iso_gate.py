@@ -263,6 +263,78 @@ class RequiredPayloadTests(unittest.TestCase):
         self.assertLessEqual(iso_gate.REQUIRED_EXECUTABLES, iso_gate.REQUIRED_ROOT_FILES)
 
 
+class LoginKeyringGateTests(unittest.TestCase):
+    """5.0.0 QA (ISO 2abd1f6f): the first Secret Service store prompted for a keyring."""
+
+    SESSION = "session\trequired\tpam_unix.so \nsession\toptional\tpam_gnome_keyring.so auto_start\n"
+    KEYRING = "[keyring]\ndisplay-name=Login\nctime=0\nmtime=0\nlock-on-idle=false\nlock-after=false\n"
+    UNLOCK = "[Desktop Entry]\nType=Application\n" + iso_gate.LIVE_KEYRING_UNLOCK_EXEC + "\n"
+
+    def inventory(self, **overrides: str) -> dict[str, str]:
+        base = iso_gate.LIVE_KEYRINGS
+        inventory = {
+            base: "drwx------",
+            f"{base}/login.keyring": "-rw-------",
+            f"{base}/default": "-rw-------",
+            iso_gate.LIVE_KEYRING_UNLOCK: "-rw-r--r--",
+        }
+        for name, mode in overrides.items():
+            key = base if name == "dir" else f"{base}/{name.replace('_', '.')}"
+            inventory[key] = mode
+        return inventory
+
+    def test_accepts_the_contract(self) -> None:
+        iso_gate.validate_login_keyring_contract(
+            self.SESSION, self.inventory(), self.KEYRING, "login", self.UNLOCK)
+
+    def test_refuses_a_session_stack_without_the_keyring(self) -> None:
+        for session in ("session\trequired\tpam_unix.so\n",
+                        "session\toptional\tpam_gnome_keyring.so\n",
+                        "#session\toptional\tpam_gnome_keyring.so auto_start\n"):
+            with self.assertRaisesRegex(RuntimeError, "common-session"):
+                iso_gate.validate_login_keyring_contract(
+                    session, self.inventory(), self.KEYRING, "login", self.UNLOCK)
+
+    def test_refuses_missing_or_readable_keyring_files(self) -> None:
+        for inventory in (
+            {},
+            self.inventory(dir="drwxr-xr-x"),
+            self.inventory(login_keyring="-rw-r--r--"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not private"):
+                iso_gate.validate_login_keyring_contract(
+                    self.SESSION, inventory, self.KEYRING, "login", self.UNLOCK)
+
+    def test_refuses_another_default_or_a_locking_keyring(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "default keyring"):
+            iso_gate.validate_login_keyring_contract(
+                self.SESSION, self.inventory(), self.KEYRING, "session", self.UNLOCK)
+        with self.assertRaisesRegex(RuntimeError, "plain-text"):
+            iso_gate.validate_login_keyring_contract(
+                self.SESSION, self.inventory(), "GnomeKeyring\n\r\x00\n", "login", self.UNLOCK)
+        with self.assertRaisesRegex(RuntimeError, "plain-text"):
+            iso_gate.validate_login_keyring_contract(
+                self.SESSION, self.inventory(),
+                self.KEYRING.replace("lock-on-idle=false", "lock-on-idle=true"), "login",
+                self.UNLOCK)
+
+    def test_refuses_a_live_session_that_leaves_the_keyring_locked(self) -> None:
+        inventory = self.inventory()
+        del inventory[iso_gate.LIVE_KEYRING_UNLOCK]
+        for inv, unlock in (
+            (inventory, self.UNLOCK),
+            (self.inventory(), "[Desktop Entry]\nExec=true\n"),
+            (self.inventory(), "#" + self.UNLOCK.split("\n", 2)[2]),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "unlock its login keyring"):
+                iso_gate.validate_login_keyring_contract(
+                    self.SESSION, inv, self.KEYRING, "login", unlock)
+
+    def test_gate_runs_the_contract(self) -> None:
+        source = inspect.getsource(iso_gate.identity_and_installer_gate)
+        self.assertIn("validate_login_keyring_contract(", source)
+
+
 class BuildLeakGateTests(unittest.TestCase):
     """5.0.0 release scan: build-generated secrets and build-host paths.
 

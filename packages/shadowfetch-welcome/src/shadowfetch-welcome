@@ -3,7 +3,7 @@
 shadowfetch-welcome - first-boot welcome & setup for Shadowfetch Linux (Umbra).
 
 A small, focused PyQt6 wizard that:
-  - Opens with Ignition Setup: pick your flame (Core / Creator / Developer /
+  - Opens with Ignition Setup: choose your setup (Core / Creator / Developer /
     AI Workstation / Full Flame) - mandatory first page until a choice is
     stamped, with honest measured sizes, an "already on your system" strip,
     an offline save-your-choice path, and automatic Phoenix Point protection
@@ -987,6 +987,14 @@ class InstallPanel(QWidget):
         self.bar = QProgressBar()
         self.bar.setRange(0, 100)
         self.bar.setValue(0)
+        # The percentage sits beside the title in TEXT, not inside the 10px
+        # bar: a stylesheet'd QProgressBar paints its label in ONE colour
+        # across both the gold chunk and the dark trough, so no colour reads
+        # on both (5.0.0 VM QA: grey "100%" on gold was near-invisible).
+        self.bar.setTextVisible(False)
+        self.pct = _label("0%", 12, TEXT, bold=True)
+        self.bar.valueChanged.connect(
+            lambda value: self.pct.setText(f"{value}%"))
         self.msg = _label("", 11, MUTED, wrap=True)
         self.lock_note = _label("", 11, GOLD, wrap=True)
         self.lock_note.hide()
@@ -998,7 +1006,10 @@ class InstallPanel(QWidget):
         row.addStretch(1)
         row.addWidget(self.cancel_btn)
 
-        lay.addWidget(self.stage_title)
+        head = QHBoxLayout()
+        head.addWidget(self.stage_title, 1)
+        head.addWidget(self.pct)
+        lay.addLayout(head)
         lay.addWidget(self.bar)
         lay.addWidget(self.msg)
         lay.addWidget(self.lock_note)
@@ -1212,7 +1223,7 @@ class InstallPanel(QWidget):
 
 # ---- Ignition ------------------------------------------------------------
 class BundleCard(Card):
-    """A selectable flame card: name, blurb, measured size, the 'already on
+    """A selectable bundle card: name, blurb, measured size, the 'already on
     your system' strip, and (AI card) the inline hardware verdict."""
     picked = pyqtSignal(str)
 
@@ -1315,7 +1326,7 @@ class IgnitionFlow(QWidget):
         lay.setSpacing(10)
 
         head = QHBoxLayout()
-        title = "Pick your flame" if not IGNITION_DONE.exists() else "Change your setup"
+        title = "Choose your setup" if not IGNITION_DONE.exists() else "Change your setup"
         head.addWidget(_label(title, 24, TEXT, bold=True))
         head.addStretch(1)
         self.badge = _label("", 11, MUTED)
@@ -1349,7 +1360,7 @@ class IgnitionFlow(QWidget):
         if not self.cards:
             vbox.addWidget(_label(
                 "No bundle catalog found on this system - the Welcome package "
-                "may be incomplete. You can continue without picking a flame.",
+                "may be incomplete. You can continue without picking a bundle.",
                 12, MUTED, wrap=True))
         vbox.addStretch(1)
         scroll.setWidget(container)
@@ -2466,6 +2477,10 @@ class InstallPage(QWidget):
         self.title = _label("Setting things up…", 22, TEXT, bold=True)
         self.bar = QProgressBar()
         self.bar.setRange(0, 0)
+        # This bar is busy (0..0) or done/not-done (0..1); its "0%"/"100%"
+        # label said nothing the title does not, and in one stylesheet colour
+        # it could not read on both the gold chunk and the dark trough.
+        self.bar.setTextVisible(False)
         self.log = _label("", 11, MUTED, wrap=True)
 
         lay.addWidget(self.title)

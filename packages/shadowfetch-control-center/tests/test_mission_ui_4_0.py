@@ -451,6 +451,27 @@ class PageStateTests(unittest.TestCase):
             page.deleteLater()
             APP.processEvents()
 
+    def test_overview_of_an_undone_interrupted_mission_says_restored(self):
+        # QA on 2abd1f6f: after Undo the Overview still read "Execution was
+        # interrupted... Retry or Undo" while the state said Restored.
+        interrupted = ("Execution was interrupted. Inspect changes, then Retry or Undo; "
+                       "no automatic replay.")
+        with patch("sfcc.missions_page.MissionClient", FakeClient):
+            page = MissionsPage(lambda _: None)
+            page.selected_id = "m1"
+            page._shown("m1", {"id": "m1", "state": "failed", "error": interrupted}, None)
+            self.assertIn("Needs attention", page.overview.toPlainText())
+            self.assertIn("Retry or Undo", page.overview.toPlainText())
+            page._shown("m1", {"id": "m1", "state": "undone", "error": interrupted}, None)
+            text = page.overview.toPlainText()
+            self.assertIn("Restored", text)
+            self.assertNotIn("Needs attention", text)
+            self.assertNotIn("Retry or Undo", text)
+            self.assertNotIn("interrupted", text)
+            page.timer.stop()
+            page.deleteLater()
+            APP.processEvents()
+
     def test_review_controls_follow_state(self):
         with patch("sfcc.missions_page.MissionClient", FakeClient):
             page = MissionsPage(lambda _: None)

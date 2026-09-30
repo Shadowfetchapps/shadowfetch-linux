@@ -82,6 +82,36 @@ WALLETRC=/home/$USER/.config/kwalletrc
 printf '%s\n' '[Wallet]' 'Enabled=false' 'First Use=false' > "$WALLETRC"
 grep -qx 'Enabled=false' "$WALLETRC"
 
+# LIVE SESSION ONLY: an unlocked login keyring. With KWallet off, the Secret
+# Service (org.freedesktop.secrets) is gnome-keyring, pulled in by
+# network-manager-applet. Installed users get a "login" keyring created and
+# unlocked with their SDDM password (shadowfetch-defaults' pam-auth-update
+# profile); the live user autologins, so no password reaches PAM and the first
+# store (ShadowCode's API keys, secret-tool) asked to "Choose password for new
+# keyring" (5.0.0 QA, ISO 2abd1f6f). Pre-create that keyring unencrypted -- the
+# plain-text form gnome-keyring writes when a keyring's password is empty -- and
+# make it the default. gnome-keyring still loads a plain-text keyring as
+# locked, and ShadowCode calls CreateItem without asking for an Unlock first,
+# so an autostart entry sends the Secret Service Unlock at login: for a
+# password-less keyring it succeeds silently (the reply's prompt is "/", and
+# busctl never runs a prompt anyway). Anything stored lives in RAM with the
+# rest of the live session; /home/shadow is deleted by sf-remove-live-user on
+# install.
+KEYRINGS=/home/$USER/.local/share/keyrings
+mkdir -p "/home/$USER/.local/share" "/home/$USER/.config/autostart"
+install -d -m 0700 "$KEYRINGS"
+printf '%s\n' '[keyring]' 'display-name=Login' 'ctime=0' 'mtime=0' \
+    'lock-on-idle=false' 'lock-after=false' > "$KEYRINGS/login.keyring"
+printf '%s' 'login' > "$KEYRINGS/default"
+chmod 0600 "$KEYRINGS/login.keyring" "$KEYRINGS/default"
+grep -qx '\[keyring\]' "$KEYRINGS/login.keyring"
+KEYRING_UNLOCK=/home/$USER/.config/autostart/shadowfetch-live-keyring.desktop
+printf '%s\n' '[Desktop Entry]' 'Type=Application' \
+    'Name=Unlock the live session keyring' \
+    'Exec=busctl --user call org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.Secret.Service Unlock ao 1 /org/freedesktop/secrets/collection/login' \
+    'NoDisplay=true' 'X-KDE-autostart-phase=0' > "$KEYRING_UNLOCK"
+grep -q 'Secret.Service Unlock ao 1 /org/freedesktop/secrets/collection/login$' "$KEYRING_UNLOCK"
+
 # Live account picture: the Shadowfetch mark instead of the Debian swirl that
 # desktop-base puts in /etc/skel/.face. The lock screen and SDDM read
 # ~/.face.icon (skel's is a symlink to .face).
@@ -92,6 +122,6 @@ if [ -f "$FACE" ]; then
     ln -s .face "/home/$USER/.face.icon"
 fi
 
-chown -R $USER:$USER /home/$USER
+chown -R "$USER:$PRIMARY_GROUP" "/home/$USER"
 
 echo "[shadowfetch] Live user 'shadow' created."

@@ -46,6 +46,11 @@ shadowfetch-defaults (5.0.0-1) umbra; urgency=medium
     use the ShadowCode gold (#F2B33D) and shadowcode-4k.jpg.
   * maintscript: rm_conffile for the two retired autostart entries, and the
     52shadowfetch-unattended.conf removal restamped to 5.0.0-1~.
+  * New pam-auth-update profile shadowfetch-gnome-keyring (postinst
+    applies it on every configure, prerm removes it): common-session opens
+    gnome-keyring's login keyring again, which Debian's sddm stopped doing,
+    so the first Secret Service store no longer asks for a keyring password.
+  * shadowfetch-gpu.desktop: Exec line without the invalid \" escapes.
 
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400

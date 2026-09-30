@@ -75,6 +75,27 @@ def field_text(value):
     return str(value)[:300]
 
 
+def overview_status_lines(mission):
+    """What the Overview says the mission needs now.
+
+    The engine keeps a mission's last error on the row after Undo (the event
+    log is the history). Once the workspace is restored that error's "Retry or
+    Undo" is no longer an instruction, so an undone mission says it was
+    restored instead of repeating it.
+    """
+    state = mission.get("state")
+    if state == "undone":
+        return ["", "Restored",
+                "This mission's changes were undone and the workspace was restored "
+                "from its checkpoint. Nothing here needs your attention."]
+    lines = []
+    if mission.get("error"):
+        lines += ["", "Needs attention", str(mission["error"])]
+    if state == "waiting-review":
+        lines += ["", "The result is ready. Inspect Changes, Results and the receipt; accept it or restore the mission's local changes."]
+    return lines
+
+
 def mission_text(mission):
     """State, who performs it, and what was asked for -- as recorded."""
     config = mission.get("config") or {}
@@ -847,10 +868,7 @@ class MissionsPage(QWidget):
                  f"Provider: {config.get('runtime', 'local')} · Network: {config.get('network', 'none')}",
                  f"Created: {data.get('created_at', 'unknown')}", f"Updated: {data.get('updated_at', 'unknown')}",
                  f"Attempt: {data.get('attempt', 0)}"]
-        if data.get("error"):
-            lines += ["", "Needs attention", str(data["error"])]
-        if data.get("state") == "waiting-review":
-            lines += ["", "The result is ready. Inspect Changes, Results and the receipt; accept it or restore the mission's local changes."]
+        lines += overview_status_lines(data)
         self._replace_text(self.overview, "\n".join(lines))
         self.artifacts.clear()
         for artifact in data.get("artifacts", []):

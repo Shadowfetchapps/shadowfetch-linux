@@ -442,6 +442,55 @@ def validate_calamares_exec_sequence(settings: str) -> list[str]:
     return sequence
 
 
+LIVE_KEYRINGS = "home/shadow/.local/share/keyrings"
+LIVE_KEYRING_UNLOCK = "home/shadow/.config/autostart/shadowfetch-live-keyring.desktop"
+LIVE_KEYRING_UNLOCK_EXEC = (
+    "Exec=busctl --user call org.freedesktop.secrets /org/freedesktop/secrets "
+    "org.freedesktop.Secret.Service Unlock ao 1 /org/freedesktop/secrets/collection/login"
+)
+
+
+def validate_login_keyring_contract(
+    common_session: str,
+    inventory: dict[str, str],
+    login_keyring: str,
+    default: str,
+    unlock_autostart: str,
+) -> None:
+    """No "Choose password for new keyring" on the first Secret Service store.
+
+    Installed systems: common-session must open gnome-keyring's login keyring
+    (Debian's sddm stopped doing it itself). Live session: the autologin user
+    has no password for PAM to hand over, so its hook ships an unencrypted,
+    private default "login" keyring, plus the autostart entry that unlocks it
+    (gnome-keyring loads even a plain-text keyring locked, and ShadowCode's
+    CreateItem does not ask for an Unlock) (5.0.0 QA, ISO 2abd1f6f).
+    """
+    if not re.search(
+        r"(?m)^session\s+optional\s+pam_gnome_keyring\.so\s+auto_start\s*$",
+        common_session,
+    ):
+        raise RuntimeError("common-session does not open the gnome-keyring login keyring")
+    expected = {
+        LIVE_KEYRINGS: "drwx------",
+        f"{LIVE_KEYRINGS}/login.keyring": "-rw-------",
+        f"{LIVE_KEYRINGS}/default": "-rw-------",
+    }
+    wrong = {path: inventory.get(path) for path, mode in expected.items() if inventory.get(path) != mode}
+    if wrong:
+        raise RuntimeError(f"live login keyring is absent or not private: {wrong}")
+    if default.strip() != "login":
+        raise RuntimeError(f"live default keyring is {default.strip()!r}, not 'login'")
+    if not re.search(r"(?m)^\[keyring\]$", login_keyring) or re.search(
+        r"(?m)^lock-on-idle=true$", login_keyring
+    ):
+        raise RuntimeError("live login keyring is not an unlocked plain-text keyring")
+    if LIVE_KEYRING_UNLOCK not in inventory or not re.search(
+        rf"(?m)^{re.escape(LIVE_KEYRING_UNLOCK_EXEC)}$", unlock_autostart
+    ):
+        raise RuntimeError("live session does not unlock its login keyring at login")
+
+
 def validate_partition_contract(partition: str) -> dict:
     """Require firmware-native tables, one ESP, clear /boot and encrypted root."""
     try:
@@ -1187,7 +1236,24 @@ def identity_and_installer_gate(squashfs: Path, inventory: dict[str, str]) -> No
         raise RuntimeError("first boot does not enforce UTC RTC and network time")
     if "etc/sudoers.d/shadowfetch-live-shadow" not in inventory:
         raise RuntimeError("live account contract changed without updating installer cleanup QA")
-    print("PASS: version, APT trust, Calamares cleanup, UFW and live-session SSH hardening")
+    common_session = squash_cat(squashfs, "etc/pam.d/common-session")
+    login_keyring, default_keyring, keyring_unlock = (
+        squash_cat(squashfs, path) if path in inventory else ""
+        for path in (
+            f"{LIVE_KEYRINGS}/login.keyring", f"{LIVE_KEYRINGS}/default", LIVE_KEYRING_UNLOCK
+        )
+    )
+    assert all(
+        isinstance(item, str)
+        for item in (common_session, login_keyring, default_keyring, keyring_unlock)
+    )
+    validate_login_keyring_contract(
+        common_session, inventory, login_keyring, default_keyring, keyring_unlock
+    )
+    print(
+        "PASS: version, APT trust, Calamares cleanup, UFW, live-session SSH hardening "
+        "and the login keyring"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
