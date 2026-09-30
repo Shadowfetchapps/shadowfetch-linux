@@ -8,10 +8,12 @@
 set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 logs="$root/work/qa-5.0.0/logs"; mkdir -p "$logs"
-cd "$root"
+cd "$root" || exit 1
 run() { # case, extra args...
   local case=$1; shift
-  local log="$logs/case-$case-$(date -u +%H%M%S).log"
+  local log stamp
+  stamp=$(date -u +%H%M%S)
+  log="$logs/case-$case-$stamp.log"
   echo "$(date -u +%FT%TZ) START $case $*" | tee -a "$logs/lanes.log"
   make vm-acceptance VM_CASE="$case" VM_ACCEPTANCE_ARGS="$*" >"$log" 2>&1
   local rc=$?
