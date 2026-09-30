@@ -10,14 +10,14 @@
   "evidence_root": "work/qa-5.0.0/evidence",
   "artifact": {
     "iso_path": "shadowfetch-5.0.0-amd64.iso",
-    "iso_sha256": "c64c3493e0c49fa9469f1ad65586da6086284a38143a3c896b07adf8a10d7d72",
-    "iso_size_bytes": 4085794816,
+    "iso_sha256": "2abd1f6fb87e5f99e843b14fe9195a84151b004d59b3576e07f776694fc7a77a",
+    "iso_size_bytes": 4085798912,
     "signature_path": "shadowfetch-5.0.0-amd64.iso.asc",
     "signing_fingerprint": "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1",
     "evidence_bundle_path": "evidence-bundle-5.0.0.tar.gz",
     "evidence_bundle_sha256": null,
-    "source_commit": "29041e147ebfb57df11d6cfe889c237b82a9ad9c",
-    "source_tree": "dc2b02babdce34746e6a58b4f6d2b316066534d6"
+    "source_commit": "73caf0b7854b2ff5c5c1cda96e049b7aca4d5855",
+    "source_tree": "16eec56c6529cd985c6b724a8fd1100acf82a356"
   },
   "cases": [
     {
