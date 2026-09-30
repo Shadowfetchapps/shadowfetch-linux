@@ -163,6 +163,22 @@ class ConsentReflow(unittest.TestCase):
         self.assertEqual("Intro line one continues here.\n\nThe installer will:\n  - first item wraps on\n  - second",
                          optional_agents_page.reflow(text))
 
+    def test_an_unindented_line_after_a_bullet_starts_a_new_paragraph(self):
+        import subprocess
+        from sfcc import optional_agents_page
+        text = ("It writes:\n  - one item\n  - two item that\n    wraps on\n"
+                "Plan for this paragraph\nwhich wraps too.")
+        self.assertEqual("It writes:\n  - one item\n  - two item that wraps on\n"
+                         "Plan for this paragraph which wraps too.",
+                         optional_agents_page.reflow(text))
+        root = Path(__file__).resolve().parents[2] / "shadowfetch-defaults/data/usr/bin"
+        for helper, joined in (("shadowfetch-hermes", "shell startup files Plan for about"),
+                               ("shadowfetch-openclaw", "keys you enter) OpenClaw is")):
+            with self.subTest(helper=helper):
+                raw = subprocess.run([sys.executable, str(root / helper), "info"],
+                                     capture_output=True, text=True, check=True).stdout
+                self.assertNotIn(joined, optional_agents_page.reflow(raw))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

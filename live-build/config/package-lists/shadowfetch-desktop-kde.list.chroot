@@ -27,6 +27,8 @@ powerdevil
 bluedevil
 kde-config-sddm
 sddm
+# kwallet-pam (Debian still names it libpam-kwallet5; it drives KWallet 6): creates and unlocks kdewallet with the login password at SDDM login, so Grok Bot/ShadowCode get no wallet prompt. Was only a Recommends of plasma-desktop.
+libpam-kwallet5
 # sddm-theme-debian-breeze — REMOVED v1.0.1 (was hijacking branding with the
 # Debian swirl on the login screen; the 0015-sddm-autologin hook forces breeze.)
 

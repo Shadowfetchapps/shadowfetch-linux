@@ -168,6 +168,98 @@ class MissionDialogTests(unittest.TestCase):
         self.assertTrue(self.dialog.queue.isVisible())
 
 
+class ProviderAccountButtonTests(unittest.TestCase):
+    """The sign-in button follows the SELECTED provider (5.0.0 VM QA).
+
+    The dialog showed "Claude Code (cloud)" as the provider next to a fixed
+    "Sign in to Codex for missions…" button. The button must be derived from
+    the selected provider's declaration (account_login, from its manifest's
+    dedicated account mount), named after that provider, and hidden when the
+    provider has no sign-in -- and it must track a change of selection.
+    """
+    CAPS = {
+        "capability_kinds": {"code_change": "code", "sourced_report": "report",
+                             "media_export": "media"},
+        "providers": {
+            # Deliberately NOT the shipped ids: the dialog must not care.
+            "alpha-cloud": {"display_name": "Alpha Agent (cloud)",
+                            "capabilities": ["code_change", "sourced_report"],
+                            "requires_network_approval": True, "available": True,
+                            "installed": True, "reason": "", "account_login": True},
+            "beta-cloud": {"display_name": "Beta Agent (cloud)",
+                           "capabilities": ["code_change", "sourced_report"],
+                           "requires_network_approval": True, "available": True,
+                           "installed": True, "reason": "", "account_login": False},
+            "gamma-local": {"display_name": "Gamma (on-device)",
+                            "capabilities": ["sourced_report"],
+                            "requires_network_approval": False, "available": True,
+                            "installed": True, "reason": "", "account_login": False},
+        },
+    }
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.env = patch.dict(os.environ, {"SHADOWFETCH_AGENT_WORKSPACES": self.tmp.name})
+        self.env.start()
+        self.dialog = NewMissionDialog(None, FakeClient(), lambda _: None,
+                                       capabilities=self.CAPS, kind="report")
+
+    def tearDown(self):
+        self.dialog.close()
+        self.dialog.deleteLater()
+        self.env.stop()
+        self.tmp.cleanup()
+
+    def select(self, provider_id):
+        index = self.dialog.provider_choice.findData(provider_id)
+        self.assertGreaterEqual(index, 0, provider_id)
+        self.dialog.provider_choice.setCurrentIndex(index)
+        APP.processEvents()
+
+    def shown(self):
+        return self.dialog.form.isRowVisible(self.dialog.account_login)
+
+    def test_button_names_the_selected_provider_and_hides_without_sign_in(self):
+        self.select("alpha-cloud")
+        self.assertTrue(self.shown())
+        self.assertIn("Alpha Agent (cloud)", self.dialog.account_login.text())
+        self.assertEqual("Alpha Agent (cloud)", self.dialog.provider.text())
+
+        # Changing only the provider (not the workflow) must update the button.
+        self.select("beta-cloud")
+        self.assertEqual("Beta Agent (cloud)", self.dialog.provider.text())
+        self.assertFalse(self.shown(),
+                         "a provider with no sign-in was shown a sign-in button")
+        self.assertNotIn("Alpha", self.dialog.account_login.text())
+
+        self.select("gamma-local")
+        self.assertFalse(self.shown())
+        self.assertIn("Gamma (on-device)", self.dialog.workflow_note.text())
+
+        self.select("alpha-cloud")
+        self.assertTrue(self.shown())
+
+    def test_no_provider_is_named_in_the_button_by_the_ui_itself(self):
+        for provider_id in ("alpha-cloud", "beta-cloud", "gamma-local"):
+            self.select(provider_id)
+            for name in ("Codex", "Claude"):
+                self.assertNotIn(name, self.dialog.account_login.text())
+                self.assertNotIn(name, self.dialog.workflow_note.text())
+
+    def test_selection_change_keeps_the_person_s_text(self):
+        self.dialog.title.setText("My own title")
+        self.select("beta-cloud")
+        self.assertEqual("My own title", self.dialog.title.text())
+
+    def test_an_undescribed_engine_offers_no_sign_in(self):
+        dialog = NewMissionDialog(None, FakeClient(), lambda _: None, capabilities=None)
+        try:
+            self.assertFalse(dialog.form.isRowVisible(dialog.account_login))
+        finally:
+            dialog.close()
+            dialog.deleteLater()
+
+
 class JsonTransportTests(unittest.TestCase):
     def test_review_deadline_observes_without_interrupting_child(self):
         with tempfile.TemporaryDirectory() as directory:

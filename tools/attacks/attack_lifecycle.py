@@ -61,6 +61,7 @@ import tempfile
 import threading
 import time
 import traceback
+import types
 from pathlib import Path
 
 ATTACKS = (
@@ -761,9 +762,10 @@ def attack_kill_mission_control(report):
            "interrupted. FINDING, not prevented: between the crash and the next worker start "
            "or run attempt the row still reads 'running' with no owner and no liveness "
            "marker, so Mission Control shows a mission that is not running for as long as "
-           "nobody touches it. The tail of a killed run also leaves the *.partial encode in "
-           "the workspace -- the unlink that removes it is in a finally clause SIGKILL never "
-           "reaches -- so a person's Undo has to remove it.")
+           "nobody touches it. The tail of a killed run leaves the *.partial encode in the "
+           "workspace until recovery -- the unlink that removes it is in a finally clause "
+           "SIGKILL never reaches -- and recovery (the next run or worker start) discards "
+           "it and records the workspace so Undo works.")
 
 
 # --------------------------------------------------------------------------- #
@@ -1045,19 +1047,33 @@ def attack_worker_restart_stale_running(report):
             undone = sf.review(store, mid, "undo")["state"]
         except Exception as exc:                                  # noqa: BLE001
             undone = f"REFUSED: {exc}"
-        # The refusal names shadowfetch-checkpoint. Does that route work?
+        # Undo through Mission Control is the route the error message offers.
+        # 5.0.0 refused it (no after-index.json: receipt() never ran); recovery
+        # now records the workspace as the interruption left it. The manual
+        # shadowfetch-checkpoint route is still exercised, on the record, and
+        # Retry is exercised only when Undo was refused -- an undone mission
+        # is terminal and is correctly not retriable.
         listed = subprocess.run([sys.executable, str(CHECKPOINT_CLI), "list",
                                  lab.workspace.name], env=lab.env,
                                 capture_output=True, text=True, timeout=120)
-        manual = subprocess.run([sys.executable, str(CHECKPOINT_CLI), "undo",
-                                 lab.workspace.name, row["checkpoint"] or ""],
-                                env=lab.env, capture_output=True, text=True, timeout=300)
-        workspace_after = sorted(str(p.relative_to(lab.workspace))
-                                 for p in lab.workspace.rglob("*") if p.is_file())
-        retried = store.retry(mid)["state"]
-        finished = lab.cli("worker", "--once", timeout=600)
-        recovered = store.get(mid)
+        if undone == "undone":
+            manual = types.SimpleNamespace(returncode=None, stdout="not needed: Undo worked")
+            workspace_after = sorted(str(p.relative_to(lab.workspace))
+                                     for p in lab.workspace.rglob("*") if p.is_file())
+            retried = "not applicable (undone)"
+            finished = types.SimpleNamespace(returncode=None)
+            recovered = store.get(mid)
+        else:
+            manual = subprocess.run([sys.executable, str(CHECKPOINT_CLI), "undo",
+                                     lab.workspace.name, row["checkpoint"] or ""],
+                                    env=lab.env, capture_output=True, text=True, timeout=300)
+            workspace_after = sorted(str(p.relative_to(lab.workspace))
+                                     for p in lab.workspace.rglob("*") if p.is_file())
+            retried = store.retry(mid)["state"]
+            finished = lab.cli("worker", "--once", timeout=600)
+            recovered = store.get(mid)
         recovered_sessions = len(store.sessions(mid))
+        partial_left = sorted(p.name for p in lab.workspace.rglob("*.partial.*"))
 
     observed = lines(
         f"row left by the crash: state={stale!r} with {sessions_before} session row(s)",
@@ -1081,26 +1097,30 @@ def attack_worker_restart_stale_running(report):
         f"  retry -> {retried!r}; second `worker --once` rc={finished.returncode} -> "
         f"state={recovered['state']!r} attempt={recovered['attempt']} "
         f"sessions={recovered_sessions}",
+        f"  *.partial.* left in the workspace: {partial_left or 'none'}",
     )
 
     settled = (row["state"] == "failed" and row["attempt"] == 1
                and all(state != "running" for _kind, state, _error in tasks)
                and all(ended for ended, _code, _outcome in sessions)
                and reconciled and chain["ok"] and not chain["problems"])
-    a_route_exists = manual.returncode == 0 and recovered["state"] == "waiting-review"
-    report(name, expected, observed, bool(settled and a_route_exists),
+    undo_works = undone == "undone" and "Undo" in (row["error"] or "")
+    a_route_exists = (undo_works or (manual.returncode == 0
+                                     and recovered["state"] == "waiting-review"))
+    report(name, expected, observed, bool(settled and a_route_exists and not partial_left),
            "The worker settled the row instead of replaying it: attempt stayed at 1, the "
            "RUNNING task became failed with 'The worker stopped while this step was "
            "running', the open session was closed as interrupted, and one 'reconciled' event "
-           "records the counts. The chain verifies. THE REGRESSION IS HALF PRESENT: review "
-           "Accept is refused (correctly -- nothing succeeded) and review Undo is ALSO "
-           "refused, because receipt() never ran and so there is no after-index.json, which "
-           "is the file review() compares against. The mission therefore cannot be undone "
-           "through Mission Control. It is not a dead end: the refusal names "
-           "shadowfetch-checkpoint, that route ran here and restored the workspace, and "
-           "Retry then re-ran the mission to waiting-review. Worth knowing that after the "
-           "manual restore the mission row still reads 'failed' and is not marked undone, so "
-           "the record and the workspace disagree until the person retries.")
+           "records the counts. The chain verifies. Review Accept is refused (correctly -- "
+           "nothing succeeded). "
+           + ("Review Undo WORKS: recovery removed the interrupted attempt's *.partial.* "
+              "temporaries and recorded the workspace as the interruption left it, so "
+              "review() restored the checkpoint under the same unchanged-workspace predicate "
+              "as a finished mission and the row reads 'undone' -- the message's 'Retry or "
+              "Undo' is now true." if undo_works else
+              "Review Undo is REFUSED (5.0.0 QA regression: no after-index.json because "
+              "receipt() never ran); the manual shadowfetch-checkpoint route and Retry were "
+              "exercised instead."))
 
 
 # --------------------------------------------------------------------------- #

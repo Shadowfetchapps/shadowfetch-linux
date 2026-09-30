@@ -380,7 +380,11 @@ class NewMissionDialog(QDialog):
         form.addRow("Provider", self.provider)
         self.provider_setup = label("", "detail", wrap=True)
         form.addRow("", self.provider_setup)
-        self.account_login = QPushButton("Sign in to Codex for missions…")
+        # Labelled and shown per selected provider (see _provider_changed):
+        # only a provider whose manifest declares a dedicated mission account
+        # has a sign-in, and the button names that provider, never a fixed one.
+        self.account_login = QPushButton("Sign in for missions…")
+        self.account_login.setAccessibleName("Sign in to the selected agent's mission account")
         self.account_login.clicked.connect(self._login_account)
         form.addRow("", self.account_login)
         self.network = QComboBox()
@@ -427,6 +431,7 @@ class NewMissionDialog(QDialog):
         row.addWidget(self.queue)
         root.addLayout(row)
         self.kind.currentIndexChanged.connect(self._template)
+        self.provider_choice.currentIndexChanged.connect(self._provider_changed)
         self._template()
     def _browse(self):
         folder = QFileDialog.getExistingDirectory(self, "Choose an approved project", str(workspaces_root()))
@@ -452,8 +457,6 @@ class NewMissionDialog(QDialog):
         title, prompt = TEMPLATES[kind]
         self.title.setText(title)
         self.prompt.setPlainText(prompt)
-        is_code = kind == "code"
-        is_media = kind == "media"
         capability, options = self.providers_for(kind)
         chosen = self.provider_choice.currentData()
         self.provider_choice.blockSignals(True)
@@ -464,6 +467,21 @@ class NewMissionDialog(QDialog):
         if chosen:
             self.provider_choice.setCurrentIndex(max(0, self.provider_choice.findData(chosen)))
         self.provider_choice.blockSignals(False)
+        self._provider_changed()
+
+    def _provider_changed(self, *_):
+        """Everything that depends on WHO performs the mission.
+
+        Re-run whenever the provider selection changes, not only when the
+        workflow does: the provider label, readiness, connection choice and
+        the account sign-in all describe the selected provider, and leaving
+        any of them on the previous one shows a person one agent next to
+        another agent's sign-in.
+        """
+        kind = self.kind.currentData()
+        is_code = kind == "code"
+        is_media = kind == "media"
+        capability, options = self.providers_for(kind)
         # One provider is the ordinary case; do not make a person choose.
         self.form.setRowVisible(self.provider_choice, len(options) > 1)
         info = dict(options).get(self.provider_choice.currentData(), {})
@@ -494,13 +512,28 @@ class NewMissionDialog(QDialog):
         self.tests.setEnabled(is_code)
         self.form.setRowVisible(self.tests, is_code)
         self.form.setRowVisible(self.provider_setup, bool(self.provider_setup.text()))
-        self.form.setRowVisible(self.account_login, needs_network)
-        self.account_login.setEnabled(not offline)
+        # The sign-in follows the selected provider's own declaration: shown
+        # only when the engine says this provider signs in through a dedicated
+        # mission account, and named after it. A provider with no sign-in, or
+        # an engine that has not described its providers, gets no button.
+        has_account = bool(info.get("account_login"))
+        self.account_login.setText(
+            "Sign in to " + info.get("display_name", "this agent") + " for missions…"
+            if has_account else "Sign in for missions…")
+        self.form.setRowVisible(self.account_login, has_account)
+        self.account_login.setEnabled(has_account and not offline)
         self.inputs.setPlaceholderText("One relative media path per line" if is_media else "One relative document path per line")
+        performer = info.get("display_name") or "the selected agent"
+        if not known:
+            connection = "Mission Control chooses the agent; allow a connection if it needs one."
+        elif needs_network:
+            connection = "Cloud connection approval and configured worker credentials are required."
+        else:
+            connection = "Runs offline on this computer."
         self.workflow_note.setText({
             "code": "Provide a test command so the result can be checked. Shell syntax is not evaluated; enter a program and its arguments.",
-            "report": "Uses Codex with your selected text documents. Cloud connection approval and configured worker credentials are required. Results include source citations and a receipt.",
-            "media": "Uses deterministic ffmpeg exports. Select one or more source media files; exported files and verification appear in Results.",
+            "report": f"Uses {performer} with your selected text documents. {connection} Results include source citations and a receipt.",
+            "media": f"Uses {performer} for deterministic exports. Select one or more source media files; exported files and verification appear in Results.",
         }[kind])
 
 

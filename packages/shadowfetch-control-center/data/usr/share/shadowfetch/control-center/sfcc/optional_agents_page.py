@@ -45,15 +45,22 @@ def reflow(text):
     """Undo a terminal's hard wrap so a dialog can wrap the text itself.
 
     Paragraphs are separated by blank lines; a line starting with "-" (after
-    indentation) starts a bullet; any other line continues the one before.
+    indentation) starts a bullet, and its continuation lines are the indented
+    ones; an unindented line right after a bullet starts a new paragraph; any
+    other line continues the one before.
     """
     lines_out = []
+    in_bullet = False
     for line in text.splitlines():
         stripped = line.strip()
+        bullet = stripped.startswith("- ")
+        leaves_bullet = in_bullet and not line[:1].isspace()
         if not stripped:
             lines_out.append("")
-        elif stripped.startswith("- ") or not lines_out or not lines_out[-1]:
-            lines_out.append(("  " if stripped.startswith("- ") else "") + stripped)
+            in_bullet = False
+        elif bullet or leaves_bullet or not lines_out or not lines_out[-1]:
+            lines_out.append(("  " if bullet else "") + stripped)
+            in_bullet = bullet
         else:
             lines_out[-1] += " " + stripped
     return "\n".join(lines_out)

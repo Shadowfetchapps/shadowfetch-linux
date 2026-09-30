@@ -3153,20 +3153,91 @@ class Store:
             # "fail" -- it was cancelled and then the worker died before it
             # could say so. Recording that as a failure invites a retry of work
             # somebody had explicitly stopped.
+            # Before the row settles: remove the interrupted run's temporaries
+            # and record the workspace as the interruption left it, so that
+            # the Undo the message offers is one review() will actually
+            # perform. Only then say which routes exist.
+            undoable = self.settle_interrupted_workspace(mission)
+            routes = "Retry or Undo" if undoable else "Retry"
             if mission["cancel_requested"]:
                 self.transition(
                     mission["id"], MissionState.CANCELLED, actor=ACTOR_WORKER,
                     expect=MissionState.RUNNING,
                     error="Cancelled; the worker stopped before it could record it. "
-                          "Inspect changes, then Retry or Undo.",
+                          f"Inspect changes, then {routes}.",
                     detail="Cancellation was requested before the worker was interrupted")
             else:
                 self.transition(
                     mission["id"], MissionState.FAILED, actor=ACTOR_WORKER,
                     expect=MissionState.RUNNING,
                     error="Execution was interrupted. Inspect changes, then "
-                          "Retry or Undo; no automatic replay.",
+                          f"{routes}; no automatic replay.",
                     detail="Worker restarted with no execution lock owner")
+
+    def discard_partial_outputs(self, mid, ws):
+        """Remove Mission Control's own unpublished temporaries for a mission.
+
+        Only `*.partial.*` exports and `.probe-*.json` reports directly inside
+        mission-output/<mid>/ -- names this engine creates and never publishes.
+        The normal path deletes them in a finally clause; SIGKILL never reaches
+        that clause, so recovery and retry call this instead. Symbolic links
+        are removed as links and never followed. Returns the names removed.
+        """
+        removed = []
+        try:
+            output = ws / "mission-output" / mid
+            if output.is_symlink() or not output.is_dir():
+                return removed
+            for path in sorted(output.iterdir()):
+                name = path.name
+                if not (".partial." in name or (name.startswith(".probe-") and name.endswith(".json"))):
+                    continue
+                if path.is_dir() and not path.is_symlink():
+                    continue
+                try:
+                    path.unlink()
+                    removed.append(name)
+                except FileNotFoundError:
+                    pass
+        except OSError:
+            return removed
+        return removed
+
+    def settle_interrupted_workspace(self, mission):
+        """Make an interrupted mission's workspace reviewable. True if Undo works.
+
+        receipt() never ran, so there is no after-index.json and review()
+        refused Undo while the message offered it. Recovery holds the
+        workspace lock, so the workspace as it stands now IS what the
+        interrupted attempt left (less the temporaries removed above), and
+        recording it gives Undo the same predicate as a mission that finished:
+        restore the checkpoint only if nobody has changed the workspace since.
+        A mission interrupted before its checkpoint completed has nothing to
+        restore to, and the message must then offer Retry alone.
+        """
+        mid = mission["id"]
+        try:
+            ws = workspace(mission["workspace"])
+        except Exception:                                     # noqa: BLE001
+            return False
+        removed = self.discard_partial_outputs(mid, ws)
+        if removed:
+            self.event(mid, "partial-output-discarded",
+                       "Removed unpublished temporaries of the interrupted attempt: "
+                       + ", ".join(removed)[:400])
+        if not mission.get("checkpoint"):
+            return False
+        index_path = self.directory(mid) / "after-index.json"
+        # A retried report that reused its published output keeps the earlier
+        # index on purpose (preserve_recovery_index): it is what makes Undo
+        # refuse a person's later edits. Never replace that one.
+        if index_path.exists() and self.step(mid, "report-published"):
+            return True
+        try:
+            atomic(index_path, json.dumps(recovery_index(ws)))
+        except OSError:
+            return index_path.exists()
+        return True
 
     def reconcile(self, *, workspace=None, reason="startup"):
         """Settle everything a crash left mid-flight, and say what was found.
@@ -3596,6 +3667,68 @@ def enforcement_note(unenforced) -> str:
             "mechanism each one names.")
 
 
+def model_record(display_name, requested, reported):
+    """What a receipt says about WHICH model answered, and how it knows.
+
+    `model` is the best-supported name: what the provider's own stream
+    reported, else what the person asked for with --model, else None. Both
+    sources are kept separately so a reader can see when they disagree -- a
+    requested alias that the provider resolved to a full name, or a request the
+    provider silently did not honour.
+    """
+    requested = requested or None
+    reported = reported or None
+    if requested and reported and requested != reported:
+        selection = (f"Requested {requested}; {display_name} reported {reported}")
+    elif requested and reported:
+        selection = f"Requested {requested}; confirmed by {display_name}"
+    elif requested:
+        selection = (f"Requested {requested}; {display_name} did not report "
+                     "which model answered")
+    elif reported:
+        selection = f"{display_name} default; reported as {reported}"
+    else:
+        selection = f"{display_name} default; not independently identified"
+    return {"model": reported or requested, "model_requested": requested,
+            "model_reported": reported, "model_selection": selection}
+
+
+def provenance_line(provider, config, inferences):
+    """The sentence a published report carries about how it was produced.
+
+    Built from facts, not from a constant: the provider's manifest display
+    name, whether this mission permitted network access, and the model when
+    one is known. This sentence ends up in a signed receipt's artifact, so it
+    must never claim a provider, a network posture or a model that did not
+    apply. 4.0.0 hard-coded "the Codex cloud CLI with explicit network
+    permission" here, which was false for every offline and non-Codex report.
+    """
+    manifest = getattr(provider, "manifest", None) or {}
+    name = (getattr(provider, "display_name", None) or manifest.get("display_name")
+            or getattr(provider, "id", None) or "an unidentified provider")
+    network = (config or {}).get("network") or "none"
+    if network == "none":
+        posture = "with no network access permitted"
+    else:
+        posture = "with explicit network permission for this mission"
+    fresh = [item for item in (inferences or []) if isinstance(item, dict)]
+    models = []
+    for item in fresh:
+        value = item.get("model")
+        asked = item.get("model_requested")
+        if isinstance(value, str) and value and isinstance(asked, str) and asked and asked != value:
+            value = f"{value} (requested {asked})"
+        if isinstance(value, str) and value and value not in models:
+            models.append(value)
+    if models:
+        model = "model " + ", ".join(models)
+    elif (config or {}).get("model"):
+        model = "requested model " + str(config["model"]) + " (not confirmed by the provider)"
+    else:
+        model = "the provider's default model (not independently identified)"
+    return f"Generated by {name} {posture}, using {model}."
+
+
 class Executor:
     def __init__(self, store, mission):
         self.store = store
@@ -3941,9 +4074,16 @@ class Executor:
         answer = provider.final_message(events)
         if read_only and (not isinstance(answer, str) or not answer.strip()):
             raise MissionError(f"{provider.display_name} returned no final report message")
+        requested = self.mission["config"].get("model") or None
+        try:
+            reported = provider.reported_model(events)
+        except Exception:                                     # noqa: BLE001
+            reported = None
         self.inferences.append({"provider": provider.id, "provider_version": provider.version,
-                                "model": None,
-                                "model_selection": f"{provider.display_name} default; not independently identified",
+                                "provider_display_name": provider.display_name,
+                                **model_record(provider.display_name, requested, reported),
+                                "network_requested": self.mission["config"].get("network") or "none",
+                                "network_effective": getattr(self, "inference_network", None),
                                 "usage": provider.usage(events), "observed_at": now(),
                                 "attempt": self.mission["attempt"], "response_sha256": digest(log),
                                 "log": str(log), "reused": False})
@@ -4150,7 +4290,7 @@ class Executor:
             if sid not in by_id or not (1 <= int(start) <= int(end or start) <= len(by_id[sid]["text"].splitlines())):
                 raise MissionError("Model produced an invalid source citation; report not published")
         appendix = "\n\n---\n## Source register\n\n" + "\n".join(f"- **{s['id']}** `{s['path']}` — SHA-256 `{s['sha256']}`" for s in sources)
-        appendix += "\n\nGenerated through the Codex cloud CLI with explicit network permission. Citation ranges were checked; a person must review whether each source supports the associated claim.\n"
+        appendix += "\n\n" + provenance_line(self.provider, self.mission["config"], self.inferences) + " Citation ranges were checked; a person must review whether each source supports the associated claim.\n"
         self.publish("report.md", answer + appendix)
         self.publish("sources.json", json.dumps([{k:v for k,v in source.items() if k != "text"} for source in sources], indent=2) + "\n")
         self.store.step(self.mid, "report-provenance", {"schema": 1, "attempt": self.mission["attempt"], "published_at": now(), "inferences": self.inferences})
@@ -4258,6 +4398,13 @@ class Executor:
         provider = self.provider
         capability = Capability.MEDIA_EXPORT
         outputs = []
+        # A retry starts from no temporaries: whatever an earlier, interrupted
+        # attempt half-wrote is not this attempt's work and is never published.
+        removed = self.store.discard_partial_outputs(self.mid, self.ws)
+        if removed:
+            self.event("partial-output-discarded",
+                       "Removed unpublished temporaries of an earlier attempt: "
+                       + ", ".join(removed)[:400])
         for index, rel in enumerate(self.mission["config"]["inputs"], 1):
             self.check()
             source = scoped(self.ws, rel)
@@ -4298,6 +4445,9 @@ class Executor:
             output = scoped(self.ws, str(Path("mission-output") / self.mid / name), exists=False)
             output.parent.mkdir(parents=True, exist_ok=True)
             temporary = output.with_name(output.stem + ".partial" + suffix)
+            # A retry after an interruption must not inherit the killed
+            # attempt's half-written encode.
+            temporary.unlink(missing_ok=True)
             encode = provider.build_invocation(capability, {
                 "stage": "encode", "source": str(source), "target": str(temporary),
                 "video": video, "label": f"export-{index}", "config": self.mission["config"]})

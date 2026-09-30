@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Shadowfetch shared signing key notice
+Comment=Say once if this computer still has the DKMS signing key a 4.x ISO shipped
+Exec=/usr/lib/shadowfetch/shared-mok-notice.sh
+OnlyShowIn=KDE;
+Terminal=false
+NoDisplay=true

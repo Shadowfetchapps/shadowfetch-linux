@@ -1,0 +1,5 @@
+[Wallet]
+Enabled=true
+First Use=false
+Default Wallet=kdewallet
+Use One Wallet=true

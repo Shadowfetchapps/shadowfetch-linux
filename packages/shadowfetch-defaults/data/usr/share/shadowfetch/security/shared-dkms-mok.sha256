@@ -1,0 +1,12 @@
+# DKMS module-signing certificates that shipped INSIDE a Shadowfetch ISO, with
+# their private key, and are therefore shared by every install from that ISO.
+# One per line: the SHA-256 fingerprint of the DER certificate
+# (openssl x509 -inform der -in /var/lib/dkms/mok.pub -noout -fingerprint
+# -sha256, lower-case, no colons), then the release that shipped it.
+#
+# Read by shadowfetch-doctor (sec.dkms_mok) and by the one-time desktop notice
+# (/usr/lib/shadowfetch/shared-mok-notice.sh). See the 5.0.0 release notes,
+# Known issues. 4.0.0 and earlier ISOs were built the same way; add their
+# fingerprints here if an image is recovered. The superseded 5.0.0 candidate
+# ISOs were never distributed and are not listed.
+c66f9437ad3e37d73df5d75c17cf0061b30198bd5d51499dd66e06dbe1c843e3  4.1.0

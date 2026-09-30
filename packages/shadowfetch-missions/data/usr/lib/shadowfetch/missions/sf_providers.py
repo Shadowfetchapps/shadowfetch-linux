@@ -546,6 +546,25 @@ class AgentProvider:
         messages = [e.text for e in events if e.type == AgentEvent.MESSAGE and e.text]
         return messages[-1] if messages else ""
 
+    def reported_model(self, events):
+        """The model the provider's own stream says answered, or None.
+
+        Read from normalized event data only, never from prose: the last
+        turn-complete event that names a model wins, else the last event of any
+        kind that does (a session-start record, typically). A provider whose
+        stream never names one -- or that names something that is not a short
+        printable token -- reports None, and the receipt says it was not
+        independently identified rather than guessing.
+        """
+        events = list(events)
+        for group in ([e for e in events if e.type == AgentEvent.TURN_COMPLETE], events):
+            for event in reversed(group):
+                value = (event.data or {}).get("model") if isinstance(event.data, dict) else None
+                if (isinstance(value, str) and 0 < len(value) <= 200
+                        and value.isprintable() and not value.isspace()):
+                    return value.strip()
+        return None
+
 
 # --------------------------------------------------------------------------- #
 # Manifest loading
@@ -1417,6 +1436,12 @@ class ProviderRegistry:
                 "credential_ids": list(manifest.get("credential_ids") or []),
                 "sandbox_profile": dict(manifest["sandbox_profile"]),
                 "requires_network_approval": manifest["network_policy"] != "none",
+                # Whether this provider signs in through a dedicated mission
+                # account. Derived from the manifest's own declaration (the
+                # account mount its sandbox profile names), so the desktop can
+                # offer a sign-in button for exactly the providers that have
+                # one, without knowing any provider by name.
+                "account_login": bool(manifest["sandbox_profile"].get("account_mount")),
                 "available": readiness.available,
                 **readiness.as_dict(),
             }

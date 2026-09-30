@@ -27,6 +27,12 @@
 # stamp is written only when every step it attempted succeeded, so a session
 # where plasmashell was not ready yet retries at the next login; every step is
 # conditional on a removed asset, so a retry cannot undo a later choice.
+#
+# Stamp versions. "shadowcode" was written by the first 5.0 builds, which could
+# stamp a Fire desktop whose [Colors:Selection] still carried the 4.1 gold (the
+# re-apply was a silent no-op, see step 2). Under such a stamp the script runs
+# again only while a retired 4.1 selection colour is still baked in; then it
+# writes "shadowcode-2", after which it never runs again.
 set -u
 
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -43,8 +49,19 @@ ACCENT=242,179,61
 # default #D8A24A. Either one overrides the scheme's accent, so a migrated
 # desktop would otherwise keep a 4.1 accent over the ShadowCode scheme.
 RETIRED_ACCENTS="74,162,216 216,162,74"
-
-[ -e "$STAMP" ] && exit 0
+# [Colors:Selection] BackgroundNormal as KDE bakes it from Fire's 4.1 accent,
+# and from the ShadowCode accent (a correctly migrated desktop).
+RETIRED_SELECTIONS="154,117,56"
+BAKED_SELECTION=172,129,47
+STAMP_VERSION=shadowcode-2
+# A re-apply that leaves a retired colour baked in is retried at the next
+# login, at most this many times; after that the desktop is left as it is.
+RETRIES="$CONFIG/shadowfetch/.look-migrate-retries"
+MAX_RETRIES=3
+# Written before a bounce through another scheme and removed once the target
+# scheme is applied, so a session that dies in between finishes the job at the
+# next login instead of reading the bounce scheme as the user's choice.
+BOUNCE_MARK="$CONFIG/shadowfetch/.look-migrate-bounce"
 
 KDEGLOBALS="$CONFIG/kdeglobals"
 APPLETSRC="$CONFIG/plasma-org.kde.plasma.desktop-appletsrc"
@@ -90,6 +107,58 @@ removed_wallpaper() {
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# The colour scheme KDE actually uses. KConfig does not write a value that
+# equals the cascaded default, and ~/.config/kdedefaults/kdeglobals (first on
+# the session's XDG_CONFIG_DIRS) sets ColorScheme=ShadowfetchDark -- so on an
+# upgraded 4.1 desktop the user's own kdeglobals has NO ColorScheme key while
+# ShadowfetchDark is current. Resolve it the way KConfig does: the user file,
+# then kdedefaults, then each XDG_CONFIG_DIRS entry (default /etc/xdg).
+effective_scheme() {
+  value=$(ini_get "$KDEGLOBALS" '[General]' ColorScheme)
+  if [ -z "$value" ]; then
+    value=$(ini_get "$CONFIG/kdedefaults/kdeglobals" '[General]' ColorScheme)
+  fi
+  if [ -z "$value" ]; then
+    old_ifs=$IFS
+    IFS=:
+    for dir in ${XDG_CONFIG_DIRS:-/etc/xdg}; do
+      [ -n "$dir" ] || continue
+      value=$(ini_get "$dir/kdeglobals" '[General]' ColorScheme)
+      [ -n "$value" ] && break
+    done
+    IFS=$old_ifs
+  fi
+  printf '%s\n' "$value"
+}
+
+# True while the user's kdeglobals still carries a 4.1 selection colour.
+selection_stale() {
+  focus=$(ini_get "$KDEGLOBALS" '[Colors:Selection]' DecorationFocus)
+  normal=$(ini_get "$KDEGLOBALS" '[Colors:Selection]' BackgroundNormal)
+  for retired in $RETIRED_ACCENTS; do
+    [ "$focus" = "$retired" ] && return 0
+  done
+  for retired in $RETIRED_SELECTIONS; do
+    [ "$normal" = "$retired" ] && return 0
+  done
+  return 1
+}
+
+write_stamp() {
+  mkdir -p "$(dirname "$STAMP")"
+  printf '%s\n' "$STAMP_VERSION" > "$STAMP"
+  rm -f "$OLD_STAMP" "$RETRIES"
+}
+
+if [ -e "$STAMP" ]; then
+  [ "$(cat "$STAMP" 2>/dev/null)" = "$STAMP_VERSION" ] && exit 0
+  if ! selection_stale && [ ! -e "$BOUNCE_MARK" ]; then
+    write_stamp
+    exit 0
+  fi
+  log "4.1 selection colours are still baked in; migrating again"
+fi
 
 # Run a command, retrying while plasmashell/kded finish starting.
 attempt() {
@@ -143,24 +212,61 @@ for retired in $RETIRED_ACCENTS; do
 done
 
 # 2) Colour scheme: Ice or missing -> ShadowfetchDark. ShadowfetchDark whose
-#    baked selection colour is not the ShadowCode gold -> re-applied so the new
-#    colours reach kdeglobals (see header). The bounce through BreezeDark is
-#    needed because plasma-apply-colorscheme declines to apply the scheme that
-#    is already current.
-scheme=$(ini_get "$KDEGLOBALS" '[General]' ColorScheme)
+#    baked selection colours are not ShadowCode's, or any scheme whose accent
+#    was just replaced -> that same scheme re-applied, so the new colours reach
+#    kdeglobals (see header). plasma-apply-colorscheme compares the request
+#    with the EFFECTIVE scheme (kdedefaults included) and exits 0 without
+#    touching anything when they match, so re-applying the current scheme needs
+#    a bounce through another one first. The result is checked: a selection
+#    that still carries a retired colour is a failure, not a success.
+scheme=$(effective_scheme)
 baked=$(ini_get "$KDEGLOBALS" '[Colors:Selection]' BackgroundNormal)
+target=$SCHEME
 apply_scheme=0
 case "$scheme" in
   ""|ShadowfetchIce) apply_scheme=1 ;;
-  "$SCHEME") [ "$baked" = "$ACCENT" ] || apply_scheme=1 ;;
+  "$SCHEME")
+    case "$baked" in
+      "$ACCENT"|"$BAKED_SELECTION") selection_stale && apply_scheme=1 ;;
+      *) apply_scheme=1 ;;
+    esac ;;
+  *) [ "$accent_replaced" -eq 1 ] && target=$scheme ;;
 esac
 [ "$accent_replaced" -eq 1 ] && apply_scheme=1
+if [ -e "$BOUNCE_MARK" ]; then
+  # A bounce whose second half never ran: the scheme now current is ours.
+  bounced=$(cat "$BOUNCE_MARK" 2>/dev/null)
+  if [ -n "$bounced" ]; then
+    target=$bounced
+    apply_scheme=1
+  fi
+fi
 if [ "$apply_scheme" -eq 1 ]; then
   if have plasma-apply-colorscheme; then
-    if [ "$scheme" = "$SCHEME" ]; then
-      plasma-apply-colorscheme BreezeDark >/dev/null 2>&1 || true
+    if [ "$scheme" = "$target" ]; then
+      bounce=BreezeDark
+      [ "$target" = BreezeDark ] && bounce=BreezeClassic
+      mkdir -p "$(dirname "$BOUNCE_MARK")"
+      printf '%s\n' "$target" > "$BOUNCE_MARK"
+      plasma-apply-colorscheme "$bounce" >/dev/null 2>&1 || true
     fi
-    attempt plasma-apply-colorscheme "$SCHEME" && log "colour scheme: $SCHEME (was ${scheme:-unset})"
+    if attempt plasma-apply-colorscheme "$target"; then
+      rm -f "$BOUNCE_MARK"
+      log "colour scheme: $target (was ${scheme:-unset})"
+      if selection_stale; then
+        retried=$(cat "$RETRIES" 2>/dev/null) || retried=0
+        case "$retried" in ''|*[!0-9]*) retried=0 ;; esac
+        retried=$((retried + 1))
+        if [ "$retried" -ge "$MAX_RETRIES" ]; then
+          log "selection colours still 4.1's after $retried tries; leaving them"
+        else
+          log "selection colours still 4.1's after re-applying $target; will retry"
+          mkdir -p "$(dirname "$RETRIES")"
+          printf '%s\n' "$retried" > "$RETRIES"
+          failed=1
+        fi
+      fi
+    fi
   else
     failed=1
   fi
@@ -254,7 +360,5 @@ if [ "$failed" -ne 0 ]; then
   log "incomplete; will retry at next login"
   exit 0
 fi
-mkdir -p "$(dirname "$STAMP")"
-printf '%s\n' "shadowcode" > "$STAMP"
-rm -f "$OLD_STAMP"
+write_stamp
 exit 0

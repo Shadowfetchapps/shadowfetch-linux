@@ -72,6 +72,16 @@ mv "$LOCKRC.new" "$LOCKRC"
 grep -qx 'Autolock=false' "$LOCKRC"
 grep -qx 'LockOnResume=false' "$LOCKRC"
 
+# LIVE SESSION ONLY: no KWallet. Skel's kwalletrc relies on kwallet-pam to
+# create and unlock kdewallet with the password typed at SDDM; the live user
+# autologins, so no password ever reaches PAM and every Grok Bot/ShadowCode
+# keyring request would pop a wallet-creation dialog. Disabled, KWallet (and
+# its Secret Service) is absent and those apps keep keys in their own storage.
+# Installed users get skel's kwalletrc.
+WALLETRC=/home/$USER/.config/kwalletrc
+printf '%s\n' '[Wallet]' 'Enabled=false' 'First Use=false' > "$WALLETRC"
+grep -qx 'Enabled=false' "$WALLETRC"
+
 # Live account picture: the Shadowfetch mark instead of the Debian swirl that
 # desktop-base puts in /etc/skel/.face. The lock screen and SDDM read
 # ~/.face.icon (skel's is a symlink to .face).

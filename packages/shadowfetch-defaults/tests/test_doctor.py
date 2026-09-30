@@ -19,6 +19,8 @@ shipped somewhere before:
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import importlib.machinery
 import importlib.util
 import io
@@ -690,6 +692,84 @@ class ShadowCodeUserCopy(unittest.TestCase):
                 self.host.exists(str(home / relative))
         with self.assertRaises(doctor.Refused):
             self.host.read_text(str(home / ".local/bin/shadowcode"))
+
+
+class SharedDkmsSigningKey(unittest.TestCase):
+    """4.x ISOs shipped /var/lib/dkms/mok.key and mok.pub; upgrades keep them.
+
+    The check compares the CERTIFICATE's fingerprint with the shipped list of
+    keys that were inside an ISO. The fixtures are arbitrary bytes: the check
+    hashes the DER as stored, so no real certificate is needed to pin it.
+    """
+
+    SHIPPED_LIST = (ROOT / "packages/shadowfetch-defaults/data"
+                    / doctor.SHARED_MOK_LIST.lstrip("/"))
+    #: SHA-256 of the DER certificate at /var/lib/dkms/mok.pub in the 4.1.0
+    #: ISO's squashfs (subject CN=DKMS module signing key, 2026-09-10).
+    FINGERPRINT_4_1_0 = "c66f9437ad3e37d73df5d75c17cf0061b30198bd5d51499dd66e06dbe1c843e3"
+
+    LEAKED = b"0\x82\x03<leaked 4.x certificate bytes\x00\xff"
+    FRESH = b"0\x82\x03<a per-machine certificate\x00\xfe"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        listing = self.root / doctor.SHARED_MOK_LIST.lstrip("/")
+        listing.parent.mkdir(parents=True)
+        listing.write_text("# comment\n%s  4.1.0\n" % hashlib.sha256(self.LEAKED).hexdigest())
+        self.dkms = self.root / "var/lib/dkms"
+        self.dkms.mkdir(parents=True)
+        self.host = doctor.Host(root=self.root, env={"PATH": "/usr/bin:/bin"})
+
+    def finding(self):
+        (found,) = [f for f in doctor.check_security(self.host) if f.id == "sec.dkms_mok"]
+        return found
+
+    def test_the_shipped_list_names_the_41_key(self):
+        self.assertIn("data/usr/share/shadowfetch/security/shared-dkms-mok.sha256",
+                      (ROOT / "packages/shadowfetch-defaults/debian"
+                       / "shadowfetch-defaults.install").read_text())
+        known = doctor._shared_mok_fingerprints(self.SHIPPED_LIST.read_text())
+        self.assertEqual("4.1.0", known.get(self.FINGERPRINT_4_1_0))
+
+    def test_the_leaked_key_fails_with_the_advisory_remedy(self):
+        (self.dkms / "mok.pub").write_bytes(self.LEAKED)
+        (self.dkms / "mok.key").write_text("PRIVATE")
+        found = self.finding()
+        self.assertEqual(doctor.FAIL, found.status)
+        self.assertEqual("4.1.0", found.detail["shipped_in"])
+        for step in ("mokutil --test-key", "mokutil --delete", "dkms build --force",
+                     "mokutil --import", "release notes"):
+            self.assertIn(step, found.remedy)
+
+    def test_the_leaked_key_is_recognised_in_pem_form_too(self):
+        body = base64.encodebytes(self.LEAKED).decode()
+        (self.dkms / "mok.pub").write_text("-----BEGIN CERTIFICATE-----\n%s"
+                                           "-----END CERTIFICATE-----\n" % body)
+        self.assertEqual(doctor.FAIL, self.finding().status)
+
+    def test_a_per_machine_key_passes(self):
+        (self.dkms / "mok.pub").write_bytes(self.FRESH)
+        found = self.finding()
+        self.assertEqual(doctor.PASS, found.status)
+        self.assertNotIn("shipped_in", found.detail)
+
+    def test_no_key_yet_passes(self):
+        self.assertEqual(doctor.PASS, self.finding().status)
+
+    def test_without_the_list_it_is_not_inspected(self):
+        (self.dkms / "mok.pub").write_bytes(self.LEAKED)
+        (self.root / doctor.SHARED_MOK_LIST.lstrip("/")).unlink()
+        self.assertEqual(doctor.SKIP, self.finding().status)
+
+    def test_only_the_certificate_is_readable_never_the_private_key(self):
+        (self.dkms / "mok.key").write_text("PRIVATE")
+        for path in ("/var/lib/dkms/mok.key", "/var/lib/dkms/other.pub"):
+            with self.subTest(path=path), self.assertRaises(doctor.Refused):
+                self.host.read_bytes(path)
+        with self.assertRaises(doctor.Refused):
+            self.host.exists("/var/lib/dkms/mok.key")
 
 
 if __name__ == "__main__":

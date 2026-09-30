@@ -96,6 +96,7 @@ the user is about to send, not a file that never existed.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime
 import hashlib
 import io
@@ -385,6 +386,10 @@ COLLECT_ROOTS = (
     # there shadows the packaged tool on a default PATH.
     "/.snapshots",
     "/usr/local/bin/",
+    # The DKMS signing CERTIFICATE only (public; its fingerprint is compared
+    # with the keys shipped inside 4.x ISOs). The private key beside it is on
+    # DENY_PREFIXES.
+    "/var/lib/dkms/mok.pub",
 )
 
 #: Refused even if a future edit widens COLLECT_ROOTS to cover them. These are
@@ -398,6 +403,7 @@ DENY_PREFIXES = (
     "/etc/ssh/",
     "/root/",
     "/var/lib/sudo/",
+    "/var/lib/dkms/mok.key",
     "/proc/self/environ",
     "/proc/1/environ",
 )
@@ -543,6 +549,12 @@ class Host:
         return Path(path)
 
     def read_text(self, absolute: str, limit: int = 1 << 20) -> tuple[str | None, Evidence]:
+        data, evidence = self.read_bytes(absolute, limit)
+        return (None if data is None else data.decode("utf-8", "replace")), evidence
+
+    def read_bytes(self, absolute: str, limit: int = 1 << 22) -> tuple[bytes | None, Evidence]:
+        """The file's bytes as stored: a DER certificate does not survive a
+        round trip through text."""
         path = self.resolve(absolute)
         try:
             with path.open("rb") as handle:
@@ -553,12 +565,7 @@ class Host:
             return None, Evidence("file", absolute, False, "permission denied")
         except OSError as exc:
             return None, Evidence("file", absolute, False, str(exc))
-        return (data.decode("utf-8", "replace"),
-                Evidence("file", absolute, True, "%d bytes" % len(data)))
-
-    def read_bytes(self, absolute: str, limit: int = 1 << 22) -> tuple[bytes | None, Evidence]:
-        text, evidence = self.read_text(absolute, limit)
-        return (None if text is None else text.encode("utf-8", "replace")), evidence
+        return data, Evidence("file", absolute, True, "%d bytes" % len(data))
 
     # Refused deliberately PROPAGATES out of these. Swallowing it into a False
     # would report "that file does not exist" when the truth is "this tool
@@ -1494,6 +1501,74 @@ HARDENING_SYSCTL = "/etc/sysctl.d/99-shadowfetch-hardening.conf"
 HARDENING_MODPROBE = "/etc/modprobe.d/99-shadowfetch-hardening.conf"
 SECURE_BOOT_EFIVAR = ("/sys/firmware/efi/efivars/"
                       "SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+DKMS_MOK_CERT = "/var/lib/dkms/mok.pub"
+SHARED_MOK_LIST = "/usr/share/shadowfetch/security/shared-dkms-mok.sha256"
+SHARED_MOK_REMEDY = (
+    "This DKMS signing key shipped inside a Shadowfetch ISO with its private key, "
+    "so every install from that ISO has it. If 'sudo mokutil --test-key "
+    "/var/lib/dkms/mok.pub' says it is enrolled, run 'sudo mokutil --delete "
+    "/var/lib/dkms/mok.pub', then 'sudo rm /var/lib/dkms/mok.key "
+    "/var/lib/dkms/mok.pub', rebuild each module from 'dkms status' with 'sudo dkms "
+    "build --force <module>/<version> && sudo dkms install --force "
+    "<module>/<version>', run 'sudo mokutil --import /var/lib/dkms/mok.pub' for the "
+    "new per-machine key and reboot (MOK Manager: Delete MOK, then Enroll MOK). If "
+    "it is not enrolled, deleting the two files is enough. See the 5.0.0 release "
+    "notes, Known issues.")
+
+
+def _certificate_der(data: bytes) -> bytes:
+    """DER bytes of a certificate stored as DER or as PEM."""
+    match = re.search(rb"-----BEGIN CERTIFICATE-----(.+?)-----END CERTIFICATE-----",
+                      data, re.DOTALL)
+    if match is None:
+        return data
+    return base64.b64decode(b"".join(match.group(1).split()))
+
+
+def _shared_mok_fingerprints(text: str) -> dict[str, str]:
+    """{sha256 hex: release} from the shipped list; comments ignored."""
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        fields = line.split("#", 1)[0].split()
+        if fields and re.fullmatch(r"[0-9a-f]{64}", fields[0].lower()):
+            out[fields[0].lower()] = " ".join(fields[1:]) or "an earlier release"
+    return out
+
+
+def check_dkms_mok(host: Host) -> Finding:
+    """The DKMS signing certificate is not one a 4.x ISO shipped to everyone.
+
+    Only the public certificate is read. Rotating the key is left to the
+    person: on a Secure Boot machine that enrolled it, a new key stops every
+    DKMS module loading until the new one is enrolled.
+    """
+    title = "DKMS signing key is this machine's own"
+    listing, lev = host.read_text(SHARED_MOK_LIST, 1 << 16)
+    if listing is None:
+        return _skip("sec.dkms_mok", "security", title,
+                     "list of shared keys unreadable: " + lev.note, [lev])
+    known = _shared_mok_fingerprints(listing)
+    data, ev = host.read_bytes(DKMS_MOK_CERT, 1 << 16)
+    if data is None:
+        if ev.note == "does not exist":
+            return Finding("sec.dkms_mok", "security", title, PASS,
+                           "no DKMS signing key yet; DKMS makes one for this machine "
+                           "when it first builds a module",
+                           detail={"path": DKMS_MOK_CERT}, evidence=[lev, ev])
+        return _skip("sec.dkms_mok", "security", title, ev.note, [lev, ev])
+    fingerprint = hashlib.sha256(_certificate_der(data)).hexdigest()
+    release = known.get(fingerprint)
+    if release is not None:
+        return Finding("sec.dkms_mok", "security", title, FAIL,
+                       "%s is the key shipped in the Shadowfetch %s ISO and shared "
+                       "by every install from it" % (DKMS_MOK_CERT, release),
+                       detail={"path": DKMS_MOK_CERT, "sha256": fingerprint,
+                               "shipped_in": release},
+                       remedy=SHARED_MOK_REMEDY, evidence=[lev, ev])
+    return Finding("sec.dkms_mok", "security", title, PASS,
+                   "not one of the %d keys shipped in an ISO" % len(known),
+                   detail={"path": DKMS_MOK_CERT, "sha256": fingerprint},
+                   evidence=[lev, ev])
 
 
 def check_security(host: Host) -> list[Finding]:
@@ -1557,6 +1632,8 @@ def check_security(host: Host) -> list[Finding]:
                            PASS if enabled else INFO,
                            "enabled" if enabled else "disabled",
                            detail={"enabled": enabled}, evidence=[ev]))
+
+    out.append(check_dkms_mok(host))
 
     # Agent state must be private to its owner: it holds session records and
     # mission history.
