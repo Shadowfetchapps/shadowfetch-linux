@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "revision": 1,
+  "revision": 2,
   "release": {
     "version": "5.0.0",
     "edition": "ShadowCode",
@@ -10,12 +10,14 @@
   "evidence_root": "work/qa-5.0.0/evidence",
   "artifact": {
     "iso_path": "shadowfetch-5.0.0-amd64.iso",
-    "iso_sha256": null,
-    "iso_size_bytes": null,
+    "iso_sha256": "c64c3493e0c49fa9469f1ad65586da6086284a38143a3c896b07adf8a10d7d72",
+    "iso_size_bytes": 4085794816,
     "signature_path": "shadowfetch-5.0.0-amd64.iso.asc",
     "signing_fingerprint": "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1",
     "evidence_bundle_path": "evidence-bundle-5.0.0.tar.gz",
-    "evidence_bundle_sha256": null
+    "evidence_bundle_sha256": null,
+    "source_commit": "29041e147ebfb57df11d6cfe889c237b82a9ad9c",
+    "source_tree": "dc2b02babdce34746e6a58b4f6d2b316066534d6"
   },
   "cases": [
     {
@@ -209,5 +211,5 @@
       "notes": ""
     }
   ],
-  "candidate_note": "No candidate yet. Every case is pending and the artifact block carries no digest, because no 5.0.0 image has been built. The case list is carried over from 4.1.0 and every RESULT, waiver and note was dropped rather than copied -- including the four Grok-dependent waivers, which justified 4.1.0 and must be re-argued for 5.0.0 if they are needed at all. Three titles named the previous release and were rewritten: ISO-01, UPGRADE-01 and PUB-01. verify refuses this manifest today, and should."
+  "candidate_note": "Release candidate c64c3493 (4085794816 bytes) built from 29041e1 (tree dc2b02b) with ShadowCode 1.0.0, signed by 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1; package gate and ISO gate (including the build-secret leak check) passed. Earlier candidates dfea3c9b and c8ea7ef0 are superseded; their VM evidence informed fixes but is not recorded here. Every case is pending until run on this image."
 }
