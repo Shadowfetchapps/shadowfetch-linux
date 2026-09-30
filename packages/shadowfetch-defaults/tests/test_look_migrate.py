@@ -179,6 +179,25 @@ class LookMigrate(unittest.TestCase):
         self.assertFalse(any(str(profile) in c for c in calls),
                          "a Konsole profile on a scheme that still exists was rewritten")
         self.assertTrue(self.stamp.is_file())
+        # Found in the VM upgrade: applying the scheme bakes the CURRENT accent
+        # into [Colors:Selection], so the retired accent must go first.
+        accent_call = calls.index(["kwriteconfig6", "--file", str(self.config / "kdeglobals"),
+                                   "--group", "General", "--key", "AccentColor", GOLD])
+        last_apply = max(i for i, c in enumerate(calls)
+                         if c == ["plasma-apply-colorscheme", "ShadowfetchDark"])
+        self.assertLess(accent_call, last_apply)
+
+    def test_a_retired_accent_forces_a_reapply_even_when_the_scheme_looks_current(self):
+        self.write(".config/kdeglobals", textwrap.dedent(f"""\
+            [Colors:Selection]
+            BackgroundNormal={GOLD}
+
+            [General]
+            ColorScheme=ShadowfetchDark
+            AccentColor=216,162,74
+            """))
+        calls = self.run_script()
+        self.assertIn(["plasma-apply-colorscheme", "ShadowfetchDark"], calls)
 
     def test_a_custom_wallpaper_and_scheme_are_left_alone(self):
         self.write(".config/kdeglobals", textwrap.dedent("""\

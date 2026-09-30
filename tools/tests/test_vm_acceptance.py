@@ -239,6 +239,56 @@ class LedgerTests(unittest.TestCase):
         )
         self.assertEqual(self.ledger.find(case="recovery", verdict="FAIL"), [])
 
+    def test_concurrent_appends_from_separate_processes_keep_one_chain(self) -> None:
+        """Every harness run appends, so parallel VM lanes append concurrently.
+
+        Each writer sleeps between reading the head and writing (utc_now() is
+        called in that window), which forked the chain every time before the
+        append took the ledger lock.
+        """
+        import multiprocessing
+
+        writers, per_writer = 6, 5
+        context = multiprocessing.get_context("fork")
+        barrier = context.Barrier(writers)
+        processes = [
+            context.Process(
+                target=_append_concurrently,
+                args=(str(self.ledger.path), barrier, writer, per_writer),
+            )
+            for writer in range(writers)
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(60)
+            self.assertEqual(process.exitcode, 0)
+        rows = self.ledger.entries()
+        self.assertEqual(len(rows), writers * per_writer)
+        self.assertEqual(
+            [row["seq"] for row in rows], list(range(1, writers * per_writer + 1))
+        )
+        self.assertEqual(len({row["run_id"] for row in rows}), writers * per_writer)
+        self.assertEqual(self.ledger.verify(), [])
+        self.assertTrue(self.ledger.lock_path.is_file())
+
+
+def _append_concurrently(path: str, barrier, writer: int, count: int) -> None:
+    import time
+    from acceptance import ledger as ledger_module
+
+    real_now = ledger_module.utc_now
+
+    def slow_now() -> str:
+        time.sleep(0.01)
+        return real_now()
+
+    ledger_module.utc_now = slow_now
+    ledger = Ledger(Path(path))
+    barrier.wait()
+    for number in range(count):
+        ledger.append({"run_id": f"w{writer}-{number}", "case": "race", "verdict": "PASS"})
+
 
 class ReceiptTests(unittest.TestCase):
     def test_receipt_digest_covers_the_whole_receipt(self) -> None:

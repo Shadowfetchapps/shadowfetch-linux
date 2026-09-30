@@ -40,6 +40,24 @@ def helper_path(program):
     return desktop.trusted_program(program) or desktop.PROGRAMS[program][0]
 
 
+
+def reflow(text):
+    """Undo a terminal's hard wrap so a dialog can wrap the text itself.
+
+    Paragraphs are separated by blank lines; a line starting with "-" (after
+    indentation) starts a bullet; any other line continues the one before.
+    """
+    lines_out = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            lines_out.append("")
+        elif stripped.startswith("- ") or not lines_out or not lines_out[-1]:
+            lines_out.append(("  " if stripped.startswith("- ") else "") + stripped)
+        else:
+            lines_out[-1] += " " + stripped
+    return "\n".join(lines_out)
+
 class AgentCard(Card):
     def __init__(self, page, spec):
         super().__init__()
@@ -154,7 +172,7 @@ class AgentCard(Card):
             result = subprocess.run([self.command, "info"], capture_output=True, text=True, timeout=15,
                                     env=desktop.trusted_env(), check=False)
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+                return reflow(result.stdout.strip())
         except (OSError, subprocess.SubprocessError):
             pass
         return f"{self.spec['name']}: {self.spec['summary']}"

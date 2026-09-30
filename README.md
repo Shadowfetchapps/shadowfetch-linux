@@ -8,11 +8,13 @@ Shadowfetch Linux is an independent Debian testing derivative with KDE Plasma 6,
 
 - **Subscriptions** — Codex, Claude Code, Cursor, Antigravity or Grok, through each vendor's own command-line tool and sign-in. You install the vendor's CLI; ShadowCode's **Connect** runs the vendor's login. It does not read or store vendor credentials, and it never buys credits.
 - **API keys** — an OpenRouter key if you have no subscription, billed per token to your OpenRouter account.
-- **On this computer** — a bundled local model runtime (Vulkan GPU or CPU) and a short list of free models to download, one recommended for your hardware. Nothing downloads until you choose it.
+- **On this computer** — a bundled local model runtime (Vulkan GPU or CPU) and a short list of free models to download, one recommended for your hardware. Until you connect a subscription, the model picker lists these free models first. Nothing downloads until you choose it.
+
+ShadowCode 1.0 explains itself: every approval card says what the action does, how much it can affect and whether Rewind can undo it; a failed task says why in plain words and offers the next step. Commits and pushes made from ShadowCode are checked for secrets first, paid models have spending limits, another model can give a second opinion on your changes, and **Settings › Your data** backs up and restores your profile.
 
 Nothing is connected until you sign in. Welcome's last step opens ShadowCode so you can connect what you have. 5.0 also **changes behaviour that 4.1 setups depend on**: Fire and Ice are gone, several commands are removed, and the Fire/Ice network switch is now a separate setting. Read the [release notes](RELEASE-5.0.0.md) before upgrading.
 
-<!-- TODO(iso): add 5.0 screenshots (ShadowCode, Welcome, Mission Control) once VISUAL-01 has captured them from the release ISO. -->
+<!-- TODO(iso): add 5.0 screenshots (ShadowCode 1.0, Welcome, Mission Control) once VISUAL-01 has captured them from the rebuilt release ISO; captures from the superseded c8ea7ef0… candidate (ShadowCode 0.34.2) do not count. -->
 
 [Download](https://www.shadowfetchlinux.org/download) · [Screenshots](https://www.shadowfetchlinux.org/screenshots) · [Release notes](RELEASE-5.0.0.md) · [ShadowCode](https://github.com/Shadowfetchapps/ShadowCode)
 
@@ -22,16 +24,16 @@ Nothing is connected until you sign in. Welcome's last step opens ShadowCode so 
 | --- | --- |
 | Version / codename | 5.0.0 / Umbra |
 | Edition | ShadowCode — "One Harness. All Models." |
-| Publication date / channel | TODO(iso) / stable |
+| Publication date / channel | TODO(publish): not yet published / stable |
 | ISO | shadowfetch-5.0.0-amd64.iso |
 | Size | TODO(iso) bytes |
 | SHA-256 | `TODO(iso)` |
 | ISO product source commit / tree | `TODO(iso)` / `TODO(iso)` |
 | Base / desktop | Debian testing snapshot 20260929T000000Z / KDE Plasma 6.7.4 |
 | Kernel | Linux 7.2.6 |
-| ShadowCode | 0.34.2 (`shadow-code`, republished unmodified from the signed upstream `.deb`) |
+| ShadowCode | 1.0.0 (`shadow-code`, republished unmodified from the signed upstream `.deb`) |
 | Architecture / APT suite | amd64 / `umbra` |
-| Final boot acceptance | TODO(iso): VM acceptance not yet run; all 19 cases in `qa/5.0.0/acceptance.json` are pending |
+| Final boot acceptance | TODO(iso): VM acceptance runs on the rebuilt ISO; all 19 cases in `qa/5.0.0/acceptance.json` are pending for it |
 
 Signing-key fingerprint: `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
@@ -39,7 +41,7 @@ Signing-key fingerprint: `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
 | Feature | What you can do |
 | --- | --- |
-| **ShadowCode** | Preinstalled coding agent. Connect subscriptions, an OpenRouter key or a local model in **Settings › Accounts**; approve actions, review and undo changes. See `/usr/share/doc/shadowfetch/SHADOWCODE.md`. |
+| **ShadowCode** | Preinstalled coding agent (1.0). Connect subscriptions, an OpenRouter key or a local model in **Settings › Accounts**; approve actions that explain themselves, review changes grouped by risk, ask another model for a second opinion, and rewind or undo. Secret checks before commit and push, spending limits for paid models, backups under **Settings › Your data**. See `/usr/share/doc/shadowfetch/SHADOWCODE.md`. |
 | **Agent network** | `shadowfetch-agent-network online\|offline` decides whether Firebreak agent sandboxes start with network. Offline also pauses Grok Bot, Hermes and OpenClaw. Choose it in Welcome, at the boot menu, or later from a terminal. |
 | **Optional agents** | Welcome offers exactly three, each downloaded only if you pick it: **Grok Bot** (official native app), **Hermes Agent** 0.21.5 and **OpenClaw** 2026.9.6. Hermes and OpenClaw install into your home folder without root; OpenClaw opens only inside a Firebreak sandbox, with its Gateway off. |
 | **Mission Control** | Create work in a Workbench project, watch the persistent queue, and review files, receipts and changes before accepting them. Code and report missions use a provider you name (`codex`, `claude` or `localmodel`); media exports run offline. |
@@ -58,11 +60,11 @@ No Shadowfetch account is required. No API keys, account sessions or model weigh
 
 ## Verify and install
 
-The [download page](https://www.shadowfetchlinux.org/download) links the ISO, checksum and detached signature. TODO(iso): the SBOM, package manifest and QA evidence bundle will be attached to the v5.0.0 GitHub release. Use the exact accepted filename below. These commands download and verify files; they do not write a USB device.
+The [download page](https://www.shadowfetchlinux.org/download) links the ISO, checksum and detached signature. TODO(publish): the SBOM (`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA evidence bundle (`evidence-bundle-5.0.0.tar.gz`) will be attached to the v5.0.0 GitHub release; link it once it exists. Use the exact accepted filename below. These commands download and verify files; they do not write a USB device.
 
 ```sh
 ISO='shadowfetch-5.0.0-amd64.iso'
-ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'   # TODO(iso): confirm once published
+ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'   # TODO(publish): confirm once published
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.sha256"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.asc"
@@ -86,7 +88,7 @@ Use a 64-bit Intel/AMD computer. Plan for 8 GB RAM and 100 GB disk space for a c
 
 Secure Boot has no Microsoft-trusted shim. Intel/AMD use Mesa; NVIDIA setup is an explicit, simulate-first workflow. VM rendering tests do not establish physical GPU acceleration performance, and hybrid laptops need their own validation. Phoenix Points require a supported Btrfs root; ext4 does not provide the same snapshot recovery. Debian testing can change faster than Debian stable.
 
-TODO(iso): acceptance summary. At the time of writing every case in `qa/5.0.0/acceptance.json`, including the new `SHADOWCODE-01`, is pending; the release notes will record which pass, which are waived and why.
+TODO(iso): acceptance summary. VM acceptance runs on the rebuilt ISO; results recorded against the superseded `c8ea7ef0…` candidate (ShadowCode 0.34.2) do not count for it, so every case in `qa/5.0.0/acceptance.json` is pending for the release (SRC-01, PKG-01, ISO-01, FIRE-01, ICE-01, INSTALL-01, UPGRADE-01, SHADOWCODE-01, MISSION-01, DURABLE-01, SCOPE-01, GROK-01, GROK-VISUAL-01, RESOURCE-01, RECOVERY-01, STRESS-01, VISUAL-01, EVIDENCE-01, PUB-01). The release notes will record which pass, which are waived and why.
 
 ## Build from source
 

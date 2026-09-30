@@ -130,6 +130,18 @@ if [ "$(ini_get "$SPLASHRC" '[KSplash]' Theme)" = "org.shadowfetch.ice" ]; then
   set_key "$SPLASHRC" Theme "$LOOK" --group KSplash && log "splash: $LOOK"
 fi
 
+# 2a) Accent first. Applying a scheme bakes the CURRENT AccentColor into the
+#     [Colors:*] groups, so a retired 4.1 accent still set at that moment
+#     survives the migration inside every selection colour.
+accent_replaced=0
+accent=$(ini_get "$KDEGLOBALS" '[General]' AccentColor)
+for retired in $RETIRED_ACCENTS; do
+  if [ "$accent" = "$retired" ]; then
+    set_key "$KDEGLOBALS" AccentColor "$ACCENT" --group General \
+      && { log "accent: $ACCENT (was $accent)"; accent_replaced=1; }
+  fi
+done
+
 # 2) Colour scheme: Ice or missing -> ShadowfetchDark. ShadowfetchDark whose
 #    baked selection colour is not the ShadowCode gold -> re-applied so the new
 #    colours reach kdeglobals (see header). The bounce through BreezeDark is
@@ -142,6 +154,7 @@ case "$scheme" in
   ""|ShadowfetchIce) apply_scheme=1 ;;
   "$SCHEME") [ "$baked" = "$ACCENT" ] || apply_scheme=1 ;;
 esac
+[ "$accent_replaced" -eq 1 ] && apply_scheme=1
 if [ "$apply_scheme" -eq 1 ]; then
   if have plasma-apply-colorscheme; then
     if [ "$scheme" = "$SCHEME" ]; then
@@ -153,12 +166,6 @@ if [ "$apply_scheme" -eq 1 ]; then
   fi
 fi
 
-accent=$(ini_get "$KDEGLOBALS" '[General]' AccentColor)
-for retired in $RETIRED_ACCENTS; do
-  if [ "$accent" = "$retired" ]; then
-    set_key "$KDEGLOBALS" AccentColor "$ACCENT" --group General && log "accent: $ACCENT (was $accent)"
-  fi
-done
 
 # 3) Desktop wallpaper, per desktop. When every image wallpaper names a
 #    removed asset, plasma-apply-wallpaperimage sets them all. When only some

@@ -100,10 +100,15 @@ class PinTests(unittest.TestCase):
             shadowcode.check_in_policy(".".join(above), self.pin.key_id)
         self.assertIn("--refresh-trust", str(caught.exception))
 
-    def test_0_35_is_refused_by_the_vendored_policy(self) -> None:
-        with self.assertRaises(ShadowCodeError) as caught:
-            shadowcode.check_in_policy("0.35.0", self.pin.key_id)
-        self.assertIn("outside the vendored trust policy", str(caught.exception))
+    def test_versions_past_the_reviewed_policy_are_refused(self) -> None:
+        # The policy reviewed at v1.0.0 authorises key f0c60ff8... for 0.33.0
+        # through 1.0.0; the next minor and major need --refresh-trust first,
+        # and a version below the floor is never accepted.
+        for version in ("1.1.0", "2.0.0", "0.32.9"):
+            with self.subTest(version=version):
+                with self.assertRaises(ShadowCodeError) as caught:
+                    shadowcode.check_in_policy(version, self.pin.key_id)
+                self.assertIn("outside the vendored trust policy", str(caught.exception))
 
     def test_the_build_file_name_is_debians_canonical_one(self) -> None:
         self.assertEqual(f"shadow-code_{self.pin.version}_amd64.deb", self.pin.build_deb_name)
@@ -615,7 +620,7 @@ class DebSourceTests(unittest.TestCase):
 
 class PrebuiltLintianTests(unittest.TestCase):
     def test_an_exception_list_names_only_shadow_code_errors(self):
-        # A clean release (0.34.2: no lintian errors) needs no list at all.
+        # A clean release (0.34.2 and 1.0.0: no lintian errors) needs no list at all.
         accepted = package_gate.prebuilt_lintian_accepted(shadowcode.PACKAGE)
         self.assertTrue(all(line.startswith("E: shadow-code: ") for line in accepted))
 

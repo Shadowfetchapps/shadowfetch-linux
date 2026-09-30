@@ -1,13 +1,15 @@
 # Shadowfetch Linux: system policy for the preinstalled ShadowCode (shadow-code).
 #
-# /usr/bin/shadowcode reads this file itself (updates.rs SYSTEM_POLICY,
-# ShadowCode v0.34.2). The shadow-code package does not own the path, so the
-# distribution ships it; it is a conffile, and an administrator's edit wins.
+# /usr/bin/shadowcode reads this file itself (native/core/src/updates.rs
+# SYSTEM_POLICY; unchanged from ShadowCode v0.34.2 to v1.0.0). The shadow-code
+# package does not own the path, so the distribution ships it; it is a
+# conffile, and an administrator's edit wins.
 #
-# The only section ShadowCode 0.34.2 reads is `updates`, with exactly the keys
-# check, default and message. Any other key under `updates` -- a typo
-# included -- makes ShadowCode treat the whole file as unreadable, turn update
-# checks off and name this file in Settings > About. Keep it that small.
+# The only section ShadowCode 1.0.0 reads is `updates`, with exactly the keys
+# check, default and message (PolicyUpdates, deny_unknown_fields). Any other
+# key under `updates` -- a typo included -- makes ShadowCode treat the whole
+# file as unreadable, turn update checks off and name this file in
+# Settings > About. Keep it that small.
 #
 # Why check: false. Shadowfetch republishes ShadowCode only after verifying the
 # upstream release signature against the pin in tools/release/shadowcode.toml,

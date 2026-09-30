@@ -15,14 +15,15 @@ signed, for the version we pinned" is checked, not assumed, at every step.
 | `upstream/verify-native-release.sh`, `upstream/native-release-auth-lib.sh` | upstream's offline verifier, byte for byte. Checks the Ed25519 signature over `RELEASE-AUTH` (`openssl pkeyutl -verify -rawin`), the key interval, the manifest and checksum digests, and an asset's size and SHA-256 |
 | `<version>/RELEASE-AUTH`, `RELEASE-AUTH.sig`, `SHA256SUMS`, `RELEASE-MANIFEST.json` | the four signed metadata files of that release |
 
-Reviewed trust commit: `3f81044e1fe3d8f24cc1293e8efde79db5533213` (tag `v0.34.2`)
+Reviewed trust commit: `e0ab26553cec4243dfb1aeabb66b206bbc6c0474` (tag `v1.0.0`)
 
-`trust/` and `upstream/` are copies of `release/trust/` and `scripts/` at that
-commit. Against the first reviewed commit, `e15c4480` (`v0.33.1`), the only
-change is the key's authorised maximum, `0.33.1` -> `0.34.2`; neither verifier
-script changed. **The policy authorises key `f0c60ff8…3b7f` for ShadowCode
-0.33.0 through 0.34.2.** A later release needs step 1 below again with a
-published commit whose policy authorises it.
+`trust/` and `upstream/` are byte-for-byte copies of `release/trust/` and
+`scripts/` at that commit. Against the first reviewed commit, `e15c4480`
+(`v0.33.1`), the only change is the key's authorised maximum, `0.33.1` ->
+`0.34.2` (at `3f81044e`, `v0.34.2`) -> `1.0.0`; the key, the version floor
+and both verifier scripts are unchanged. **The policy authorises key
+`f0c60ff8…3b7f` for ShadowCode 0.33.0 through 1.0.0.** A later release needs
+step 1 below again with a published commit whose policy authorises it.
 
 The version pin itself is **not** here. It is `tools/release/shadowcode.toml`,
 the one place the shipped version, commit and per-asset size/SHA-256 live.
@@ -56,7 +57,7 @@ Shadowfetchapps/ShadowCode`).
 
    It refuses a commit on no remote branch or tag, and refuses any key this
    tree has not already trusted (a new key is a separate reviewed change).
-   0.35 and later need the same step again with a policy that authorises them.
+   1.0.1 and later need the same step again with a policy that authorises them.
 
 2. Bump (verifies the signature with the currently pinned release as
    `--previous-dir`, so downgrades and same-version republications refuse):

@@ -17,13 +17,21 @@ from pathlib import Path
 import re
 import struct
 import subprocess
+import os
 import sys
 
 REPO = Path(__file__).resolve().parents[2]
 SHOTS = REPO / "work" / "qa-5.0.0" / "screenshots"
-FORBIDDEN = [
-    re.compile(r"rtx5060ti", re.I), re.compile(r"pop-?os", re.I),
-    re.compile(r"corbin", re.I), re.compile(r"robertcorbin", re.I),
+# Personal identifiers to refuse come from a local, uncommitted terms file
+# (one per line, as for privacy_scan.py), never from this source.
+_TERMS = Path(os.environ.get("SHADOWFETCH_PRIVACY_TERMS",
+                             str(Path.home() / ".config/shadowfetch-privacy-terms")))
+_PERSONAL = ([re.compile(re.escape(line.strip()), re.I)
+              for line in _TERMS.read_text(encoding="utf-8").splitlines()
+              if line.strip() and not line.startswith("#")]
+             if _TERMS.is_file() else [])
+FORBIDDEN = _PERSONAL + [
+    re.compile(r"pop-?os", re.I),
     re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
     re.compile(r"\b(sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|xai-[A-Za-z0-9]{16,}|gho_[A-Za-z0-9]{20,})"),
     re.compile(r"/home/(?!demo\b|shadow\b|qa\b)[a-z0-9_-]+"),

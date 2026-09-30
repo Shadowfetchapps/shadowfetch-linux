@@ -12,29 +12,29 @@
 # data file only names this file ([packages.prebuilt] in versions/<v>.toml).
 
 package = "shadow-code"
-version = "0.34.2"
+version = "1.0.0"
 
 [shadowcode]
-tag = "v0.34.2"
-commit = "3f81044e1fe3d8f24cc1293e8efde79db5533213"
+tag = "v1.0.0"
+commit = "e0ab26553cec4243dfb1aeabb66b206bbc6c0474"
 key_id = "f0c60ff8228314616985712f8918c9798c0ecf72b7271e19343a041c25663b7f"
 key_epoch = 1
 # ShadowCode commit the vendored trust policy, public key and verifier scripts
 # were copied from. See vendor/shadowcode/README.md.
-trust_commit = "3f81044e1fe3d8f24cc1293e8efde79db5533213"
+trust_commit = "e0ab26553cec4243dfb1aeabb66b206bbc6c0474"
 # Shadowfetch releases that preinstall this pin. A gate for a release named
 # here refuses to run unless that release's data file declares the package.
 ships_in = ["5.0.0"]
 
 [shadowcode.deb]
-filename = "ShadowCode_0.34.2_amd64.deb"
-sha256 = "203593292de40a97c10e110d2bcec8c378aa2347480208fe1771967ab96cec44"
-bytes = 27549024
+filename = "ShadowCode_1.0.0_amd64.deb"
+sha256 = "6439c6307478dabe0a439fb400549fd5328a3bc527a71cf2561d141260e9d61a"
+bytes = 28862468
 
 # The AppImage runtime's corresponding source. Fetched, verified and published
 # beside the APT repository; see vendor/shadowcode/README.md for why it is not
 # in main/source and why it is not the .deb's source.
 [shadowcode.runtime_sources]
-filename = "ShadowCode_0.34.2_appimage-runtime-sources.tar.gz"
-sha256 = "79e1319f85f944d7de0553eaad1a172bc4cb1e86729727b14d5d6c6becdca07f"
-bytes = 104169186
+filename = "ShadowCode_1.0.0_appimage-runtime-sources.tar.gz"
+sha256 = "898e5eeb7d07d2579a2efacbf9ebff813cbbbec178de7c86d58c40c2a27bf74a"
+bytes = 104169201

@@ -1,0 +1,93 @@
+#!/bin/sh
+# Shadowfetch hook: 0100-scrub-build-state
+#
+# 5.0.0 release scan: the image carried state that the BUILD generated and that
+# every install then shared, plus logs that recorded the builder's own paths.
+#
+#   * /var/lib/dkms/mok.key + mok.pub. DKMS (3.x, prepare_mok) creates a module
+#     signing key pair the first time it builds a module -- here v4l2loopback-dkms
+#     from shadowfetch-graphics.list.chroot, inside the chroot. The private key
+#     then shipped in the squashfs, identical on every machine. shadowfetch-gpu
+#     asks Secure Boot users to `mokutil --import /var/lib/dkms/mok.pub`, so an
+#     enrolled machine trusted modules signed by a key anyone with the ISO has.
+#     With the pair absent, DKMS generates a fresh one on the installed machine
+#     the next time it builds a module (kernel update or NVIDIA setup): dkms
+#     re-creates BOTH files whenever either is missing, and nothing in
+#     /etc/dkms/framework.conf{,.d} overrides mok_signing_key. v4l2loopback.ko in
+#     the image stays signed by the discarded key; that key was never in any
+#     kernel keyring, so loading behaves exactly as before (Secure Boot off:
+#     loads; Secure Boot on: needs the per-machine rebuild either way).
+#   * /etc/ssl/private/ssl-cert-snakeoil.key (+ .pem and its hash link), made by
+#     ssl-cert's postinst. Regenerated per machine by firstboot.sh.
+#   * /var/log/bootstrap.log (80 lines of /home/<builder>/.../live-build/chroot)
+#     and the apt/dpkg/alternatives logs of the build transaction.
+#
+# MUST remain the LAST chroot hook (config/hooks/*.chroot run in name order):
+# anything after it that runs dpkg or DKMS writes the logs or the key back.
+# tools/release/iso_gate.py fails the ISO if any of this reaches the squashfs.
+set -eu
+
+echo "[shadowfetch] Scrubbing build-generated secrets and build logs..."
+
+# 1. Module-signing keys created during the build. Keep /var/lib/dkms itself
+#    (the DKMS tree for the modules built into the image).
+rm -f /var/lib/dkms/mok.key /var/lib/dkms/mok.pub
+# Ubuntu-style shim MOK (update-secureboot-policy --new-key), should a future
+# package list ever create one.
+rm -f /var/lib/shim-signed/mok/MOK.priv /var/lib/shim-signed/mok/MOK.der \
+      /var/lib/shim-signed/mok/MOK.pem
+
+# 2. The snakeoil TLS pair and the c_rehash-style link pointing at it.
+for link in /etc/ssl/certs/*; do
+    if [ -L "$link" ] && [ "$(readlink "$link")" = ssl-cert-snakeoil.pem ]; then
+        rm -f "$link"
+    fi
+done
+rm -f /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem
+
+# 3. Other per-machine identity/secrets. None ships today; this keeps it so.
+#    SSH host keys are generated on the installed system by sshd-keygen
+#    (includes.chroot drop-in) and on live sessions by live-config.
+rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+rm -f /var/lib/systemd/random-seed /var/lib/systemd/credential.secret
+if [ -s /etc/machine-id ]; then
+    : > /etc/machine-id
+fi
+# Debian links this to /etc/machine-id; only a real per-build copy is removed.
+if [ -f /var/lib/dbus/machine-id ] && [ ! -L /var/lib/dbus/machine-id ]; then
+    rm -f /var/lib/dbus/machine-id
+fi
+if [ -d /etc/NetworkManager/system-connections ]; then
+    find /etc/NetworkManager/system-connections -mindepth 1 -delete
+fi
+rm -rf /root/.gnupg
+
+# 4. Build logs. Directories (with their owners and modes: journal, private,
+#    samba, tor, ...) stay because the services that write there expect them;
+#    every file in them is a record of this build and goes.
+find /var/log -xdev \( -type f -o -type l \) -delete
+rm -f /var/cache/debconf/*-old /var/lib/dpkg/*-old
+rm -f /root/.bash_history /root/.lesshst /root/.viminfo /root/.wget-hsts \
+      /root/.python_history
+# live-build recreates /tmp and /var/tmp in chroot_hacks; clear them here too
+# so no build scratch survives if that ever changes.
+for scratch in /tmp /var/tmp; do
+    if [ -d "$scratch" ]; then
+        find "$scratch" -xdev -mindepth 1 -delete
+    fi
+done
+
+# Verify: a scrub that silently failed must stop the build.
+for leftover in /var/lib/dkms/mok.key /var/lib/dkms/mok.pub \
+                /etc/ssl/private/ssl-cert-snakeoil.key; do
+    if [ -e "$leftover" ]; then
+        echo "[shadowfetch] FATAL: $leftover survived the scrub" >&2
+        exit 1
+    fi
+done
+if [ -n "$(find /var/log -xdev -type f -print -quit)" ]; then
+    echo "[shadowfetch] FATAL: build logs survived under /var/log" >&2
+    exit 1
+fi
+
+echo "[shadowfetch] Build state scrubbed (DKMS MOK, snakeoil, logs)."

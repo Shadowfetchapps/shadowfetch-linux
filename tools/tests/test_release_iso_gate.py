@@ -6,11 +6,17 @@ gate that actually ran for 4.0.0 had NO test. They now run against the one live
 implementation, which is the point of the consolidation.
 """
 
+import gzip
 import importlib.machinery
 import importlib.util
+import inspect
+import lzma
+import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -255,6 +261,187 @@ class RequiredPayloadTests(unittest.TestCase):
 
     def test_every_required_executable_is_a_required_file(self) -> None:
         self.assertLessEqual(iso_gate.REQUIRED_EXECUTABLES, iso_gate.REQUIRED_ROOT_FILES)
+
+
+class BuildLeakGateTests(unittest.TestCase):
+    """5.0.0 release scan: build-generated secrets and build-host paths.
+
+    The c8ea7ef0 candidate (and 4.1.0) shipped /var/lib/dkms/mok.key, the
+    ssl-cert snakeoil key and a bootstrap.log naming the builder's checkout.
+    """
+
+    RSA = b"-----BEGIN " + b"RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA\n-----END " + b"RSA PRIVATE KEY-----\n"
+    PKCS8 = b"-----BEGIN " + b"PRIVATE KEY-----\nMIIEvQIBADANBgkq\n-----END " + b"PRIVATE KEY-----\n"
+    # Armor is assembled at run time so secret scanners see no key in this file.
+    OPENSSH = (b"-----BEGIN " + b"OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXkt\n"
+               b"-----END " + b"OPENSSH PRIVATE KEY-----\n")
+    PGP = (b"-----BEGIN " + b"PGP PRIVATE KEY BLOCK-----\n\nlQOYBF\n-----END "
+           + b"PGP PRIVATE KEY BLOCK-----\n")
+
+    def setUp(self) -> None:
+        self._scratch = tempfile.TemporaryDirectory()
+        self.tree = Path(self._scratch.name)
+
+    def tearDown(self) -> None:
+        self._scratch.cleanup()
+
+    def put(self, relative: str, data: bytes) -> Path:
+        path = self.tree / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def test_path_check_names_every_build_generated_secret(self) -> None:
+        inventory = {path: "-rw-------" for path in (
+            "var/lib/dkms/mok.key",
+            "var/lib/dkms/mok.pub",
+            "etc/ssl/private/ssl-cert-snakeoil.key",
+            "etc/ssl/certs/ssl-cert-snakeoil.pem",
+            "etc/ssh/ssh_host_ed25519_key",
+            "etc/ssh/ssh_host_rsa_key",
+            "var/lib/systemd/random-seed",
+            "var/lib/systemd/credential.secret",
+            "var/lib/shim-signed/mok/MOK.priv",
+            "etc/NetworkManager/system-connections/home.nmconnection",
+        )}
+        self.assertEqual(sorted(inventory), iso_gate.machine_secret_paths(inventory))
+
+    def test_path_check_leaves_the_legitimate_neighbours_alone(self) -> None:
+        inventory = {path: "-rw-r--r--" for path in (
+            "var/lib/dkms/v4l2loopback/0.15.4/source/dkms.conf",
+            "etc/ssh/ssh_host_ed25519_key.pub",
+            "etc/ssh/sshd_config",
+            "etc/ssl/certs/ca-certificates.crt",
+            "etc/NetworkManager/system-connections",
+            "etc/dkms/framework.conf",
+            "usr/share/doc/dkms/mok.key.example",
+        )}
+        self.assertEqual([], iso_gate.machine_secret_paths(inventory))
+
+    def test_content_scan_finds_pem_openssh_and_pgp_private_keys(self) -> None:
+        self.put("etc/ssl/private/other.key", self.RSA)
+        self.put("var/lib/dkms/mok.key", self.PKCS8)
+        self.put("home/shadow/.ssh/id_ed25519", self.OPENSSH)
+        self.put("root/secret.asc", b"notes\n" + self.PGP)
+        self.assertEqual(
+            ["etc/ssl/private/other.key", "home/shadow/.ssh/id_ed25519",
+             "root/secret.asc", "var/lib/dkms/mok.key"],
+            iso_gate.private_key_files(self.tree),
+        )
+
+    def test_content_scan_ignores_quoted_markers_public_keys_and_other_trees(self) -> None:
+        # ImageMagick's mime.xml names the PGP armor as a magic string.
+        self.put(
+            "etc/ImageMagick-7/mime.xml",
+            b'<mime type="application/pgp-keys" offset="0" '
+            b'magic="-----BEGIN PGP PRIVATE KEY BLOCK-----" priority="50" />\n',
+        )
+        self.put("etc/ssl/certs/ca.pem", b"-----BEGIN CERTIFICATE-----\nMIIB\n")
+        self.put("etc/ssh/ssh_host_ed25519_key.pub", b"ssh-ed25519 AAAAC3Nz host\n")
+        self.put("usr/share/doc/example/test.key", self.RSA)
+        outside = self.put("usr/share/doc/example/linked.key", self.RSA)
+        (self.tree / "etc/linked.key").symlink_to(outside)
+        self.assertEqual([], iso_gate.private_key_files(self.tree))
+
+    def test_content_scan_honours_an_exact_path_allowlist_only(self) -> None:
+        self.put("etc/fixture/test.key", self.RSA)
+        self.put("etc/fixture/test2.key", self.RSA)
+        with mock.patch.object(
+            iso_gate, "ALLOWED_PRIVATE_KEY_PATHS", frozenset({"etc/fixture/test.key"})
+        ):
+            self.assertEqual(["etc/fixture/test2.key"], iso_gate.private_key_files(self.tree))
+
+    def test_build_root_scan_reads_plain_and_compressed_logs(self) -> None:
+        self.put(
+            "var/log/bootstrap.log",
+            b"I: Retrieving InRelease\n"
+            b"/home/builder/projects/shadowfetch/live-build/chroot/debootstrap\n",
+        )
+        self.put(
+            "var/log/apt/eipp.log.xz",
+            lzma.compress(b"Dir: /srv/x/live-build/chroot/var/cache/apt\n"),
+        )
+        self.put("var/log/installer/syslog.1.gz",
+                 gzip.compress(b"cwd=/home/builder/src\n"))
+        self.put("root/.bash_history", b"cd /home/builder/work\n")
+        self.put("var/log/dpkg.log", b"2026-09-29 status installed dkms:all 3.2.2-1\n")
+        self.put("root/.bashrc", b"# ~/.bashrc: executed by bash(1)\n")
+        # Outside /var/log and /root the rule does not apply (ucf's smb.conf
+        # copy legitimately says /home/samba).
+        self.put("var/lib/ucf/cache/:etc:samba:smb.conf", b"path = /home/samba/\n")
+        self.assertEqual(
+            ["root/.bash_history", "var/log/apt/eipp.log.xz",
+             "var/log/bootstrap.log", "var/log/installer/syslog.1.gz"],
+            iso_gate.build_root_leaks(self.tree),
+        )
+
+    def test_gate_refuses_path_hits_before_extracting_anything(self) -> None:
+        inventory = {"etc": "drwxr-xr-x", "var/lib/dkms/mok.key": "-rw-------"}
+        with mock.patch.object(iso_gate, "run") as run:
+            with self.assertRaisesRegex(RuntimeError, "var/lib/dkms/mok.key"):
+                iso_gate.build_leak_gate(Path("/nonexistent.squashfs"), inventory)
+        run.assert_not_called()
+
+    def test_gate_fails_on_content_found_in_the_extracted_tree(self) -> None:
+        inventory = {"etc": "drwxr-xr-x", "var": "drwxr-xr-x", "root": "drwx------"}
+
+        def extract(label, argv, **_kwargs):
+            destination = Path(argv[argv.index("-d") + 1])
+            self.assertEqual(["etc", "var", "root"], argv[-3:])
+            leaked = destination / "var/log/bootstrap.log"
+            leaked.parent.mkdir(parents=True)
+            leaked.write_bytes(b"/home/builder/x/live-build/chroot\n")
+
+        with mock.patch.object(iso_gate, "run", side_effect=extract), \
+                mock.patch.object(iso_gate, "program") as program:
+            program.return_value.argv.side_effect = lambda *a: ["unsquashfs", *a]
+            with self.assertRaisesRegex(RuntimeError, "var/log/bootstrap.log"):
+                iso_gate.build_leak_gate(Path("/x.squashfs"), inventory)
+
+    def test_gate_runs_in_main(self) -> None:
+        source = inspect.getsource(iso_gate.main)
+        self.assertIn("build_leak_gate(squashfs, inventory)", source)
+
+
+class ScrubHookTests(unittest.TestCase):
+    HOOKS = ROOT / "live-build/config/hooks"
+    HOOK = HOOKS / "0100-scrub-build-state.hook.chroot"
+
+    def test_scrub_hook_is_the_last_executable_chroot_hook(self) -> None:
+        hooks = sorted(path.name for path in self.HOOKS.glob("*.chroot"))
+        self.assertEqual(self.HOOK.name, hooks[-1])
+        self.assertTrue(os.access(self.HOOK, os.X_OK))
+
+    def test_scrub_hook_removes_keys_and_logs_and_verifies(self) -> None:
+        hook = self.HOOK.read_text()
+        for required in (
+            "rm -f /var/lib/dkms/mok.key /var/lib/dkms/mok.pub",
+            "rm -f /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem",
+            "rm -f /etc/ssh/ssh_host_*_key",
+            "find /var/log -xdev \\( -type f -o -type l \\) -delete",
+            "FATAL: $leftover survived the scrub",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, hook)
+        # Directories stay: only files are removed from /var/log.
+        self.assertNotIn("rm -rf /var/log", hook)
+        self.assertNotIn("rm -rf /var/lib/dkms", hook)
+
+    def test_installed_system_regenerates_its_own_snakeoil(self) -> None:
+        firstboot = (
+            ROOT / "packages/shadowfetch-defaults/data/usr/lib/shadowfetch/firstboot.sh"
+        ).read_text()
+        self.assertIn("make-ssl-cert generate-default-snakeoil --force-overwrite", firstboot)
+        self.assertIn("ssl-cert", firstboot.split("make-ssl-cert generate")[0])
+        self.assertLess(
+            firstboot.index("generate-default-snakeoil"), firstboot.index('touch "$STAMP"')
+        )
+
+    def test_dkms_signing_key_is_left_to_dkms_defaults(self) -> None:
+        """DKMS only regenerates /var/lib/dkms/mok.* when nothing overrides it."""
+        for path in (ROOT / "live-build/config").rglob("*"):
+            if path.is_file() and "dkms" in path.as_posix():
+                self.assertNotIn("mok_signing_key", path.read_text(errors="replace"), path)
 
 
 if __name__ == "__main__":

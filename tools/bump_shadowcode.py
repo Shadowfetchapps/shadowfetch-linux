@@ -21,8 +21,8 @@ rollback, or a changed release under an already accepted version is refused.
 
 REFUSALS, each with the reason printed:
   * a version outside the vendored policy's authorised interval. The policy
-    reviewed at the vendored commit authorises key f0c60ff8... for 0.33.0 to
-    0.33.1 only, so 0.34.0 (and 0.35+) needs a newly REVIEWED policy first --
+    reviewed at the vendored commit (v1.0.0) authorises key f0c60ff8... for
+    0.33.0 to 1.0.0 only, so 1.0.1 and later need a newly REVIEWED policy first --
     that is --refresh-trust, which copies release/trust/ and the two verifier
     scripts out of a named, published ShadowCode commit. It refuses an
     unpublished commit and refuses a key that is not already trusted.

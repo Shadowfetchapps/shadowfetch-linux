@@ -70,15 +70,15 @@ class Helpers(unittest.TestCase):
         return version, run
 
     def test_version_comes_from_the_trusted_dpkg_query(self):
-        version, run = self.dpkg("installed\t0.34.2")
-        self.assertEqual("0.34.2", version)
+        version, run = self.dpkg("installed\t1.0.0")
+        self.assertEqual("1.0.0", version)
         argv = run.call_args[0][0]
         self.assertEqual("/usr/bin/dpkg-query", argv[0])
         self.assertEqual("shadow-code", argv[-1])
         self.assertEqual(desktop.TRUSTED_PATH, run.call_args[1]["env"]["PATH"])
 
     def test_removed_or_unknown_package_has_no_version(self):
-        self.assertIsNone(self.dpkg("config-files\t0.34.2")[0])
+        self.assertIsNone(self.dpkg("config-files\t1.0.0")[0])
         self.assertIsNone(self.dpkg("", returncode=1)[0])
 
     def test_open_keeps_the_session_path_for_the_vendor_clis(self):
@@ -110,8 +110,8 @@ class States(unittest.TestCase):
         self.addCleanup(self.page.deleteLater)
 
     def test_installed(self):
-        self.page.show_state("0.34.2", True, False)
-        self.assertIn("0.34.2", self.page.state.text())
+        self.page.show_state("1.0.0", True, False)
+        self.assertIn("1.0.0", self.page.state.text())
         self.assertTrue(self.page.open_button.isEnabled())
         self.assertTrue(self.page.software.isHidden())
 
@@ -122,12 +122,12 @@ class States(unittest.TestCase):
         self.assertIn("Software", self.page.state.text())
 
     def test_offline_explains_shadowcodes_own_setting_without_blocking_it(self):
-        self.page.show_state("0.34.2", True, True)
+        self.page.show_state("1.0.0", True, True)
         self.assertTrue(self.page.open_button.isEnabled(), "local models work offline")
         self.assertIn("Offline", self.page.network_fact.text())
 
     def test_a_failed_launch_says_so(self):
-        self.page.show_state("0.34.2", True, False)
+        self.page.show_state("1.0.0", True, False)
         with patch.object(self.module, "open_shadowcode", return_value=False):
             self.page._open()
         self.assertIn("could not be started", self.page.state.text())

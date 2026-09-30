@@ -36,7 +36,11 @@ tests*).
 
    which rewrites `tools/release/shadowcode.toml`, `vendor/shadowcode/<v>/`
    and the `shadow-code (>= <v>)` floor in `packages/shadowfetch-meta/debian/control`.
-   To keep 0.34.2, re-running `bump_shadowcode.py 0.34.2` is a verified no-op.
+   The pin is 1.0.0 (`v1.0.0`, `e0ab2655`; trust policy from that commit,
+   key maximum 1.0.0). To keep it, re-running `bump_shadowcode.py 1.0.0` is a
+   verified no-op. A move after the ISO is built means rebuilding the ISO and
+   re-running acceptance: nothing measured on an image with another
+   ShadowCode carries over.
    Add `vendor/shadowcode/<v>/lintian-accepted` only after reviewing each
    entry. Update the version in `README.md`, `RELEASE-5.0.0.md` and the
    meta changelog if it moved.
@@ -82,8 +86,10 @@ tests*).
    unless every required case is pass or waived with a named approver.
 9. **Fill the documents.** Replace every `TODO(iso)` in `README.md` and
    `RELEASE-5.0.0.md` with measured values (size, SHA-256, commit/tree, date,
-   acceptance results, gate verdicts). `grep -rn 'TODO(iso)\|TODO(platform)'
-   README.md RELEASE-5.0.0.md` must print nothing. Re-run
+   acceptance results, gate verdicts), and every `TODO(qa)` with the
+   acceptance outcome. `grep -rn 'TODO(iso)\|TODO(qa)\|TODO(platform)'
+   README.md RELEASE-5.0.0.md` must print nothing (`TODO(publish)` is filled
+   in step 10). Re-run
    `python3 tools/drift_gate.py`.
 10. **Publish.** `make publish` (runs `pre-release-check`, then
     `publish_release_4_0_0.py --apply`; see *Publishing* below). Then the

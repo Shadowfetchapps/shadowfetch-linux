@@ -7,8 +7,12 @@ keeping it means 4.1 systems receive 5.0 from the suite they already track).
 Signing fingerprint unchanged:
 `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
-Status: **NOT RELEASED.** No 5.0.0 ISO exists yet. Every artifact fact below
-marked `TODO(iso)` is filled in after the build.
+Status: **NOT RELEASED.** The 5.0.0 ISO is being rebuilt with ShadowCode
+1.0.0; the earlier candidate (SHA-256 `c8ea7ef0…`, ShadowCode 0.34.2) no longer
+represents this release. Every artifact fact below marked `TODO(iso)` is filled
+in after the rebuild, VM acceptance on it is `TODO(qa)`, and publication facts
+(date, URLs, SBOM/evidence names and hashes) are marked `TODO(publish)` until
+the publication step produces them.
 
 - Version: 5.0.0
 - Codename / repository suite: `umbra`
@@ -20,11 +24,13 @@ marked `TODO(iso)` is filled in after the build.
 - ISO: `shadowfetch-5.0.0-amd64.iso`, TODO(iso) bytes, SHA-256 `TODO(iso)`,
   detached signature `shadowfetch-5.0.0-amd64.iso.asc` verifying against
   `8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1`
-- Publication date: TODO(iso)
-- ShadowCode: 0.34.2, tag `v0.34.2`, commit
-  `3f81044e1fe3d8f24cc1293e8efde79db5533213`; `ShadowCode_0.34.2_amd64.deb`,
-  27,549,024 bytes, SHA-256
-  `203593292de40a97c10e110d2bcec8c378aa2347480208fe1771967ab96cec44`
+- Image contents: squashfs TODO(iso) bytes; TODO(iso) packages, TODO(iso) of
+  them Shadowfetch packages
+- Publication date: TODO(publish)
+- ShadowCode: 1.0.0, tag `v1.0.0`, commit
+  `e0ab26553cec4243dfb1aeabb66b206bbc6c0474`; `ShadowCode_1.0.0_amd64.deb`,
+  28,862,468 bytes, SHA-256
+  `6439c6307478dabe0a439fb400549fd5328a3bc527a71cf2561d141260e9d61a`
 
 ## Why 5.0.0 and not 4.2.0
 
@@ -57,7 +63,7 @@ in a clean container before the change.
 | Python | 3.14.6 | 3.14.7 |
 | Node.js / npm | 24.18 / 11.16 | 24.21 / 12.0 |
 | bubblewrap (ShadowCode's sandbox) | 0.11.2 | 0.13.0 |
-| ShadowCode | not included | 0.34.2 |
+| ShadowCode | not included | 1.0.0 |
 | Grok Bot (optional, pinned) | 0.43.0 | 0.61.0 |
 
 The NVIDIA open driver still comes from NVIDIA's signed repository through
@@ -165,8 +171,8 @@ does not retry it.
 
 ## ShadowCode, preinstalled
 
-ShadowCode 0.34.2 is the desktop's coding agent. `shadowfetch-desktop` depends
-on `shadow-code (>= 0.34.2)`. Open a project, pick a model, describe the
+ShadowCode 1.0.0 is the desktop's coding agent. `shadowfetch-desktop` depends
+on `shadow-code (>= 1.0.0)`. Open a project, pick a model, describe the
 change, approve actions, then review, keep or undo each change. Models come
 from:
 
@@ -177,6 +183,38 @@ from:
 - **API keys**: OpenRouter, billed per token.
 - **This computer**: a bundled local runtime (Vulkan GPU or CPU) under
   `/usr/lib/shadowcode/`, with free models to download on request.
+
+What ShadowCode 1.0 adds for a first-time user and for real work:
+
+- **Easy to start.** Until a subscription is connected, the model picker lists
+  the free models on this computer first. A task that fails for a common
+  reason (key refused, credits or allowance used up, conversation too long,
+  provider busy, local model not running, offline) says so in plain words and
+  offers the next step. Help (`?`) explains words such as worktree,
+  checkpoint and rewind.
+- **Approvals you can read.** Every approval card says in one sentence what
+  the action does, how much it can affect (*Read-only* to *Needs admin*) and
+  whether Rewind can undo it. **Always allow here** covers exact test, build
+  and lint commands per project, never anything that deletes, installs, uses
+  the network or leaves the project.
+- **Secret checks** before every commit, push and pull request made from
+  ShadowCode; project Git hooks are asked about once per project; new
+  packages are looked up on npm, PyPI and crates.io; small Git-ignored files
+  such as `.env` are saved before each step and restored by Rewind.
+- **Keys in the system keyring**, on request: **Settings › Accounts › Where
+  your keys are kept** moves API keys into the Secret Service keyring, which
+  KWallet provides on this desktop.
+- **Real work.** One rulebook (rules, skills, commands) reaches every agent;
+  **second opinions** review staged changes with another model; **roles**
+  pick a model per step (plan, implement, review); **spending limits** for
+  paid models ($1 a task, $10 a day by default) with a price estimate;
+  **stuck detection**; `/compact` and `/pin`; a code index kept between runs
+  for projects of up to 250,000 files; review grouped by risk with **Explain
+  this change**; worktree tasks from another branch with setup commands.
+- **Your data.** **Settings › Your data** and `shadowcode backup`, `restore`,
+  `doctor --repair` and `reset` back up, restore, repair and start over. A
+  0.34 profile upgrades in place; an older ShadowCode never opens a newer
+  profile.
 
 Welcome's last page, "Connect your services in ShadowCode", opens it. See
 `/usr/share/doc/shadowfetch/SHADOWCODE.md`.
@@ -197,7 +235,7 @@ it:
   lintian error not in the reviewed `vendor/shadowcode/<version>/lintian-accepted`
   list.
 - `make repo` publishes the `.deb`'s source beside the repository under
-  `pool/third-party-source/shadow-code/0.34.2/`: reproducible `git archive`s
+  `pool/third-party-source/shadow-code/1.0.0/`: reproducible `git archive`s
   of ShadowCode and of the runtime and SPIRV-Headers commits the signed
   manifest names, the AppImage runtime sources tarball, and the signed
   metadata. It is not in `main/source`, because no source package here builds
@@ -265,6 +303,35 @@ helper's own status.
 
 # Known issues
 
+- **Security advisory: earlier ISOs shipped a shared DKMS module-signing key.**
+  Building the ISO ran DKMS (for `v4l2loopback-dkms`), which generated
+  `/var/lib/dkms/mok.key` and `mok.pub`, and the private key shipped in the
+  image. Every install from the same ISO has the same key, and anyone with that
+  ISO can extract it. Confirmed in 4.1.0. 4.0.0 and earlier releases were built
+  the same way, so treat them as affected too. The key only matters if you
+  enrolled its certificate in Secure Boot. `shadowfetch-gpu` offers that
+  enrolment on Secure Boot machines, and you may also have run
+  `mokutil --import /var/lib/dkms/mok.pub` yourself. In that case, anyone with
+  the ISO could sign a kernel module that your machine would trust. 5.0.0 images
+  no longer contain the key: each machine generates its own the first time
+  DKMS builds a module. Existing installs keep the old key until you replace it.
+  If `sudo mokutil --test-key /var/lib/dkms/mok.pub` says the key is already
+  enrolled:
+
+  ```bash
+  sudo mokutil --delete /var/lib/dkms/mok.pub   # choose a one-time password
+  sudo rm /var/lib/dkms/mok.key /var/lib/dkms/mok.pub
+  dkms status                                   # for each <module>/<version>:
+  sudo dkms build --force <module>/<version> && sudo dkms install --force <module>/<version>
+  sudo mokutil --import /var/lib/dkms/mok.pub   # the new per-machine key
+  ```
+
+  Reboot. In MOK Manager, choose **Delete MOK** and then **Enroll MOK**. If the
+  key is not enrolled, you do not need to take any action. Deleting the two
+  files is still a good idea. Earlier ISOs also shipped a shared
+  `ssl-cert-snakeoil` TLS key; 5.0.0 installs generate their own on first boot.
+  If you pointed a service at the snakeoil key, run
+  `sudo make-ssl-cert generate-default-snakeoil --force-overwrite`.
 - **OpenClaw's security record.** OpenClaw has a long security-advisory record
   (700+ GitHub advisories since early 2026, including critical ones, new ones
   monthly). Shadowfetch's containment (pinned lockfile, Firebreak, no Gateway
@@ -280,17 +347,28 @@ helper's own status.
   ShadowCode starts Online by default; set **Settings › Permissions &
   network › Offline** in ShadowCode if you want it to run only local models.
   Vendor agents started by ShadowCode use their own sandboxes, not Firebreak.
-- **VM acceptance has not run.** TODO(iso): all 19 required cases in
-  `qa/5.0.0/acceptance.json`, including the new `SHADOWCODE-01` (with the
-  `shadowcode` and `shadowcode-soak` VM cases), are `pending`. Record here which
+- **VM acceptance is not complete.** TODO(qa): it runs on the rebuilt ISO
+  (`TODO(iso)`); results from the earlier `c8ea7ef0…` candidate, which shipped
+  ShadowCode 0.34.2, do not carry over. All 19 required cases in
+  `qa/5.0.0/acceptance.json` are `pending` for the release: SRC-01, PKG-01, ISO-01, FIRE-01, ICE-01, INSTALL-01, UPGRADE-01,
+  SHADOWCODE-01 (with the `shadowcode` and `shadowcode-soak` VM cases),
+  MISSION-01, DURABLE-01, SCOPE-01, GROK-01, GROK-VISUAL-01, RESOURCE-01,
+  RECOVERY-01, STRESS-01, VISUAL-01, EVIDENCE-01 and PUB-01. Record here which
   pass, which are waived and by whom.
-- **The upgrade path is unproven.** TODO(iso): `UPGRADE-01` needs an installed,
-  APT-updated 4.1.0 image; the harness still names the 3.5.0 base image, which
-  no longer exists on the build host.
+- **The upgrade path is unproven.** TODO(qa): `UPGRADE-01` (an installed,
+  APT-updated 4.1.0 image upgraded to 5.0.0) is pending.
 - **The APT suite is provisional.** `umbra` is carried from 4.x; it must be
   confirmed before the first 5.0 package is published.
 - ShadowCode needs glibc 2.39 or newer and Vulkan for GPU inference; without a
   Vulkan GPU its local runtime falls back to the CPU.
+- **ShadowCode's first run can open light on the dark desktop** and saves
+  "follow the system" as its appearance; pick **Dark** in ShadowCode's
+  settings. Unchanged in 1.0.0; reported upstream.
+- On a machine with no GPU render node (many VMs), ShadowCode's window process
+  would idle at high CPU. Shadowfetch sets `WEBKIT_DISABLE_DMABUF_RENDERER=1`
+  for the session only on such machines
+  (`/usr/lib/systemd/user-environment-generators/60-shadowfetch-webkit-software-rendering`);
+  ShadowCode 1.0.0 does not handle this itself yet.
 - `drift_gate` reports 0 DRIFT and 4 BLOCKED, all pre-existing detected
   duplications with named remedies (an unnamed palette role, the Workbench
   page's own program constant at two sites, and the two NetworkManager
@@ -327,7 +405,7 @@ download and verify files, they do not write a USB device.
 
 ```sh
 ISO='shadowfetch-5.0.0-amd64.iso'
-ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'   # TODO(iso): confirm once published
+ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'   # TODO(publish): confirm once published
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.sha256"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.asc"
@@ -340,18 +418,27 @@ sha256sum --check "$ISO.sha256"
 ```
 
 Continue only if both the signature and the checksum verify. The expected
-SHA-256 is `TODO(iso)`. A GPG warning about personal key trust is not a failed
-signature. The SBOM, package manifest and QA evidence bundle will be attached
-to the v5.0.0 GitHub release: TODO(iso).
+SHA-256 is `TODO(iso)`.
+A GPG warning about personal key trust is not a failed signature. The SBOM
+(`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA
+evidence bundle (`evidence-bundle-5.0.0.tar.gz`) will be attached to the
+v5.0.0 GitHub release: TODO(publish) (release link and file hashes).
 
 ---
 
 # Release state
 
-TODO(iso): record the gates as measured on the final candidate — `make test`,
-`source_gate`, `package_gate` (including lintian on the ShadowCode `.deb`),
-`iso_gate`, `drift_gate`, `acceptance --version 5.0.0` — with dates, exit
-codes and test counts, measured rather than copied forward.
+TODO(iso): record the gates as measured on the rebuilt final candidate —
+`make test`, `source_gate`, `package_gate` (including lintian on the
+ShadowCode `.deb`), `iso_gate`, `drift_gate`, `acceptance --version 5.0.0` —
+with dates, exit codes and test counts, measured rather than copied forward.
+The earlier candidate (ISO `c8ea7ef0…`, source `857dea9`, ShadowCode 0.34.2)
+passed `package_gate` and `iso_gate`; it is superseded and nothing here is
+claimed from it.
+
+ShadowCode 1.0.0 pin, measured before the rebuild: signature verified against
+the vendored trust policy (commit `e0ab2655`, key maximum 1.0.0), host smoke
+7/7, lintian 0 errors.
 
 Measured on the source tree before the ShadowCode 0.34.2 pin, per commit
 `1d4cca8`: `make test` PASS (2,402 tests), `drift_gate` 0 DRIFT / 4 BLOCKED,

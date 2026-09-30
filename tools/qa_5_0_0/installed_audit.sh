@@ -71,8 +71,11 @@ pickup_exec=$("${user_env[@]}" systemctl --user show drkonqi-coredump-pickup.ser
 "${user_env[@]}" shadowfetch-missions --json capabilities
 [[ ! -e /usr/bin/shadowfetch-model-check && ! -e /usr/bin/shadowfetch-buzz && ! -e /usr/lib/systemd/user/shadowfetch-buzz.service ]] || fail 'the retired Buzz relay integration is still present: it is the stack whose Redis AOF fsync stalls produced every recorded STRESS-01 fault, and a candidate carrying it cannot be stressed for a clean result'
 "${user_env[@]}" shadowfetch-grok-bot status --json || true
-[[ $(dpkg-query -W -f='${Version} ${db:Status-Abbrev}' shadow-code) == "0.34.2 ii " ]] || fail 'shadow-code 0.34.2 not installed'
-[[ $("${user_env[@]}" shadowcode --version) == "ShadowCode 0.34.2" ]] || fail 'shadowcode --version'
+# The ShadowCode pin (tools/release/shadowcode.toml). QA_SHADOWCODE overrides it
+# for auditing an image built before the pin moved.
+shadowcode=${QA_SHADOWCODE:-1.0.0}
+[[ $(dpkg-query -W -f='${Version} ${db:Status-Abbrev}' shadow-code) == "$shadowcode ii " ]] || fail "shadow-code $shadowcode not installed"
+[[ $("${user_env[@]}" shadowcode --version) == "ShadowCode $shadowcode" ]] || fail 'shadowcode --version'
 [[ -f /etc/shadowcode/policy.yaml ]] || fail 'ShadowCode update policy missing'
 for retired in /usr/bin/shadowfetch-element /usr/bin/shadowfetch-codex /usr/bin/shadowfetch-code-agent /usr/share/color-schemes/ShadowfetchIce.colors /usr/share/backgrounds/shadowfetch/umbra-ice-4k.jpg; do
     [[ ! -e $retired ]] || fail "retired 4.x file present: $retired"

@@ -37,14 +37,15 @@ LOCAL_BIN = DATA / "etc/skel/.local/bin/.keep"
 MENUS = REPO / "packages/shadowfetch-menus"
 MENU = MENUS / "etc/xdg/menus/applications-merged/shadowfetch-launcher.menu"
 
-DESKTOP_ID = "com.shadowfetch.shadowcode.desktop"  # shadow-code 0.34.2's own file
+DESKTOP_ID = "com.shadowfetch.shadowcode.desktop"  # shadow-code 1.0.0's own file (same since 0.33)
 SHORTCUT = "Meta+Shift+C"
 
-# ShadowCode v0.34.2, native/core/src/updates.rs: `struct PolicyFile { updates:
-# PolicyUpdates }` and `#[serde(default, deny_unknown_fields)] struct
-# PolicyUpdates { check: Option<bool>, default: Option<bool>, message:
-# Option<String> }`; MAX_POLICY_BYTES = 64 KiB; clean_message keeps one line of
-# at most MAX_MESSAGE_CHARS = 300.
+# ShadowCode v1.0.0 (e0ab2655), native/core/src/updates.rs, unchanged since
+# v0.34.2: `struct PolicyFile { updates: PolicyUpdates }` (l. 270) and
+# `#[serde(default, deny_unknown_fields)] struct PolicyUpdates { check:
+# Option<bool>, default: Option<bool>, message: Option<String> }` (l. 274-279);
+# MAX_POLICY_BYTES = 64 KiB (l. 52); clean_message keeps one line of at most
+# MAX_MESSAGE_CHARS = 300 (l. 53).
 POLICY_KEYS = {"check", "default", "message"}
 MAX_POLICY_BYTES = 64 * 1024
 MAX_MESSAGE_CHARS = 300
@@ -79,7 +80,7 @@ class SystemPolicy(unittest.TestCase):
         # updates.rs: SYSTEM_POLICY = "/etc/shadowcode/policy.yaml"
         self.assertEqual("etc/shadowcode/", installed("data/etc/shadowcode/policy.yaml"))
 
-    def test_only_keys_shadowcode_0_34_2_supports(self):
+    def test_only_keys_shadowcode_1_0_0_supports(self):
         # An unknown key under `updates` makes ShadowCode read the file as
         # broken: update checks off AND an error in Settings > About.
         self.assertEqual({"updates"}, set(self.policy))

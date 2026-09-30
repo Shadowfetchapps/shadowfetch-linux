@@ -19,11 +19,13 @@ than that.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import Any, Iterator
 
 from .evidence import digest_of, utc_now
 
@@ -59,24 +61,52 @@ class Ledger:
         rows = self.entries()
         return rows[-1]["entry_sha256"] if rows else GENESIS
 
-    def append(self, payload: dict[str, Any]) -> dict[str, Any]:
-        rows = self.entries()
-        entry = dict(payload)
-        entry["seq"] = len(rows) + 1
-        entry["prev"] = rows[-1]["entry_sha256"] if rows else GENESIS
-        entry["appended_utc"] = utc_now()
-        entry["entry_sha256"] = digest_of(entry)
-        line = json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n"
-        # O_APPEND on a single write of one line: concurrent harness runs
-        # interleave whole entries rather than corrupting one.
-        descriptor = os.open(
-            self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644
-        )
+    @property
+    def lock_path(self) -> Path:
+        return self.path.with_name(self.path.name + ".lock")
+
+    @contextmanager
+    def _exclusive(self) -> Iterator[None]:
+        """Hold an exclusive flock on the ledger's sibling lock file.
+
+        A sibling file rather than the ledger itself, so the lock does not
+        depend on the ledger existing yet or on how it is opened for reading.
+        """
+        descriptor = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o644)
         try:
-            os.write(descriptor, line.encode())
-            os.fsync(descriptor)
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
         finally:
             os.close(descriptor)
+
+    def append(self, payload: dict[str, Any]) -> dict[str, Any]:
+        # Reading the head and appending is ONE critical section. Every harness
+        # run appends (not only --record), and two VM lanes that both read
+        # head N then both wrote seq N+1 / prev N forked the chain: the second
+        # entry no longer chained to the one before it and verify() -- which
+        # gates recording -- failed for every later run. O_APPEND alone only
+        # kept the lines whole; it never made the chain consistent.
+        with self._exclusive():
+            rows = self.entries()
+            entry = dict(payload)
+            entry["seq"] = len(rows) + 1
+            entry["prev"] = rows[-1]["entry_sha256"] if rows else GENESIS
+            entry["appended_utc"] = utc_now()
+            entry["entry_sha256"] = digest_of(entry)
+            data = (json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            descriptor = os.open(
+                self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644
+            )
+            try:
+                view = memoryview(data)
+                while view:
+                    view = view[os.write(descriptor, view):]
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
         return entry
 
     def verify(self) -> list[str]:

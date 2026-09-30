@@ -4,6 +4,16 @@ STAMP=/var/lib/shadowfetch/firstboot.done
 [ -f "$STAMP" ] && exit 0
 mkdir -p /var/lib/shadowfetch
 
+# Per-machine TLS snakeoil pair. ssl-cert's postinst made one at ISO build
+# time, so every install shared the same private key; live-build hook 0100
+# now removes it from the image and this generates this machine's own.
+# --force-overwrite: first boot runs once, and a pre-existing pair can only be
+# an inherited one.
+if command -v make-ssl-cert >/dev/null 2>&1 \
+    && dpkg-query -W -f='${db:Status-Abbrev}' ssl-cert 2>/dev/null | grep -q '^ii'; then
+    make-ssl-cert generate-default-snakeoil --force-overwrite 2>/dev/null || true
+fi
+
 # Flathub remote (offline from shipped repo file)
 if command -v flatpak >/dev/null 2>&1; then
     if [ -f /usr/share/shadowfetch/flathub.flatpakrepo ]; then

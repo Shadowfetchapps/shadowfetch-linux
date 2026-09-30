@@ -4,6 +4,12 @@
 ShadowCode 0.34.2 (upstream-signed `shadow-code` .deb), Debian testing,
 WebKitGTK as shipped by Debian, KDE Plasma 6.7 Wayland.
 
+Still unaddressed in ShadowCode 1.0.0 (tag `v1.0.0`, e0ab2655): its window
+process sets no WebKit rendering variable and never checks for a render node
+(`src-tauri/src/main.rs` has no `WEBKIT_DISABLE_*` or `renderD` handling; the
+only v0.34.2..v1.0.0 changes there add folder pickers and a start-up error
+dialog). Measured on 0.34.2; not yet re-measured on 1.0.0.
+
 ## Summary
 
 On a machine without a GPU render node (`/dev/dri/renderD*` absent: QEMU

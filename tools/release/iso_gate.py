@@ -15,9 +15,12 @@ checks then judge.
 from __future__ import annotations
 
 import argparse
+import bz2
 from contextlib import contextmanager
+import gzip
 import hashlib
 import json
+import lzma
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -265,6 +268,134 @@ SECRET_PATH = re.compile(
     r"(?:\.gnupg/private-keys-v1\.d/))",
     re.IGNORECASE,
 )
+
+# 5.0.0 release scan: state the BUILD generated and every install then shared.
+# /var/lib/dkms/mok.key was a Secure Boot module-signing key that shadowfetch-gpu
+# asks users to enroll; the snakeoil key and SSH host keys are per-machine TLS/
+# SSH identities. hooks/0100-scrub-build-state removes them; this refuses an
+# image where it did not.
+MACHINE_SECRET_PATH = re.compile(
+    r"^(?:var/lib/dkms/mok\.(?:key|pub)"
+    r"|var/lib/shim-signed/mok/MOK\.(?:priv|der|pem)"
+    r"|etc/ssl/private/ssl-cert-snakeoil\.key"
+    r"|etc/ssl/certs/ssl-cert-snakeoil\.pem"
+    r"|etc/ssh/ssh_host_[^/]+_key"
+    r"|var/lib/systemd/(?:random-seed|credential\.secret)"
+    r"|etc/NetworkManager/system-connections/[^/]+)$"
+)
+# Content check behind the path check: any PEM/OpenSSH/PGP private key in the
+# trees that hold machine or user state. Upstream packages ship none there (the
+# 5.0.0 c8ea7ef0 image had exactly the two build-generated ones), so the
+# allowlist is empty; add a genuine public test fixture by exact path only.
+# The armor line must START a line, as RFC 7468/4880 require of a real key:
+# /etc/ImageMagick-7/mime.xml quotes "-----BEGIN PGP PRIVATE KEY BLOCK-----"
+# as a magic="..." attribute, which is file-type detection, not a key.
+PRIVATE_KEY_SCAN_ROOTS = ("etc", "var", "root", "home")
+PRIVATE_KEY_SCAN_MAX_BYTES = 1024 * 1024
+PRIVATE_KEY_PEM = re.compile(
+    rb"(?m)^[ \t]*-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----"
+)
+ALLOWED_PRIVATE_KEY_PATHS: frozenset[str] = frozenset()
+# Build logs recorded the builder's checkout (/home/<builder>/.../live-build/chroot).
+BUILD_LOG_SCAN_ROOTS = ("var/log", "root")
+BUILD_ROOT_PATH = re.compile(rb"live-build/chroot|/home/[A-Za-z0-9._-]+/")
+
+
+def machine_secret_paths(inventory: dict[str, str]) -> list[str]:
+    """Build-generated per-machine secrets present in the image, by path."""
+    return sorted(path for path in inventory if MACHINE_SECRET_PATH.match(path))
+
+
+def _walk_files(tree: Path, roots: tuple[str, ...]) -> Iterator[tuple[str, Path]]:
+    """Regular files under tree/<root> (symlinks not followed), as (rel, path).
+
+    An unreadable directory is an error, not a silent skip: a scan that did not
+    look is not a pass.
+    """
+    def fail(error: OSError) -> None:
+        raise RuntimeError(f"cannot scan extracted image tree: {error}")
+
+    for root in roots:
+        base = tree / root
+        if not base.is_dir() or base.is_symlink():
+            continue
+        for directory, _dirs, files in os.walk(base, onerror=fail):
+            for name in files:
+                path = Path(directory) / name
+                if path.is_symlink() or not path.is_file():
+                    continue
+                yield path.relative_to(tree).as_posix(), path
+
+
+def private_key_files(tree: Path) -> list[str]:
+    """Files under /etc, /var, /root, /home carrying a private key block."""
+    found = []
+    for relative, path in _walk_files(tree, PRIVATE_KEY_SCAN_ROOTS):
+        if relative in ALLOWED_PRIVATE_KEY_PATHS:
+            continue
+        if path.stat().st_size > PRIVATE_KEY_SCAN_MAX_BYTES:
+            continue
+        if PRIVATE_KEY_PEM.search(path.read_bytes()):
+            found.append(relative)
+    return sorted(found)
+
+
+def _log_bytes(path: Path) -> bytes:
+    data = path.read_bytes()
+    openers = {".gz": gzip.decompress, ".xz": lzma.decompress, ".bz2": bz2.decompress}
+    opener = openers.get(path.suffix)
+    if opener is None:
+        return data
+    try:
+        return opener(data)
+    except (OSError, EOFError, lzma.LZMAError, ValueError):
+        return data
+
+
+def build_root_leaks(tree: Path) -> list[str]:
+    """Files under /var/log or /root naming the build host's checkout."""
+    return sorted(
+        relative
+        for relative, path in _walk_files(tree, BUILD_LOG_SCAN_ROOTS)
+        if BUILD_ROOT_PATH.search(_log_bytes(path))
+    )
+
+
+def build_leak_gate(squashfs: Path, inventory: dict[str, str]) -> None:
+    by_path = machine_secret_paths(inventory)
+    if by_path:
+        raise RuntimeError(
+            "build-generated per-machine secrets are in the image: " + ", ".join(by_path)
+        )
+    roots = [
+        root for root in PRIVATE_KEY_SCAN_ROOTS
+        if root in inventory and inventory[root].startswith("d")
+    ]
+    with tempfile.TemporaryDirectory(
+        prefix="iso-gate-leaks-", ignore_cleanup_errors=True
+    ) as scratch:
+        tree = Path(scratch) / "root"
+        run(
+            "extract " + ", ".join("/" + root for root in roots) + " for secret scan",
+            program("unsquashfs").argv(
+                "-no-xattrs", "-no-progress", "-quiet", "-d", str(tree),
+                str(squashfs), *roots,
+            ),
+            capture=True,
+        )
+        keys = private_key_files(tree)
+        if keys:
+            raise RuntimeError("private keys are embedded in the image: " + ", ".join(keys))
+        leaks = build_root_leaks(tree)
+        if leaks:
+            raise RuntimeError(
+                "build logs naming the build host's checkout are in the image: "
+                + ", ".join(leaks)
+            )
+    print(
+        "PASS: no DKMS MOK, snakeoil, SSH host or other private keys under "
+        "/etc /var /root /home; no build-root paths under /var/log or /root"
+    )
 
 
 def command_for_privilege(command: list[str]) -> list[str]:
@@ -1096,6 +1227,7 @@ def main(argv: list[str] | None = None) -> int:
             shadowcode_gate(squashfs, inventory)
         drkonqi_gate(squashfs)
         payload_gate(squashfs, inventory)
+        build_leak_gate(squashfs, inventory)
         identity_and_installer_gate(squashfs, inventory)
     print("\nISO_GATE_PASSED")
     return 0

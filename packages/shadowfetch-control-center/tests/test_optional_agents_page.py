@@ -137,5 +137,32 @@ class Buttons(unittest.TestCase):
         command.assert_not_called()
 
 
+
+class ConsentReflow(unittest.TestCase):
+    """The helpers wrap for a terminal; a dialog wrapping again made ragged text."""
+
+    def test_the_real_helper_text_reflows_into_whole_lines(self):
+        import subprocess
+        from sfcc import optional_agents_page
+        root = Path(__file__).resolve().parents[2] / "shadowfetch-defaults/data/usr/bin"
+        for helper in ("shadowfetch-hermes", "shadowfetch-openclaw"):
+            with self.subTest(helper=helper):
+                raw = subprocess.run([sys.executable, str(root / helper), "info"],
+                                     capture_output=True, text=True, check=True).stdout.strip()
+                flowed = optional_agents_page.reflow(raw)
+                raw_words = raw.split()
+                self.assertEqual(raw_words, flowed.split(), "reflow changed the words")
+                self.assertLess(len(flowed.splitlines()), len(raw.splitlines()))
+                for line in flowed.splitlines():
+                    if line and not line.lstrip().startswith("- "):
+                        self.assertFalse(line[0].islower(), f"a sentence was split: {line[:60]!r}")
+
+    def test_bullets_and_paragraphs_survive(self):
+        from sfcc import optional_agents_page
+        text = "Intro line one\ncontinues here.\n\nThe installer will:\n  - first item\n    wraps on\n  - second"
+        self.assertEqual("Intro line one continues here.\n\nThe installer will:\n  - first item wraps on\n  - second",
+                         optional_agents_page.reflow(text))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

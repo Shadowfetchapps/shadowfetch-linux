@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "tag": "v1.0.0",
+  "commit": "e0ab26553cec4243dfb1aeabb66b206bbc6c0474",
+  "target": "x86_64-unknown-linux-gnu",
+  "cargo_lock_sha256": "399d2c08e9f6e3828c19079f4bb2c1a497d98aa5b30f0bf527b3645a245fd2ef",
+  "ui_lock_sha256": "254bd2545c7e8bdef14bcae45ce3bfa2356fe48698d5b40c04a789ae2ac672c8",
+  "runtime_pin": "url=https://github.com/ggml-org/llama.cpp.git\ncommit=18f9f7bef960b76b693d8dcbb33cbbd6148c1631\nspirv_headers_commit=2b7475f6d664efbad4d4315c94ecec9640831e5b\nbackend=vulkan+cpu\nbuilt=2026-09-23T12:08:43Z",
+  "verification": {
+    "schema": 1,
+    "status": "required_gates_passed",
+    "scope": "Declared Linux CI gates only; excluded checks are not verified. This does not establish publisher authentication, first GUI launch, local-model operation or complete clean-host usability.",
+    "gates": {
+      "release-tests": {
+        "status": "passed",
+        "script_sha256": "f99e795e1b208e996908937173e60e46fb1ca62e26d057e86b0eff27bde3c995",
+        "scope": "All checks in this required gate.",
+        "optional_checks": []
+      },
+      "release-auth": {
+        "status": "passed",
+        "script_sha256": "31e91543ffa166626c2741550c91072b7da3e07edb226c653b3770e3de94fb0a",
+        "scope": "Publisher authentication parser, crypto, replay and private-snapshot fixtures with ephemeral keys; production signing and installer integration are separate.",
+        "optional_checks": []
+      },
+      "release-tag": {
+        "status": "passed",
+        "script_sha256": "ef9d827cd0e7845c2ed54b0197e07d4f0d742e087cb6e748aa2d292ff4803887",
+        "scope": "All checks in this required gate.",
+        "optional_checks": []
+      },
+      "interface": {
+        "status": "passed",
+        "script_sha256": "518915c06b7191930c377056afd94c8403ea1ee92dcc4e94ef744ed4f7166df3",
+        "scope": "All checks in this required gate.",
+        "optional_checks": []
+      },
+      "glib-backport": {
+        "status": "passed",
+        "script_sha256": "ca6702fdae23c40ef696531135df3e4832e1f5c42e8da31ded879891d6ff95a9",
+        "scope": "Exact vendored GLib source/provenance, packaged-notice fixtures and optimized iterator regression; native package/window qualification is separate.",
+        "optional_checks": []
+      },
+      "native-source": {
+        "status": "passed",
+        "script_sha256": "615f2eaa7e91e999f693b974f680bc523fd745cbb51585b19fff3a9f9ca563f1",
+        "scope": "Default non-ignored Rust suite; the exact built-project cleanup fixture is transferred to the required built-project-cleanup gate. Other explicitly optional ignored tests are excluded and recorded.",
+        "optional_checks": [
+          "test keyring::tests::live_secret_service_round_trip ... ignored, needs a private keyring session",
+          "test live_example_com_and_search ... ignored",
+          "test live_install_and_status_of_the_real_server ... ignored",
+          "test live_local_acceptance_from_explicit_models ... ignored, requires explicit installed GGUF paths and a real llama-server",
+          "test live_managed_install_and_semantic_search ... ignored",
+          "test live_qwen3_agent_and_gemma4_vision_from_the_ollama_store ... ignored, runs real models on this computer's GPU",
+          "test live_review_of_a_staged_change_by_a_real_model ... ignored, live: needs a real model (a local server or a signed-in vendor CLI)",
+          "test live_three_model_compare_cancels_queued_models ... ignored, requires three explicit installed GGUF paths and a real llama-server",
+          "test local_downloads::tests::catalog_matches_hugging_face ... ignored, network: downloads each model's header from huggingface.co",
+          "test local_downloads::tests::live_download_pause_resume_verify ... ignored, network: downloads a model of several GB",
+          "test real_servers_smoke ... ignored",
+          "test saved_results_page_parses ... ignored",
+          "test voice::capture::tests::records_from_the_default_microphone ... ignored, needs a microphone",
+          "test voice::whisper::tests::transcribes_with_a_local_model ... ignored, needs a whisper model file"
+        ]
+      },
+      "built-project-cleanup": {
+        "status": "passed",
+        "script_sha256": "b25d7cd80ae7dc1f9bd7e77dbc46179590fe8801b6d6cc9358d691ce1531e3a2",
+        "scope": "Release-profile cleanup over the actual npm-installed ui/node_modules and built ui/dist on the CI host, with entries/bytes/time reported. Full multi-GiB Cargo-cache qualification is separate.",
+        "optional_checks": []
+      },
+      "native-behavior": {
+        "status": "passed",
+        "script_sha256": "e90737b6362e5874d4531f4720a6f867d6f1879d117d06440ee1be9433ed6bfb",
+        "scope": "All checks in this required gate.",
+        "optional_checks": []
+      },
+      "native-window": {
+        "status": "passed",
+        "script_sha256": "cc061bfa51429a7c9d9a60e7c3817f44a5f2f179124ab8ba6765e823177249a9",
+        "scope": "Native fixture window and embedded Markdown worker under the real security policy; authenticated cloud-consent check is optional and reported separately. This is X11 source-binary evidence, not Wayland or standalone package qualification.",
+        "optional_checks": [
+          "Authenticated cloud-consent check skipped: no Ready cloud row."
+        ]
+      },
+      "native-endurance": {
+        "status": "passed",
+        "script_sha256": "ccc503e2d6d377cb5a50e6582868ee13e5048857bce479585b2ca9223ad2b0b3",
+        "scope": "100 sequential short command tasks through the real X11/WebKit window with explicit approvals and resource/listener measurements; the shared smoke optional cloud-consent observation is reported separately. Separate from representative long-stream input latency, physical Wayland, GPU inference and release-package endurance.",
+        "optional_checks": [
+          "Authenticated cloud-consent check skipped: no Ready cloud row."
+        ]
+      },
+      "managed-runtime": {
+        "status": "passed",
+        "script_sha256": "8b9923293bcd62660aba22071206d35fc75c5988fc722ad5b5f0841c0f28f266",
+        "scope": "All checks in this required gate.",
+        "optional_checks": []
+      },
+      "packages": {
+        "status": "passed",
+        "script_sha256": "20b7be61dab05cabbc92b3ae9d88d144a00e533b91f436dc27b5c5fb7f2aca8f",
+        "scope": "All checks in this required gate.",
+        "optional_checks": []
+      },
+      "clean-host-packages": {
+        "status": "passed",
+        "script_sha256": "4ff9c0afe11e98dec3fd3b81301990c19c0a7397d659911c7ab54a7a2f2b6020",
+        "scope": "Both packages installed or extracted in a network-disabled Debian 13 runtime container; offline CLI status, Debian launcher/icon metadata, packaged MCP stdio initialize/tool discovery and a visible first GUI window under Xvfb. Interactive GUI tasks, physical Wayland, local inference, model downloads and installer rollback remain separate.",
+        "optional_checks": []
+      },
+      "packaged-behavior": {
+        "status": "passed",
+        "script_sha256": "ecf5bf79d3a63225b841e5bcb62e1f820eb4b1e06f28a3b275c2d23282cfc3f5",
+        "scope": "Packaged fixture behavior on the CI build host; authenticated cloud-consent check is optional and reported separately.",
+        "optional_checks": [
+          "Authenticated cloud-consent check skipped: no Ready cloud row."
+        ]
+      },
+      "installer": {
+        "status": "passed",
+        "script_sha256": "b5dc8fb5887e2765b46b255d2f1103553b9a952a0c5e9947564cced8b125276c",
+        "scope": "All checks in this required gate.",
+        "optional_checks": []
+      }
+    }
+  },
+  "assets": {
+    "ShadowCode_1.0.0_amd64.AppImage": "e814e6eb7c4eb103119feba27d6d4253a284089647bf9c659c2c5a1f3e1422dd",
+    "ShadowCode_1.0.0_amd64.deb": "6439c6307478dabe0a439fb400549fd5328a3bc527a71cf2561d141260e9d61a",
+    "ShadowCode_1.0.0_appimage-runtime-sources.tar.gz": "898e5eeb7d07d2579a2efacbf9ebff813cbbbec178de7c86d58c40c2a27bf74a"
+  }
+}

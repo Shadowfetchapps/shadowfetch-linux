@@ -4,6 +4,13 @@
 ShadowCode 0.34.2 (upstream-signed `shadow-code` .deb), Debian testing,
 KDE Plasma 6.7 Wayland with a dark colour scheme.
 
+Still present in ShadowCode 1.0.0 (tag `v1.0.0`, e0ab2655): the theme code is
+unchanged since v0.34.2 -- first run still saves `theme: "system"`
+(`ui/src/components/Onboarding.tsx`, `completeOnboarding`), "system" is still
+resolved only from the web view's `prefers-color-scheme`
+(`ui/src/hooks/useTheme.ts`, `resolveTheme`), and `/etc/shadowcode/policy.yaml`
+still has no appearance key (`native/core/src/updates.rs`, `PolicyFile`).
+
 ## Summary
 
 The Shadowfetch desktop is dark (Plasma colour scheme `ShadowfetchDark`, GTK

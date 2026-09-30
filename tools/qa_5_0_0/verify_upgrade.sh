@@ -53,8 +53,10 @@ check "wallpaper is the ShadowCode wallpaper" "grep -q 'shadowcode-4k.jpg' '$out
 check "no wallpaper names a removed Umbra asset" "! grep -E 'Image=.*(UmbraFire|UmbraIce|UmbraFrost|UmbraDrift|UmbraGold|umbra-ice-4k|umbra-4k)' '$out/look.txt'"
 check "no Konsole profile names ShadowfetchGlacier" "! grep -q 'ColorScheme=ShadowfetchGlacier' '$out/look.txt'"
 check "no retired Fire/Ice asset remains installed" "! grep -q '^PRESENT' '$out/retired-assets.txt'"
-check "shadow-code is installed" "grep -qP '^shadow-code\t0\.34\.2\tii' '$out/packages.txt'"
-check "shadowcode --version answers 0.34.2" "grep -qx 'ShadowCode 0.34.2' '$out/shadowcode-version.txt'"
+# The ShadowCode pin (tools/release/shadowcode.toml); QA_SHADOWCODE overrides it.
+shadowcode=${QA_SHADOWCODE:-1.0.0}
+check "shadow-code $shadowcode is installed" "grep -qP '^shadow-code\t${shadowcode//./\\.}\tii' '$out/packages.txt'"
+check "shadowcode --version answers $shadowcode" "grep -qx 'ShadowCode $shadowcode' '$out/shadowcode-version.txt'"
 "$vm" stop "$name"
 echo "verify_upgrade: $pass passed, $fail failed" | tee -a "$out/checks.txt"
 exit $(( fail > 0 ))
