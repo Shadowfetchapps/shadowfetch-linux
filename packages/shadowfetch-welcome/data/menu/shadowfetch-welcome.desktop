@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Shadowfetch Welcome
+Comment=Run setup again: profile, apps, agents and ShadowCode
+Exec=shadowfetch-welcome --force
+Icon=shadowfetch
+Terminal=false
+Categories=Utility;X-Shadowfetch-AI;
+Keywords=setup;welcome;desktop;apps;Codex;Claude;Grok;Cursor;workspaces;
+OnlyShowIn=KDE;

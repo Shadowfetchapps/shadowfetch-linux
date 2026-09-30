@@ -1,5 +1,5 @@
 src/shadowfetch-welcome usr/bin/
-data/shadowfetch-welcome.desktop usr/share/applications/
+data/menu/shadowfetch-welcome.desktop usr/share/applications/
 data/shadowfetch-welcome.desktop etc/xdg/autostart/
 data/usr/libexec/shadowfetch-bundle-install usr/libexec/
 data/usr/libexec/shadowfetch-ignition-state usr/libexec/

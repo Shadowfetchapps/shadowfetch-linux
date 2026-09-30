@@ -257,6 +257,24 @@ class EngineVerbsUseTheMachine(Harness):
         self.assertEqual(self.store.get(mid)["state"], "queued")
         self.assertEqual(self.store.events(mid)[-1]["event"], "retry-queued")
 
+    def test_requeues_that_never_ran_do_not_spend_the_retry_budget(self):
+        # 5.0.0 QA: cancel a queued mission and retry it; the third retry was
+        # refused as "budget exhausted" while the mission showed attempt 0.
+        mid = self.new_mission()
+        for _ in range(sf.MAX_ATTEMPTS + 1):
+            self.store.cancel(mid)
+            self.store.retry(mid)
+            self.assertEqual(self.store.get(mid)["state"], "queued")
+
+    def test_runs_still_spend_the_retry_budget(self):
+        mid = self.new_mission()
+        for _ in range(sf.MAX_ATTEMPTS - 1):
+            mission_states.reach(self.store, mid, "failed")
+            self.store.retry(mid)
+        mission_states.reach(self.store, mid, "failed")
+        with self.assertRaises(sf.MissionError):
+            self.store.retry(mid)
+
     def test_recover_transitions_running_to_failed_with_an_event(self):
         mid = self.new_mission()
         self.store.transition(mid, "running")

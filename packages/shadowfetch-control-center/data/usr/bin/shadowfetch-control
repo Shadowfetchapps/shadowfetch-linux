@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Shadowfetch Control Center - one window runs the machine.
 
-Mission Control: persistent missions, featured Grok Bot, Guide,
-Workbench, Ignite, Watch, Recover, Workspaces, Drivers, and
+Mission Control: persistent missions, ShadowCode, featured Grok Bot,
+optional agents, Guide, Workbench, Ignite, Watch, Recover, Workspaces, Drivers, and
 Software & Updates.
 The system tools (Safe Update, System Health, Workspaces,
 First-run Setup, Graphics & Recovery) all remain reachable inside their
@@ -28,7 +28,9 @@ USAGE
 
 SECTIONS (for --page; a tab may follow after a colon)
   missions    Persistent mission queue, results, changes and review
+  shadowcode  ShadowCode, the preinstalled coding agent: status and launch
   grok-bot    Official Grok Bot desktop installation and launch
+  optional-agents  Optional agents you can install into your home folder
   workbench   Project profiles and scoped workspaces
   guide       Private, read-only System Passport (aliases: passport)
   ignite      Ember Mode - one switch for speed, always returns to Balanced

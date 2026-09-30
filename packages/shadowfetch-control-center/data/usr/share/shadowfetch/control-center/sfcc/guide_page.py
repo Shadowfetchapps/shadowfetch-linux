@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from sfcc import theme
+from sfcc import busutil, theme
 from sfcc.theme import Card, label
 
 

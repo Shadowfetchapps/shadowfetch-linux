@@ -2680,18 +2680,22 @@ class Store:
         retries; and transition() used to accept the CALLER'S attempt kwarg, so
         transition(mid, "queued", attempt=0) walked straight past the budget.
 
-        The chain knows: every requeue appends a retry-queued event, and those
-        cannot be removed without breaking the hash chain. The first run is
-        attempt 1, so the count of retry-queued events plus one is the number of
-        attempts taken. The column is still consulted and the HIGHER of the two
-        wins -- an attacker can lower the column and cannot lower the chain.
+        The chain knows: every run appends a `running` event when the worker
+        claims the mission, and those cannot be removed without breaking the
+        hash chain. So the count of `running` events is the number of attempts
+        taken. It used to be the count of retry-queued events plus one, which
+        charged a mission for requeues that never ran: cancel a queued mission
+        and retry it twice, and the third retry was refused as "budget
+        exhausted" while the mission still showed attempt 0. The column is
+        still consulted and the HIGHER of the two wins -- an attacker can lower
+        the column and cannot lower the chain.
         """
         chained = db.execute(
-            "SELECT COUNT(*) FROM events WHERE mission=? AND event='retry-queued'",
+            "SELECT COUNT(*) FROM events WHERE mission=? AND event='running'",
             (mid,)).fetchone()[0]
         row = db.execute("SELECT attempt FROM missions WHERE id=?", (mid,)).fetchone()
         stored = (row["attempt"] if row else 0) or 0
-        return max(int(stored), int(chained) + 1)
+        return max(int(stored), int(chained))
 
     def transition(self, mid, target, *, detail=None, actor=ACTOR_ORCHESTRATOR,
                    expect=None, **fields):

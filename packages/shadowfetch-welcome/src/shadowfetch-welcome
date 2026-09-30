@@ -1139,7 +1139,7 @@ class InstallPanel(QWidget):
                     "You can retry, or restore the Point taken just before "
                     "it started - your personal files are untouched either way.")
             self.restore_btn.setText(f"Restore Point #{self.point}")
-            self.restore_btn.setVisible(os.path.exists(PHOENIX_RESTORE))
+            self.restore_btn.setVisible(os.path.exists(desktop.PHOENIX_RESTORE))
         else:
             if self.nopoint_reason == "not-btrfs":
                 self.fail_title.setText(
@@ -1335,8 +1335,8 @@ class IgnitionFlow(QWidget):
 
         sub = ("Core boots ready with zero downloads - browser, privacy tools, "
                "everything essential. Creator, Developer, and AI Workstation "
-               "are one click and one Phoenix-protected install away. Chose "
-               "offline? Your pick is saved and offered the moment you connect.")
+               "are one click and one Phoenix-protected install away. Offline "
+               "right now? Your pick is saved and offered the moment you connect.")
         if IGNITION_DONE.exists():
             sub = ("Bundles are additive - anything already installed shows on "
                    "its card. Removing a bundle is on the roadmap.")
