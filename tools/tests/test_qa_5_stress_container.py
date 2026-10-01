@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import sys
 import tempfile
@@ -401,6 +402,20 @@ class Loop(unittest.TestCase):
         counted = [line for line in p.emitted if '"container_cycle"' in line]
         self.assertEqual(len(counted), r['cycles'])
         self.assertNotIn('"container_cycle"', json.dumps(r))
+
+
+class OuterBound(unittest.TestCase):
+    def test_the_outer_timeout_covers_the_last_cycle_and_final_cleanup(self):
+        # Last cycle: up to HANG_LIMIT per phase, a cleanup_timeout probe and a
+        # hang probe (each an operation() with its TERM/KILL observation), the
+        # client's termination, then the exact-name rm and the listing.
+        text = (HELPER.parent / "stress_45m.sh").read_text()
+        found = re.search(r"^container_outer_seconds=\$\(\(duration \+ ([0-9+ ]+)\)\)$", text, re.M)
+        outer = sum(int(part) for part in found.group(1).split("+"))
+        kill = target.CLIENT_GRACE + target.KILL_GRACE
+        worst = (2 * target.HANG_LIMIT + 2 * (target.PROBE_TIMEOUT + kill) + kill
+                 + 2 * (target.FINAL_OP_TIMEOUT + kill))
+        self.assertGreaterEqual(outer, worst + 120)
 
 
 FAKE_PODMAN = r'''#!{python}

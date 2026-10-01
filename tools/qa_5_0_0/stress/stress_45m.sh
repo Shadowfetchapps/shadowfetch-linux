@@ -126,9 +126,14 @@ container_result="$qa_home/.local/state/shadowfetch/qa-container-$run_id.json"
 setsid "${AS_USER[@]}" timeout --signal=TERM --kill-after=15s "${container_outer_seconds}s" python3 "$helper_dir/container_stress.py" --duration "$duration" --load-start-monotonic "$load_started_monotonic" --image "$image_id" --run-id "$run_id" --output "$container_result" > "$out/container-loop.log" 2>&1 &
 container_pid=$!
 
-# mission_stress.py: the last 1020 s cycle, 120 s cancellation cleanup, then
-# the worker stop (60 s after SIGTERM, 60 s after SIGKILL).
-mission_outer_seconds=$((duration + 1020 + 120 + 60 + 60 + 15))
+# mission_stress.py's own worst case after the window (its
+# WORST_CASE_TAIL_SECONDS): the last 1020 s cycle with one 30 s bounded reap
+# of a killed command and a 3 s poll, the 120 s cancellation cleanup with one
+# more reap, then the worker stop (60 s after SIGTERM, 60 s after SIGKILL).
+# Then 120 s of real slack: after the outer TERM, --kill-after leaves the
+# helper only 15 s, less than its cleanup and worker stop need, so the TERM
+# must never land inside the helper's own bounds.
+mission_outer_seconds=$((duration + 1020 + 30 + 3 + 120 + 30 + 60 + 60 + 120))
 setsid "${AS_USER[@]}" timeout --signal=TERM --kill-after=15s "${mission_outer_seconds}s" python3 "$helper_dir/mission_stress.py" --duration "$duration" --load-start-monotonic "$load_started_monotonic" --run-id "$run_id" --output "$qa_home/.local/state/shadowfetch/qa-stress-$run_id" > "$out/mission-loop.log" 2>&1 &
 mission_pid=$!
 setsid "${AS_USER[@]}" python3 "$helper_dir/latency_probe.py" --duration "$duration" > "$out/probe-loop.jsonl" 2> "$out/probe-loop.err" &

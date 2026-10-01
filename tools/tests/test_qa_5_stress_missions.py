@@ -11,6 +11,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import stat
 import subprocess
@@ -20,7 +21,8 @@ import time
 import unittest
 from unittest.mock import patch
 
-HELPER = Path(__file__).resolve().parents[1] / "qa_5_0_0" / "stress" / "mission_stress.py"
+STRESS = Path(__file__).resolve().parents[1] / "qa_5_0_0" / "stress"
+HELPER = STRESS / "mission_stress.py"
 spec = importlib.util.spec_from_file_location("qa5_mission_stress", HELPER)
 target = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(target)
@@ -99,7 +101,7 @@ class RetryBusy(unittest.TestCase):
         self.assertEqual(notes[0]["retried"], False)
         self.assertIn("not replayed", notes[0]["reason"])
 
-    def test_retried_actions_are_the_ones_whose_busy_answer_changed_nothing(self):
+    def test_retried_actions_are_reads_cancel_and_the_guarded_create(self):
         self.assertEqual(target.BUSY_RETRY_ACTIONS, {"show", "events", "list", "create", "cancel"})
 
     def test_before_retry_can_stop_a_create(self):
@@ -184,6 +186,65 @@ class StopWorker(unittest.TestCase):
     def test_graces_cover_the_disk_waits_seen(self):
         self.assertGreaterEqual(target.WORKER_TERM_GRACE, 30)
         self.assertGreaterEqual(target.WORKER_KILL_GRACE, 34)
+
+
+class Stuck:
+    """A command that outlives SIGKILL (an uninterruptible disk wait)."""
+
+    pid = 2 ** 22 + 4321   # above the default pid_max: never a real process
+    returncode = None
+
+    def __init__(self, *args, **kwargs):
+        self.waits, self.killed = [], False
+
+    def communicate(self, timeout=None):
+        self.waits.append(timeout)
+        raise subprocess.TimeoutExpired("shadowfetch-missions", timeout, output=b"partial", stderr=b"")
+
+    def kill(self):
+        self.killed = True
+
+
+class RunCommand(unittest.TestCase):
+    def test_output_and_exit_status(self):
+        done = target.run_command([sys.executable, "-c", "print('hi'); raise SystemExit(3)"], timeout=30)
+        self.assertEqual((done.returncode, done.stdout), (3, "hi\n"))
+
+    def test_timeout_kills_and_reaps_keeping_partial_output(self):
+        begun = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            target.run_command([sys.executable, "-c", "import sys, time; print('partial'); sys.stdout.flush(); time.sleep(60)"],
+                               timeout=1.0)
+        self.assertLess(time.monotonic() - begun, 20)
+        self.assertIs(caught.exception.reaped, True)
+        self.assertIn("partial", caught.exception.stdout)
+
+    def test_a_command_that_outlives_sigkill_is_left_after_the_reap_grace(self):
+        # subprocess.run() would wait for it without a bound.
+        stuck = Stuck()
+        with patch.object(subprocess, "Popen", return_value=stuck):
+            with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                target.run_command(["shadowfetch-missions", "--json", "show", "m"], timeout=5, reap_grace=7)
+        self.assertTrue(stuck.killed)
+        self.assertEqual(stuck.waits, [5, 7])
+        self.assertIs(caught.exception.reaped, False)
+        self.assertIn("process", vars(caught.exception))
+        self.assertEqual(caught.exception.stdout, "partial")
+
+
+class OuterBound(unittest.TestCase):
+    def test_the_outer_timeout_has_real_slack_over_the_helpers_own_worst_case(self):
+        # Review of v3: duration + 1275 left 15 s over the helper's own
+        # duration + 1260 before any overshoot, and the outer TERM's
+        # --kill-after=15s then lost result.json during the worker stop.
+        text = (STRESS / "stress_45m.sh").read_text()
+        found = re.search(r"^mission_outer_seconds=\$\(\(duration \+ ([0-9+ ]+)\)\)$", text, re.M)
+        outer = sum(int(part) for part in found.group(1).split("+"))
+        worst = (target.CYCLE_BOUND_SECONDS + target.COMMAND_REAP_GRACE + target.POLL_SECONDS
+                 + target.CLEANUP_BOUND_SECONDS + target.COMMAND_REAP_GRACE
+                 + target.WORKER_TERM_GRACE + target.WORKER_KILL_GRACE)
+        self.assertEqual(target.WORST_CASE_TAIL_SECONDS, worst)
+        self.assertGreaterEqual(outer, worst + 120)
 
 
 FAKE_CLI = r'''#!{python}
@@ -327,6 +388,29 @@ class MainAgainstFakeEngine(unittest.TestCase):
         reviews = [row for row in self.lines("commands.jsonl") if row["argv"][2] == "review"]
         self.assertEqual(len(reviews), 1)
         self.assertEqual(result["database_busy"]["not_retried"], 1)
+
+    def test_a_provisional_result_is_on_disk_during_the_worker_stop(self):
+        out = self.out
+        class Watching(FakeWorker):
+            seen = None
+            def signal_group(self, pid, signum):
+                if self.seen is None:
+                    Watching.seen = json.loads((out / "result.json").read_text())
+                super().signal_group(pid, signum)
+        rc, result = self.run_main({}, Watching())
+        self.assertEqual((Watching.seen["status"], Watching.seen["provisional"]), ("INCOMPLETE", True))
+        self.assertEqual(Watching.seen["status_so_far"], "SMOKE_PASS")
+        self.assertIsNone(Watching.seen["worker_stop"])
+        self.assertEqual((rc, result["status"]), (0, "SMOKE_PASS"))
+        self.assertNotIn("provisional", result)
+        self.assertFalse((out / "result.json.partial").exists())
+
+    def test_a_run_short_of_the_load_criteria_exits_nonzero(self):
+        empty = {"coverage_seconds": 0.0, "completed_within_load_window": 0, "tail_cycles": 0}
+        with patch.object(target, "coverage_summary", return_value=empty):
+            rc, result = self.run_main({}, FakeWorker())
+        self.assertEqual((rc, result["status"]), (1, "FAIL"))
+        self.assertEqual(result["failures"][-1]["error"], "Declared continuous-load acceptance criteria not met")
 
     def test_busy_create_that_queued_a_mission_is_never_sent_again(self):
         rc, result = self.run_main({"busy_create": [1], "busy_create_commits": True}, FakeWorker())
