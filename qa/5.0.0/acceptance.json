@@ -1844,9 +1844,16 @@
       "area": "pub",
       "title": "GitHub, website, signed downloads/APT and screenshots expose the same verified 5.0 release",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "pub-5.0.0/pub-01-checks.log",
+          "sha256": "2c96a83547c417ed61d38395856263572fbb0b91e3960bb1f695516a465a9b6c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Published 2026-09-30 (checks 2026-10-01T01:16Z). Download server: shadowfetch-5.0.0-amd64.iso HTTP 200, 4085778432 bytes, .sha256 = 2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21 (publisher streamed the ISO back and re-hashed it: R2_RELEASE_BYTES_VERIFIED; then R2_CURRENT_POINTER_WRITTEN). APT: live InRelease byte-identical to the built repo (Date 2026-09-30 19:14:18 UTC, Valid-Until 2027-03-29), Packages lists shadow-code 1.0.0 and the 5.0.0-1 Shadowfetch packages. GitHub: v5.0.0 is the latest release (not draft/prerelease) with 11 assets; its iso.sha256 asset carries the same digest; main and release/5.0.0 at 03f6cb3. Website shadowfetchlinux.org (worker version d07ae719): /, /download, /releases/5.0.0, /verify, /known-issues return 200 and show 5.0.0; releases.json latest = 5.0.0 2026-09-30 with the same SHA-256 and the R2 download URL."
     }
   ],
   "candidate_note": "Release ISO 2d8a72e0 (4085778432 bytes) built from 9587a7c (tree 2986e02) with ShadowCode 1.0.0, signed by 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1. Earlier candidates c8ea7ef0, dfea3c9b, c64c3493, 2abd1f6f and a83d7d8a are superseded; their VM evidence informed fixes but is not recorded here."
