@@ -72,7 +72,16 @@ all external disk pressure or prove full desktop responsiveness under saturation
 State progresses `queued → running → waiting-review → completed`. Errors become
 `failed`; cancellation becomes `cancelled`; successful restoration becomes
 `undone`. A restarted worker records interrupted work as failed and never replays
-it automatically. Explicit retries preserve checkpoints; previously published
+it automatically.
+
+Reads never wait on a writer: connections never checkpoint on close, so no
+process takes the exclusive file lock SQLite uses for that. When `cancel` cannot
+get the write lock within a couple of seconds, it saves the stop request in the
+state directory and answers with `cancel_pending: true` and a `notice`; the
+worker records it in the mission's history and stops the mission at its next
+check. `cancel_requested` remains the recorded fact.
+
+Explicit retries preserve checkpoints; previously published
 reports/media resume only when their source/output hashes still match. Report
 retries mark original CLI provenance as historical and perform no new cloud turn.
 

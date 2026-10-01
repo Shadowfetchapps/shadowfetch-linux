@@ -327,6 +327,23 @@ CLI_BOUNDED_COMMANDS = frozenset({
 CREATE_BUSY_MESSAGE = ("Mission Control's database is busy: another Mission "
                        "Control process is holding it. The mission was NOT "
                        "created; try again shortly.")
+# A stop the CLI could not write to the database inside its budget is SAVED as
+# one small file in the private state directory, before the CLI queues for the
+# write lock, and the worker records it in the chain as soon as it can. The file
+# is a request, never a record: the chained 'cancel-requested' (or 'cancelled')
+# event is still the only evidence that a stop happened, and it still commits
+# in one transaction with the flag or the state it describes. Written straight
+# into the state root so the worker's inotify watch wakes it.
+CANCEL_REQUEST_PREFIX = "cancel-request."
+# Once the request is saved, how long the CLI still waits to write it itself.
+# Short on purpose: the stop is already safe, so a person pressing Stop on a
+# loaded machine hears back in seconds rather than after the whole budget.
+CANCEL_LOCK_WAIT_SECONDS = 2.0
+MISSION_ID_PATTERN = re.compile(r"mission-[A-Za-z0-9_-]{1,64}")
+CANCEL_SAVED_MESSAGE = ("Stop requested. Mission Control's database is busy, so "
+                        "the request was saved; the mission will not start, or "
+                        "stops at its next check, and the stop is recorded in its "
+                        "history as soon as the database is free.")
 TEXT_TYPES = {".txt", ".md", ".rst", ".csv", ".json", ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".go", ".rs", ".c", ".h", ".sh", ".toml", ".yaml", ".yml"}
 PRIVATE_NAMES = {".git", ".env", ".ssh", ".aws", ".config", ".local", "node_modules", ".venv", "venv", "__pycache__", "mission-output"}
 VALIDATION_CONFIG_NAMES = {"conftest.py", "pytest.ini", "tox.ini", "karma.conf.js", ".mocharc.json", ".mocharc.yml", ".mocharc.yaml", ".mocharc.js", ".mocharc.cjs"}
@@ -351,6 +368,17 @@ def is_lock_error(exc):
     return (isinstance(exc, sqlite3.OperationalError)
             and not isinstance(exc, DatabaseBusy)
             and "locked" in str(exc).lower())
+
+
+def no_checkpoint_on_close(db):
+    """Stop this connection checkpointing (under an EXCLUSIVE file lock) when
+    it is the last one to close. See Store.db(). Connection.setconfig is
+    Python 3.12+, which the package depends on."""
+    setconfig = getattr(db, "setconfig", None)
+    flag = getattr(sqlite3, "SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE", None)
+    if setconfig is not None and flag is not None:
+        setconfig(flag, True)
+
 
 # ------------------------------------------------------------ task states ---
 # Tasks are modelled separately from missions on purpose: a task is a step the
@@ -1234,6 +1262,30 @@ class Store:
         # Retrying is correct: the mode is a property of the FILE, so whoever
         # wins sets it once and every later opener inherits it.
         db.execute(f"PRAGMA busy_timeout={int(wait * 1000)}")
+        # NEVER CHECKPOINT ON CLOSE. 5.0.0 STRESS-01: `show` and `cancel` said
+        # "database is busy" while the worker finalised a media step. SQLite's
+        # default is that whichever connection closes LAST checkpoints the WAL
+        # into the database file and deletes it, holding an EXCLUSIVE lock on
+        # the database file across an fdatasync of the WAL and another of the
+        # database. Every Store call opens and closes its own connection, so
+        # nearly every close -- the worker's and every CLI reader's -- was a
+        # "last" close. Under the stress disk load one sync took 15-34 s, and
+        # every other open, a pure read included, waited out its 10 s budget
+        # on its first statement ("busy while ... opening it"). Measured
+        # host-side with fsync delayed 12 s: `show` failed exactly so during
+        # each writer close, and one chained append took 60 s (five syncs, two
+        # of them under that lock; the WAL was re-created, header and
+        # directory synced, on every commit because the last close deleted it).
+        # With the flag the WAL persists; SQLite's ordinary auto-checkpoint
+        # after a commit is PASSIVE and takes no lock a reader or a writer
+        # waits on. Durability is unchanged: a commit is in the synced WAL.
+        no_checkpoint_on_close(db)
+        if self._lock_deadline is not None:
+            # A bounded CLI command does no checkpoint I/O after its commit
+            # either: that fsync waits on nobody, so no budget bounds it, and it
+            # would land on the one caller promised a quick answer. The worker
+            # (and run/review/audit) keep SQLite's default auto-checkpoint.
+            db.execute("PRAGMA wal_autocheckpoint=0")
         deadline = time.monotonic() + wait
         while True:
             try:
@@ -2817,11 +2869,25 @@ class Store:
     def get(self, mid):
         def read():
             with self.db() as db:
-                return db.execute("SELECT * FROM missions WHERE id=?", (mid,)).fetchone()
-        row = self._read(read)
-        if not row:
+                row = db.execute("SELECT * FROM missions WHERE id=?", (mid,)).fetchone()
+                return self._derive(db, [self.unpack(row)])[0] if row else None
+        mission = self._read(read)
+        if not mission:
             raise MissionError("Mission does not exist")
-        return self.unpack(row)
+        return mission
+
+    def _derive(self, db, missions):
+        """Add the facts a reader needs that are DERIVED, never stored.
+
+        cancel_pending: a stop request is saved and not yet recorded; see
+        CANCEL_REQUEST_PREFIX. cancel_requested stays the recorded fact.
+        """
+        for mission in missions:
+            path = self._cancel_request_path(mission["id"])
+            mission["cancel_pending"] = bool(
+                mission["state"] in ACTIVE and not mission["cancel_requested"]
+                and path is not None and path.is_file())
+        return missions
 
     def page(self, *, limit=LIST_PAGE_LIMIT, offset=0, states=None):
         """One explicit page of the queue and the signal that further records exist.
@@ -2844,6 +2910,7 @@ class Store:
             with self.db() as db:
                 total = db.execute("SELECT COUNT(*) FROM missions" + where, params).fetchone()[0]
                 rows = [self.unpack(row) for row in db.execute("SELECT * FROM missions" + where + " ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?", [*params, -1 if limit is None else limit, offset])]
+                rows = self._derive(db, rows)
             return total, rows
         total, rows = self._read(read)
         seen = offset + len(rows)
@@ -3083,7 +3150,21 @@ class Store:
             self.mirror(appended)
         return self.unpack(row)
 
-    def cancel(self, mid):
+    def cancel(self, mid, *, requested=None):
+        """Stop a mission: a queued one is cancelled, a running one is asked.
+
+        A BOUNDED caller (the CLI, i.e. the desktop's Stop) saves the request
+        BEFORE it queues for the write lock. 5.0.0 STRESS-01: `cancel` waited
+        out its 10 s budget behind a worker commit stalled on a slow disk and
+        answered "busy" -- the stop simply did not happen. Now, if the lock does
+        not come inside the budget (or the client gives up and kills the
+        command), the request survives, the answer says it was saved, and the
+        worker records and honours it as soon as it can. A request that did get
+        written here is removed again, so there is one record, not two.
+
+        requested= is a saved request being recorded on the person's behalf by
+        apply_cancel_requests(); the event then says when it was asked for.
+        """
         mission = self.get(mid)
         if mission["state"] not in ACTIVE:
             raise MissionError("Only queued or running missions can be cancelled")
@@ -3092,14 +3173,56 @@ class Store:
             # twice means the same thing once -- but it must not append a second
             # request event, or the log implies two decisions.
             return mission
-        if mission["state"] == MissionState.QUEUED:
+        saved = requested is None and self._lock_deadline is not None
+        if saved:
+            self.save_cancel_request(mid)
+            # This Store is the one-command CLI's, so tightening its deadline
+            # for the rest of its life bounds exactly this write.
+            self._lock_deadline = min(self._lock_deadline,
+                                      time.monotonic() + CANCEL_LOCK_WAIT_SECONDS)
+        try:
+            result = self._record_cancel(mid, mission["state"], requested)
+        except (DatabaseBusy, sqlite3.OperationalError) as exc:
+            if not saved or not (isinstance(exc, DatabaseBusy) or is_lock_error(exc)):
+                raise
+            # Reads never wait on the writer (see db()), so this answers now.
+            pending = self.get(mid)
+            pending["notice"] = CANCEL_SAVED_MESSAGE
+            return pending
+        except MissionError:
+            if not saved:
+                raise
+            current = self.get(mid)
+            if current["cancel_requested"]:
+                # The worker recorded this same saved request first.
+                self.clear_cancel_request(mid)
+                return current
+            if current["state"] in ACTIVE:
+                # It started between the read and the write. The saved request
+                # stands: the worker stops it at its next check and records it.
+                current["notice"] = CANCEL_SAVED_MESSAGE
+                return current
+            self.clear_cancel_request(mid)
+            raise
+        if saved:
+            self.clear_cancel_request(mid)
+        return result
+
+    def _record_cancel(self, mid, state, requested=None):
+        """Write a stop into the chain: one transaction, flag or state with its event."""
+        when = ""
+        if requested is not None:
+            asked = clean(str(requested.get("requested_at") or "an unrecorded time"))[:40]
+            when = (f" (stop requested at {asked} while the database was busy; "
+                    "recorded from the saved request)")
+        if state == MissionState.QUEUED:
             # A queued mission has started nothing, so cancelling it IS the
             # terminal transition and it lands atomically with its event.
             # transition() returns the updated row, which is what the CLI
             # prints and the desktop reads.
             return self.transition(mid, MissionState.CANCELLED, actor=ACTOR_USER,
                                    expect=MissionState.QUEUED, cancel_requested=1,
-                                   detail="Cancelled before execution started")
+                                   detail="Cancelled before execution started" + when)
         # A running mission is asked, not told: the flag is what Executor.check()
         # observes. The state moves only when execution actually stops.
         #
@@ -3127,15 +3250,115 @@ class Store:
                        (at, mid))
             appended = self._append(
                 db, mission=mid, event="cancel-requested", actor=ACTOR_USER, at=at,
-                detail="Running process is terminated; workspace checkpoint remains available")
+                detail="Running process is terminated; workspace checkpoint remains available"
+                       + when)
         self.mirror(appended)
         return self.get(mid)
+
+    # -------------------------------------------- saved stop requests ---
+    def _cancel_request_path(self, mid):
+        """Where a saved stop request for `mid` lives, or None for a value that
+        is not a mission id (it is used in a file name)."""
+        if not isinstance(mid, str) or not MISSION_ID_PATTERN.fullmatch(mid):
+            return None
+        return self.root / (CANCEL_REQUEST_PREFIX + mid)
+
+    def save_cancel_request(self, mid):
+        """Save a stop request without touching the database.
+
+        Not fsynced, deliberately: an fsync would put Stop back behind the very
+        disk the database is waiting on. A request lost to a power cut is moot
+        -- the mission's process dies with the machine and recovery records the
+        interruption. The first request's time is kept.
+        """
+        path = self._cancel_request_path(mid)
+        if path is None:
+            raise MissionError("Mission does not exist")
+        if path.is_file():
+            return
+        tmp = self.root / f".{path.name}.{uuid.uuid4().hex}.tmp"
+        payload = json.dumps({"mission": mid, "requested_at": now(),
+                              "requested_by": f"uid:{os.getuid()}"}, sort_keys=True)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+                     | os.O_CLOEXEC, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                stream.write(payload)
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def cancel_request(self, mid):
+        """The saved stop request for `mid` as a dict, or None if there is none.
+
+        A file that exists but does not parse is still a request ({}): somebody
+        asked, and the time is what was lost. A symbolic link is not one this
+        engine wrote and is ignored.
+        """
+        path = self._cancel_request_path(mid)
+        if path is None:
+            return None
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return None
+        with os.fdopen(fd, "rb") as stream:
+            raw = stream.read(4096)
+        try:
+            request = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return {}
+        return request if isinstance(request, dict) else {}
+
+    def clear_cancel_request(self, mid):
+        path = self._cancel_request_path(mid)
+        if path is not None:
+            path.unlink(missing_ok=True)
+
+    def apply_cancel_requests(self, mid=None):
+        """Record saved stop requests in the chain: the worker's half.
+
+        Each request becomes the ordinary cancel -- 'cancelled' for a queued
+        mission, 'cancel-requested' plus the flag for a running one -- through
+        the same transaction a direct cancel uses, so transition atomicity and
+        the chain are exactly as they were. A request whose mission is no
+        longer active (or does not exist) is moot and is removed; one the
+        database still cannot take stays for the next pass. Returns the ids
+        whose stop is now recorded.
+        """
+        if mid is not None:
+            names = [mid]
+        else:
+            names = sorted(path.name[len(CANCEL_REQUEST_PREFIX):]
+                           for path in self.root.glob(CANCEL_REQUEST_PREFIX + "*"))
+        recorded = []
+        for name in names:
+            request = self.cancel_request(name)
+            if request is None:
+                continue
+            try:
+                self.cancel(name, requested=request)
+                recorded.append(name)
+            except DatabaseBusy:
+                continue
+            except sqlite3.OperationalError as exc:
+                if is_lock_error(exc):
+                    continue
+                raise
+            except MissionError:
+                pass
+            self.clear_cancel_request(name)
+        return recorded
 
     def retry(self, mid):
         with self.lock(workspace=self.get(mid)["workspace"]):
             mission = self.get(mid)
             if mission["state"] not in ("failed", "cancelled"):
                 raise MissionError("Only failed or cancelled missions can be retried")
+            # A stop saved for an EARLIER run is not a stop for this one.
+            self.clear_cancel_request(mid)
             if mission["attempt"] >= MAX_ATTEMPTS:
                 # transition() refuses this edge too. Kept here so the CLI's
                 # refusal stays a MissionError with the wording people know.
@@ -3163,13 +3386,18 @@ class Store:
             # perform. Only then say which routes exist.
             undoable = self.settle_interrupted_workspace(mission)
             routes = "Retry or Undo" if undoable else "Retry"
-            if mission["cancel_requested"]:
+            if mission["cancel_pending"]:
+                # Saved while the database was busy and never recorded: the
+                # person's stop goes into the chain before the state settles.
+                self.apply_cancel_requests(mission["id"])
+            if mission["cancel_requested"] or mission["cancel_pending"]:
                 self.transition(
                     mission["id"], MissionState.CANCELLED, actor=ACTOR_WORKER,
                     expect=MissionState.RUNNING,
                     error="Cancelled; the worker stopped before it could record it. "
                           f"Inspect changes, then {routes}.",
                     detail="Cancellation was requested before the worker was interrupted")
+                self.clear_cancel_request(mission["id"])
             else:
                 self.transition(
                     mission["id"], MissionState.FAILED, actor=ACTOR_WORKER,
@@ -3772,7 +4000,12 @@ class Executor:
         return self._provider
 
     def check(self):
-        if self.store.get(self.mid)["cancel_requested"]:
+        mission = self.store.get(self.mid)
+        if mission["cancel_pending"]:
+            # A stop the CLI saved while the database was busy: record it in
+            # the chain first, then stop exactly as for any other.
+            self.store.apply_cancel_requests(self.mid)
+        if mission["cancel_requested"] or mission["cancel_pending"]:
             raise Cancelled("Cancelled by user; use Undo to restore workspace")
         if time.monotonic() >= self.deadline:
             raise MissionError("Mission exceeded its execution time budget")
@@ -4916,6 +5149,9 @@ def run_mission(store, mid):
     workspace_name = store.get(mid)["workspace"]
     with store.lock(workspace=workspace_name):
         store.recover(workspace=workspace_name)
+        # A stop saved while the database was busy is recorded before anything
+        # starts, so a cancelled mission is refused below rather than run.
+        store.apply_cancel_requests(mid)
         mission = store.get(mid)
         if mission["workspace"] != workspace_name:
             raise MissionError("This mission's workspace changed while it was starting")
@@ -4961,6 +5197,8 @@ def run_mission(store, mid):
                     # failure is recorded where a person will see it.
                     store.event(mid, "review-summary-failed", clean(exc)[:500])
             result = store.finish_execution(mid, state, error)
+            # Whatever stop was saved for this run is settled by its end.
+            store.clear_cancel_request(mid)
         return result
 
 
@@ -5265,6 +5503,9 @@ def worker(store, once=False):
         try:
             while not stopping:
                 try:
+                    # Stops saved while the database was busy, for missions
+                    # that are queued or run by another process.
+                    store.apply_cancel_requests()
                     queue = sorted(store.list(states=("queued",)),
                                    key=lambda m: (m["created_at"], m["id"]))
                     for mission in queue:
