@@ -115,6 +115,19 @@ def overview_status_lines(mission):
     return lines
 
 
+def stop_text(mission):
+    """Whether a stop was asked for, as the engine reports it.
+
+    `cancel_requested` is the recorded fact. `cancel_pending` (5.0.1) is a
+    Stop the engine saved because its database was busy and has not recorded
+    yet; it is accepted, so it is not shown as "no"."""
+    if mission.get("cancel_requested"):
+        return "yes"
+    if mission.get("cancel_pending"):
+        return "saved, waiting to be recorded"
+    return "no"
+
+
 def mission_text(mission):
     """State, who performs it, and what was asked for -- as recorded."""
     config = mission.get("config") or {}
@@ -123,7 +136,7 @@ def mission_text(mission):
         "Performed by: " + field_text(mission.get("provider_id") or config.get("provider_id"))
         + "   ·   capability: " + field_text(mission.get("capability") or config.get("capability")),
         "Connection requested: " + field_text(config.get("network")),
-        "Stop requested: " + ("yes" if mission.get("cancel_requested") else "no"),
+        "Stop requested: " + stop_text(mission),
         "Approval recorded against this mission: " + field_text(mission.get("approval_id")),
         "Attempt: " + field_text(mission.get("attempt")),
     ])
@@ -693,6 +706,9 @@ class MissionsPage(QWidget):
         self.review_pending = False
         self._mutation_pending = False
         self._operation_notice = ""
+        # The mission whose saved Stop the notice describes; the notice goes
+        # once the engine no longer reports that stop as pending.
+        self._notice_stop_id = None
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 10, 24, 18)
         root.setSpacing(10)
@@ -814,8 +830,9 @@ class MissionsPage(QWidget):
         if not isinstance(data, list):
             self.notice.setText("The mission queue returned an unexpected response.")
             return
-        self.notice.setText(self._operation_notice)
         self.records = [m for m in data if isinstance(m, dict) and m.get("id")]
+        self._settle_stop_notice()
+        self.notice.setText(self._operation_notice)
         counts = {state: sum(1 for mission in self.records if mission.get("state") == state) for state in STATES}
         self.stats.setText(f"{counts['running']} working    {counts['queued']} queued    {counts['waiting-review']} to review    {counts['completed']} accepted")
         self._populate()
@@ -997,6 +1014,14 @@ class MissionsPage(QWidget):
         self.review_pending = False
         self._mutation_pending = False
         self._operation_notice = error or ""
+        self._notice_stop_id = None
+        if not error and isinstance(data, dict) and data.get("notice"):
+            # The engine accepted the action and has something to say about
+            # it -- today, that a Stop was saved because its database was
+            # busy, and when it will be recorded. Quoted, not re-worded.
+            self._operation_notice = str(data["notice"])
+            if data.get("cancel_pending"):
+                self._notice_stop_id = data.get("id")
         self.notice.setText(self._operation_notice)
         if error:
             self._buttons()
@@ -1006,6 +1031,17 @@ class MissionsPage(QWidget):
                 self.selected = data
             self._buttons()
             self.refresh()
+
+    def _settle_stop_notice(self):
+        """Drop a saved-Stop notice once the engine reports that stop recorded
+        (or moot): the listing no longer marks the mission cancel_pending. A
+        mission not on this page of the listing keeps it."""
+        if not self._notice_stop_id:
+            return
+        mission = next((m for m in self.records if m.get("id") == self._notice_stop_id), None)
+        if mission is not None and not mission.get("cancel_pending"):
+            self._notice_stop_id = None
+            self._operation_notice = ""
 
     def _open_path(self, value):
         path = Path(str(value)).expanduser()
