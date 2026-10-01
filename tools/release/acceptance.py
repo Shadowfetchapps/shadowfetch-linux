@@ -43,6 +43,29 @@ MIN_EVIDENCE_BYTES = 8
 MIN_SCREENSHOT_BYTES = 1024
 MIN_EVIDENCE_ENTROPY_BITS = 1.5
 
+# The packages under test, for a release that ships no image (an APT-only point
+# update). artifact.iso_sha256 then names the BASE image the update is applied
+# to -- which every receipt of that base release is bound to as well -- so the
+# image digest alone cannot tell this update's evidence from the previous
+# release's. These two digests of the signed indices pin every .deb and source
+# file; `record` stamps them onto each entry it writes (and onto a waiver), the
+# same way it stamps artifact_sha256, and the APT-only publisher refuses an
+# entry that does not carry the digests of the indices it is publishing. An ISO
+# release's manifest does not set them, and `verify` does not read them.
+PACKAGE_INDEX_FIELDS = ("apt_packages_sha256", "apt_sources_sha256")
+
+
+def package_index_stamp(data: dict[str, Any]) -> dict[str, str]:
+    """The manifest's package-index digests, for stamping onto a record."""
+    artifact = data.get("artifact") or {}
+    stamp: dict[str, str] = {}
+    for field in PACKAGE_INDEX_FIELDS:
+        value = artifact.get(field) if isinstance(artifact, dict) else None
+        if isinstance(value, str) and len(value) == 64 \
+                and all(char in "0123456789abcdefABCDEF" for char in value):
+            stamp[field] = value.lower()
+    return stamp
+
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -432,10 +455,13 @@ def record(args: argparse.Namespace) -> int:
 
     waiver_reason = getattr(args, "waiver_reason", None)
     waiver_approver = getattr(args, "waiver_approver", None)
+    packages_under_test = package_index_stamp(data)
     if args.status == "waived":
         case["waiver"] = {
             "approver": waiver_approver or "",
             "reason": waiver_reason or "",
+            # A decision to accept a gap is about particular packages too.
+            **packages_under_test,
         }
         problems = waiver_errors(case)
         if problems:
@@ -484,6 +510,7 @@ def record(args: argparse.Namespace) -> int:
                 entry["artifact_sha256"] = digest.lower()
             else:
                 unbound.append(relative.as_posix())
+            entry.update(packages_under_test)
             recorded.append(entry)
         case["evidence"] = recorded
 

@@ -375,6 +375,35 @@ class AcceptanceVerifierTests(unittest.TestCase):
         entry = recorded["cases"][0]["evidence"][0]
         self.assertEqual(entry["artifact_sha256"], self.iso_sha256)
 
+    def test_record_stamps_the_packages_under_test_when_the_manifest_names_them(self) -> None:
+        """An APT-only update's evidence is bound to the BASE image, like every
+        receipt of the base release, so the index digests are what tell this
+        update's evidence apart. They are stamped, never typed."""
+        data = self.bound_manifest()
+        data["artifact"]["apt_packages_sha256"] = "C" * 64
+        data["artifact"]["apt_sources_sha256"] = "d" * 64
+        self.write_manifest(data)
+        source = self.evidence_root / "upgrade.log"
+        source.write_bytes(b"UPGRADE_CHECKS_PASSED\n" * 64)
+        self.assertEqual(self.record(status="pass", evidence=[source]), 0)
+        entry = json.loads(self.manifest.read_text(encoding="utf-8"))["cases"][0]["evidence"][0]
+        self.assertEqual("c" * 64, entry["apt_packages_sha256"])
+        self.assertEqual("d" * 64, entry["apt_sources_sha256"])
+        self.assertEqual(self.iso_sha256, entry["artifact_sha256"])
+        self.assertEqual(
+            self.record(status="waived", waiver_approver="release owner",
+                        waiver_reason="needs hardware this run did not have"), 0)
+        waiver = json.loads(self.manifest.read_text(encoding="utf-8"))["cases"][0]["waiver"]
+        self.assertEqual(("c" * 64, "d" * 64), (waiver["apt_packages_sha256"], waiver["apt_sources_sha256"]))
+
+    def test_an_iso_release_record_carries_no_package_index_stamp(self) -> None:
+        self.write_manifest(self.bound_manifest())
+        source = self.evidence_root / "gate.log"
+        source.write_bytes(b"SOURCE_GATE_PASSED\n" * 64)
+        self.assertEqual(self.record(status="pass", evidence=[source]), 0)
+        entry = json.loads(self.manifest.read_text(encoding="utf-8"))["cases"][0]["evidence"][0]
+        self.assertFalse(set(qa.PACKAGE_INDEX_FIELDS) & set(entry))
+
     def test_recording_before_the_artifact_exists_is_unbound_and_says_so(self) -> None:
         """The source gate legitimately runs before an image is cut. That
         recording is allowed and it is UNBOUND -- so it will not satisfy a
