@@ -81,6 +81,23 @@ else
   ' "$PACKAGES_IDX" | sort -u)
   available=$(awk '/^Package: /{print $2}' "$SOURCES_IDX" | sort -u)
   missing=$(comm -23 <(printf '%s\n' "$required") <(printf '%s\n' "$available"))
+  # A republished upstream binary (ShadowCode) has no .dsc that builds it, so
+  # its corresponding source is published as git archives under
+  # pool/third-party-source/<name>/<version>/ instead (vendor/shadowcode/README.md).
+  # Accept it only when every archive SOURCE-SHA256SUMS names is there and matches.
+  still_missing=""
+  while IFS= read -r name; do
+    [[ -n $name ]] || continue
+    version=$(awk -v p="$name" '/^Package: /{hit=($2==p)} hit && /^Version: /{print $2; exit}' "$PACKAGES_IDX")
+    tps="$REPO_DIR/pool/third-party-source/$name/$version"
+    if [[ -n $version && -s "$tps/SOURCE-SHA256SUMS" ]] \
+      && (cd "$tps" && sha256sum --quiet --strict -c SOURCE-SHA256SUMS >/dev/null 2>&1); then
+      printf 'corresponding-source check: %s %s source published as verified third-party archives\n' "$name" "$version"
+    else
+      still_missing+="$name"$'\n'
+    fi
+  done <<< "$missing"
+  missing=${still_missing%$'\n'}
   if [[ -n "$missing" ]]; then
     add_failure "published binaries with no corresponding source in main/source: $(printf '%s' "$missing" | paste -sd, -)"
   fi
