@@ -5,13 +5,15 @@ Umbra; the APT suite stays `umbra`, so 4.1 and 5.0 systems receive 5.0.1 from
 the suite they already track. Signing fingerprint unchanged:
 `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
-Status: **Not released.** This is the point release for the known issues
-5.0.0 shipped with. The fixes and the version bump are in the
-`release/5.0.1` tree. 5.0.1 is an **APT-only update**: it is published as
-packages in the signed repository, with no new ISO, and installs on top of the
-5.0.0 image (`delivery = "apt-only"`, `base_release = "5.0.0"` in
-`tools/release/versions/5.0.1.toml`). Every case in
-`qa/5.0.1/acceptance.json` is pending.
+Status: **Released 2026-10-01** as an **APT-only update** in the signed
+Shadowfetch repository (suite `umbra`). It is the point release for the known
+issues 5.0.0 shipped with. There is no new ISO: new installs use the 5.0.0
+image and then update (`delivery = "apt-only"`, `base_release = "5.0.0"` in
+`tools/release/versions/5.0.1.toml`). The packages-only acceptance subset in
+`qa/5.0.1/acceptance.json` is recorded: SRC-01, PKG-01, UPGRADE-01 and
+DURABLE-01 pass; MISSION-01 is waived for the paid-account code mission only.
+The live repository's signed `InRelease` is byte-identical to the one built
+and verified here (SHA-256 `2be292bd8008d3459481845a6433fc9d81ebca3001a94bab71f0b900f07fc279`).
 
 - Version: 5.0.1, a point release of 5.0.0. Nothing a working 5.0.0 setup
   depends on is removed or renamed, and no package is added or retired.
