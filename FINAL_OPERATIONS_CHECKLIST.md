@@ -93,8 +93,9 @@ tests*).
    `make test` on that source), and on the website also `@@ISO_SIZE_LABEL@@`
    (for example `4.09 GB (3.81 GiB)`). In the website's JSON,
    `"@@ISO_SIZE@@"` becomes a bare integer, quotes included. If acceptance
-   ended differently from the recorded outcome (14 pass, 4 waived, `PUB-01`
-   after publication), correct the Acceptance section first. Then
+   ended differently from the recorded outcome (12 pass including
+   `EVIDENCE-01`, 6 waived, `PUB-01` after publication), correct the
+   Acceptance and Known issues sections in both documents first. Then
    `grep -rn 'TODO(iso)\|TODO(qa)\|TODO(platform)\|@@[A-Z0-9_]*@@'
    README.md RELEASE-5.0.0.md docs` must print nothing (`TODO(publish)` is
    filled in step 10). Re-run `python3 tools/drift_gate.py`.

@@ -30,14 +30,14 @@ Nothing is connected until you sign in. Welcome's last step opens ShadowCode so 
 | Edition | ShadowCode — "One Harness. All Models." |
 | Publication date / channel | TODO(publish): not yet published / stable |
 | ISO | shadowfetch-5.0.0-amd64.iso |
-| Size | @@ISO_SIZE@@ bytes |
-| SHA-256 | `@@ISO_SHA256@@` |
-| ISO product source commit / tree | `@@SRC_COMMIT@@` / `@@SRC_TREE@@` |
+| Size | 4085778432 bytes |
+| SHA-256 | `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21` |
+| ISO product source commit / tree | `9587a7ca348e817870baffa9d390754acf331266` / `2986e02421fc6af1353ce7e7b7695a390c724acf` |
 | Base / desktop | Debian testing snapshot 20260929T000000Z / KDE Plasma 6.7.4 |
 | Kernel | Linux 7.2.6 |
 | ShadowCode | 1.0.0 (`shadow-code`, republished unmodified from the signed upstream `.deb`) |
 | Architecture / APT suite | amd64 / `umbra` |
-| Final boot acceptance | 18 prepublication cases in `qa/5.0.0/acceptance.json` proven against this ISO: 14 pass, 4 waived by the release owner with written reasons; `PUB-01` is proven after publication |
+| Final boot acceptance | 18 prepublication cases in `qa/5.0.0/acceptance.json`, recorded against this ISO: 12 pass, 6 waived by the release owner with written reasons; `PUB-01` is proven after publication |
 
 Signing-key fingerprint: `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
@@ -48,7 +48,7 @@ Signing-key fingerprint: `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 | **ShadowCode** | Preinstalled coding agent (1.0). Connect subscriptions, an OpenRouter key or a local model in **Settings › Accounts**; approve actions that explain themselves, review changes grouped by risk, ask another model for a second opinion, and rewind or undo. Secret checks before commit and push, spending limits for paid models, backups under **Settings › Your data**. See `/usr/share/doc/shadowfetch/SHADOWCODE.md`. |
 | **Agent network** | `shadowfetch-agent-network online\|offline` decides whether Firebreak agent sandboxes start with network. Offline also pauses Grok Bot, Hermes and OpenClaw. Choose it in Welcome, at the boot menu, or later from a terminal. |
 | **Optional agents** | Welcome offers exactly three, each downloaded only if you pick it: **Grok Bot** (official native app), **Hermes Agent** 0.21.5 and **OpenClaw** 2026.9.6. Hermes and OpenClaw install into your home folder without root; OpenClaw opens only inside a Firebreak sandbox, with its Gateway off. |
-| **Mission Control** | Create work in a Workbench project, watch the persistent queue, and review files, receipts and changes before accepting them. Code and report missions use a provider you name (`codex`, `claude` or `localmodel`); media exports run offline. |
+| **Mission Control** | Create work in a Workbench project, watch the persistent queue, and review files, receipts and changes before accepting them. Code missions need `codex` or `claude` (each with the vendor's paid account); `localmodel`'s bridge is chat-only, so it writes cited reports from a model service you supply but leaves code unchanged. Media exports run offline. |
 | **Review and recovery** | Accept, cancel, retry or restore a mission's local checkpoint. Fireproof simulates and rechecks updates; supported Btrfs layouts give Phoenix snapshot recovery. |
 | **Workbench, Guide, Ember, Firewatch** | Unchanged from 4.1 apart from the agent network replacing Fire/Ice; "Element Workbench" is now just Workbench. |
 
@@ -92,7 +92,15 @@ Use a 64-bit Intel/AMD computer. Plan for 8 GB RAM and 100 GB disk space for a c
 
 Secure Boot has no Microsoft-trusted shim. Intel/AMD use Mesa; NVIDIA setup is an explicit, simulate-first workflow. VM rendering tests do not establish physical GPU acceleration performance, and hybrid laptops need their own validation. Phoenix Points require a supported Btrfs root; ext4 does not provide the same snapshot recovery. Debian testing can change faster than Debian stable.
 
-Acceptance, recorded in `qa/5.0.0/acceptance.json` against this exact ISO: SRC-01, PKG-01, ISO-01, FIRE-01, ICE-01, INSTALL-01 (BIOS and UEFI), SCOPE-01, DURABLE-01, RECOVERY-01, VISUAL-01, SHADOWCODE-01, STRESS-01, RESOURCE-01 and EVIDENCE-01 pass. Four are waived by the release owner, each for an account or harness limit rather than a failure: MISSION-01's code sub-part (needs a paid vendor account; the media and cited-report missions pass), GROK-01 and GROK-VISUAL-01 (need an X/Grok account; install, integrity, launch to sign-in and the URL handler are proven), and UPGRADE-01's recovery leg (the harness has none for upgrades; the 4.1 → 5.0 upgrade itself and every migration check pass). `PUB-01` is proven after publication, against what is public. The [release notes](RELEASE-5.0.0.md#acceptance) give the details.
+Acceptance, recorded in `qa/5.0.0/acceptance.json` against this exact ISO: SRC-01, PKG-01, ISO-01, FIRE-01, ICE-01, INSTALL-01 (BIOS and UEFI), SCOPE-01, DURABLE-01, RECOVERY-01, VISUAL-01, RESOURCE-01 and EVIDENCE-01 (checksum, signature, SBOM, manifests and QA evidence bundle for this ISO) pass. Six are waived by the release owner. Four are for an account or harness limit: MISSION-01's code sub-part (needs a paid vendor account; the media and cited-report missions pass), GROK-01 and GROK-VISUAL-01 (need an X/Grok account; install, integrity, launch to sign-in and the URL handler are proven), and UPGRADE-01's recovery leg (the harness has none for upgrades; the 4.1 → 5.0 upgrade itself and every migration check pass). Two are for checks that did not pass, and the release owner chose to ship this ISO anyway (5.0.1 fixes the issues listed under Known issues below): SHADOWCODE-01 (ShadowCode launches cleanly and opens and closes cleanly in all 24 soak cycles, but the soak's memory check failed, traced to the live session's one-time package-list refresh rather than ShadowCode; ShadowCode 1.0.0's window also grows on each launch) and STRESS-01 (two 45-minute runs of combined stress left the system healthy, but in both runs the mission loop stopped on "database is busy" and the container loop stopped when a `podman run --rm` client did not exit). `PUB-01` is proven after publication, against what is public. The [release notes](RELEASE-5.0.0.md#acceptance) give the details.
+
+## Known issues
+
+The first two are fixed by the 5.0.1 update, which arrives through the Shadowfetch APT repository (`sudo apt update`, then `fireproof update`). The third affects only the live USB, which an update cannot change: 5.0.1 turns it off on the live USB, and a 5.0.0 stick keeps it, so use the workaround. The [release notes](RELEASE-5.0.0.md#known-issues) list every known issue.
+
+- **ShadowCode's window grows each time it opens (Wayland)** and can extend under the panel; on a 1366x768 screen even the first window is larger than the screen. Workaround: maximize the window (its maximize button, or Meta+PgUp); ShadowCode then does not save the size. Fixed in ShadowCode 1.0.1.
+- **"database is busy" under very heavy disk load.** Mission Control or a `shadowfetch-missions` command can briefly report it while a mission is finishing a step. Workaround: retry after a few seconds.
+- **Live USB: a package-list refresh about five minutes after login.** KDE's update notifier downloads about 200 MB of package lists, which also takes about 350 MB of RAM in the live session. Installed systems are not affected. Workaround on a low-memory machine or a metered connection: stay offline in the live session, or run `systemctl --user stop app-org.kde.discover.notifier@autostart.service` soon after logging in. 5.0.1 turns it off on the live USB.
 
 ## Build from source
 

@@ -8,9 +8,11 @@ Signing fingerprint unchanged:
 `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
 Status: **NOT RELEASED.** The release image below is built, gated and
-accepted (see [Acceptance](#acceptance)). Publication facts (date, URLs,
-SBOM/evidence names and hashes) are marked `TODO(publish)` until the
-publication step produces them.
+accepted (see [Acceptance](#acceptance)). The release owner chose to ship this
+image and deliver the remaining fixes in the 5.0.1 update (see
+[Known issues](#known-issues)). Publication facts (date, URLs, SBOM/evidence
+names and hashes) are marked `TODO(publish)` until the publication step
+produces them.
 
 - Version: 5.0.0
 - Codename / repository suite: `umbra`
@@ -18,11 +20,11 @@ publication step produces them.
 - Base: Debian testing snapshot `20260929T000000Z`; kernel Linux 7.2.6; systemd 262; Mesa 26.1.6
 - Source branch: `release/5.0.0` (the checkout path is named for 4.0.0 and is
   not the version)
-- Source commit / tree the image is built from: `@@SRC_COMMIT@@` / `@@SRC_TREE@@`
-- ISO: `shadowfetch-5.0.0-amd64.iso`, @@ISO_SIZE@@ bytes, SHA-256 `@@ISO_SHA256@@`,
+- Source commit / tree the image is built from: `9587a7ca348e817870baffa9d390754acf331266` / `2986e02421fc6af1353ce7e7b7695a390c724acf`
+- ISO: `shadowfetch-5.0.0-amd64.iso`, 4085778432 bytes, SHA-256 `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21`,
   detached signature `shadowfetch-5.0.0-amd64.iso.asc` verifying against
   `8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1`
-- Image contents: squashfs @@SQUASHFS_SIZE@@ bytes; @@PKG_COUNT@@ packages, 19 of
+- Image contents: squashfs 3830738944 bytes; 3359 packages, 19 of
   them Shadowfetch packages
 - Publication date: TODO(publish)
 - ShadowCode: 1.0.0, tag `v1.0.0`, commit
@@ -308,11 +310,51 @@ helper's own status.
 - Licence: Shadowfetch's own packages move from MIT to GPL-3.0-or-later,
   matching the repository LICENSE. The DrKonqi pickup helper stays
   GPL-3.0-only and `shadowfetch-themes` LGPL-2.1-or-later.
+- Guide (the System Passport) opens without crashing, both from Mission
+  Control's sidebar and from Welcome's **Check this computer**. `make test`
+  now checks every shipped Python file for undefined names.
+- The **Shadowfetch Welcome** menu entry reopens setup at any time, also after
+  setup is finished (it runs `shadowfetch-welcome --force` and no longer
+  shares the login autostart entry).
+- The Firebreak launcher stays open: it shows `shadowfetch-firebreak --help`
+  and leaves a shell ready, instead of closing at once.
+- Missions: the retry budget counts runs that actually happened, so
+  cancelling and retrying a mission that never ran no longer uses it up. Real
+  runs still count.
+- `shadowfetch-control --help` lists every page, including `shadowcode` and
+  `optional-agents`.
 
 ---
 
 # Known issues
 
+The first two are fixed by the 5.0.1 update, which arrives through the
+Shadowfetch APT repository like any other update (`sudo apt update`, then
+`fireproof update`). The third affects only the live USB, which an update
+cannot change: 5.0.1 turns it off on the live USB, and a 5.0.0 USB stick keeps
+it, so use the workaround.
+
+- **ShadowCode 1.0.0's window grows each time it opens (Wayland).** Each
+  launch restores a slightly larger window, which can end up extending under
+  the panel. On a 1366x768 screen even the first window is larger than the
+  screen, so the message box and status bar sit under the panel.
+  **Workaround:** maximize the window (its maximize button, or Meta+PgUp);
+  ShadowCode then does not save the size. Fixed in ShadowCode 1.0.1, part of
+  5.0.1.
+- **"database is busy" from Mission Control under very heavy disk load.**
+  While a mission is finishing a step on a disk that is heavily loaded,
+  Mission Control or a `shadowfetch-missions` command can briefly report
+  "database is busy". **Workaround:** retry after a few seconds; the retry
+  works. Fixed in 5.0.1.
+- **Live USB: a package-list refresh about five minutes after login.** In the
+  live session, KDE's update notifier refreshes the package lists about five
+  minutes after you log in: a download of about 200 MB that also takes about
+  350 MB of RAM, because the live session keeps its changes in memory.
+  Installed systems are not affected. **Workaround,** if the computer is low
+  on memory or the connection is metered: stay offline in the live session,
+  or stop the notifier soon after logging in with
+  `systemctl --user stop app-org.kde.discover.notifier@autostart.service`.
+  5.0.1 turns the refresh off on the live USB.
 - **Security advisory: earlier ISOs shipped a shared DKMS module-signing key.**
   Building the ISO ran DKMS (for `v4l2loopback-dkms`), which generated
   `/var/lib/dkms/mok.key` and `mok.pub`, and the private key shipped in the
@@ -360,9 +402,11 @@ helper's own status.
   ShadowCode starts Online by default; set **Settings › Permissions &
   network › Offline** in ShadowCode if you want it to run only local models.
   Vendor agents started by ShadowCode use their own sandboxes, not Firebreak.
-- **Four acceptance cases are waived, not passed.** MISSION-01's code
-  missions, GROK-01, GROK-VISUAL-01 and UPGRADE-01's recovery leg; see
-  [Acceptance](#acceptance) for what each waiver does and does not cover.
+- **Six acceptance cases are waived, not passed.** MISSION-01's code
+  missions, GROK-01, GROK-VISUAL-01, UPGRADE-01's recovery leg,
+  SHADOWCODE-01's soak memory check and STRESS-01's mission and container
+  loops; see [Acceptance](#acceptance) for what each waiver does and does not
+  cover.
 - **The APT suite is provisional.** `umbra` is carried from 4.x; it must be
   confirmed before the first 5.0 package is published.
 - ShadowCode needs glibc 2.39 or newer and Vulkan for GPU inference; without a
@@ -424,7 +468,7 @@ sha256sum --check "$ISO.sha256"
 ```
 
 Continue only if both the signature and the checksum verify. The expected
-SHA-256 is `@@ISO_SHA256@@`.
+SHA-256 is `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21`.
 A GPG warning about personal key trust is not a failed signature. The SBOM
 (`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA
 evidence bundle (`evidence-bundle-5.0.0.tar.gz`) will be attached to the
@@ -434,11 +478,12 @@ v5.0.0 GitHub release: TODO(publish) (release link and file hashes).
 
 # Release state
 
-Measured on the release image's own source (`@@SRC_COMMIT@@`) and on the
-image itself (SHA-256 `@@ISO_SHA256@@`), not copied forward from an earlier
-candidate:
+Measured on the release image's own source
+(`9587a7ca348e817870baffa9d390754acf331266`) and on the image itself
+(SHA-256 `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21`),
+not copied forward from an earlier candidate:
 
-- `make test`: PASS, @@TEST_COUNT@@ tests, including the adversarial
+- `make test`: PASS, 2578 tests, including the adversarial
   suites.
 - `source_gate`: PASS (SRC-01).
 - `package_gate`: PASS, including the ShadowCode `.deb` signature, pin and
@@ -447,12 +492,13 @@ candidate:
   signed archive.
 - `drift_gate`: 0 DRIFT, 4 BLOCKED (the pre-existing findings under Known
   issues).
-- `acceptance --version 5.0.0`: every prepublication case pass or waived with
-  the approver recorded (below).
+- Acceptance (`qa/5.0.0/acceptance.json`): 12 cases pass, including
+  EVIDENCE-01 (the evidence bundle), and 6 are waived with the approver
+  recorded; PUB-01 is proven after publication (below).
 
 Earlier candidates (ISO `c8ea7ef0…` with ShadowCode 0.34.2, and the 1.0.0
-candidates `c64c3493…` and `2abd1f6f…`) are superseded; nothing here is
-claimed from them.
+candidates `c64c3493…`, `2abd1f6f…` and `a83d7d8a…`) are superseded; nothing
+here is claimed from them.
 
 ShadowCode 1.0.0 pin, measured before the rebuild: signature verified against
 the vendored trust policy (commit `e0ab2655`, key maximum 1.0.0), host smoke
@@ -462,18 +508,24 @@ the vendored trust policy (commit `e0ab2655`, key maximum 1.0.0), host smoke
 
 # Acceptance
 
-Every required case in `qa/5.0.0/acceptance.json` is recorded against this
-exact ISO (SHA-256 `@@ISO_SHA256@@`). 14 pass, 4 are waived by the release
-owner, and `PUB-01` is proven after publication, against what is public.
+Acceptance is recorded in `qa/5.0.0/acceptance.json` against this exact ISO
+(SHA-256 `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21`).
+Of the 18 prepublication cases, 12 pass and 6 are waived by the release
+owner. `PUB-01` is proven after publication, against what is public.
 
 **Pass:** SRC-01, PKG-01, ISO-01, FIRE-01 (live desktop and Mission Control),
 ICE-01 (offline agent network), INSTALL-01 (fresh BIOS and UEFI installs boot
-from disk), SCOPE-01, DURABLE-01, RECOVERY-01, VISUAL-01, SHADOWCODE-01 (the
-`shadowcode` and `shadowcode-soak` VM cases), STRESS-01, RESOURCE-01 and
-EVIDENCE-01.
+from disk), SCOPE-01, DURABLE-01, RECOVERY-01, VISUAL-01 (screenshots at
+1920x1080 and 1366x768), RESOURCE-01 (mission admission limits and desktop
+responsiveness while missions and media exports run) and EVIDENCE-01 (the
+checksum, signature, SBOM, package manifest and QA evidence bundle for this
+ISO).
 
-**Waived, approved by the release owner.** Each waiver is for an account or
-harness limit, not a failure, and states what was and was not proven:
+**Waived, approved by the release owner.** Four waivers are for an account or
+harness limit. Two, SHADOWCODE-01 and STRESS-01, are for checks that did not
+pass. The release owner chose to ship this ISO; 5.0.1 fixes the known issues
+behind them (ShadowCode's window, "database is busy" and the live-USB refresh).
+Each waiver states what was and was not proven:
 
 - **MISSION-01**, code sub-part: a real code mission needs a paid vendor
   account, which the QA environment does not hold. The media mission and the
@@ -488,3 +540,25 @@ harness limit, not a failure, and states what was and was not proven:
   one-time notice, the agent-network migration, the retired launchers
   removed and user data preserved. Rollback after an upgrade was not
   exercised.
+- **SHADOWCODE-01**, soak memory check: the `shadowcode` case passes (the
+  pinned 1.0.0 launches, runs and exits cleanly). In the 24-cycle open/close
+  soak every window opened and closed cleanly, with no crash, no leftover
+  process and idle CPU of 1.6–6.0%, but available memory fell by 680 MiB
+  against a 256 MiB limit. A diagnostic rerun traced the drop to the one-time
+  package-list refresh that KDE's update notifier starts about five minutes
+  after login, written to the live session's RAM; ShadowCode's own memory
+  stayed flat through that drop (see Known issues). Separately, ShadowCode
+  1.0.0's window grows on each launch under Wayland (see Known issues). Not
+  proven: a passing memory check on this ISO.
+- **STRESS-01**, mission and container loops: in two full 45-minute runs of
+  combined CPU, memory, disk, container, mission and desktop stress on an
+  installed system, with ShadowCode open throughout, the system stayed
+  healthy: no crashes, out-of-memory kills, failed units, thermal events or
+  swap, and every CLI latency probe answered within its limit. Two workload
+  loops stopped early: mission CLI calls returned "database is busy" while the
+  worker finished a media step under disk stress (see Known issues), and in
+  both runs the container loop stopped at its third cycle, when a
+  `podman run --rm` client produced the correct result but did not exit
+  within 120 s. Not proven: a complete mission and container loop under 45
+  minutes of stress on this ISO. The "database is busy" fix is in 5.0.1 (see
+  Known issues).

@@ -1849,5 +1849,5 @@
       "notes": ""
     }
   ],
-  "candidate_note": "Release candidate c64c3493 (4085794816 bytes) built from 29041e1 (tree dc2b02b) with ShadowCode 1.0.0, signed by 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1; package gate and ISO gate (including the build-secret leak check) passed. Earlier candidates dfea3c9b and c8ea7ef0 are superseded; their VM evidence informed fixes but is not recorded here. Every case is pending until run on this image."
+  "candidate_note": "Release ISO 2d8a72e0 (4085778432 bytes) built from 9587a7c (tree 2986e02) with ShadowCode 1.0.0, signed by 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1. Earlier candidates c8ea7ef0, dfea3c9b, c64c3493, 2abd1f6f and a83d7d8a are superseded; their VM evidence informed fixes but is not recorded here."
 }
