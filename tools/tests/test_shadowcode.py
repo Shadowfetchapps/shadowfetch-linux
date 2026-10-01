@@ -345,6 +345,17 @@ class ReleaseLinkageTests(unittest.TestCase):
         self.base = gate.load_release("4.0.0")
         self.pin = shadowcode.load_pin()
         self.declared = with_prebuilt(self.base, {"shadow-code": "tools/release/shadowcode.toml"})
+        # The release that ships this pin, read from the release data rather
+        # than spelled as a literal: the pin's ships_in names it, and that
+        # release's own data file must declare the package. A ShadowCode bump
+        # moves ships_in, and these tests follow it.
+        self.assertTrue(self.pin.ships_in, "shadowcode.toml ships_in names no release")
+        self.shipping = self.pin.ships_in[-1]
+        self.assertTrue(
+            shadowcode.declared_in(gate.load_release(self.shipping).document),
+            f"versions/{self.shipping}.toml does not declare shadow-code",
+        )
+        self.assertNotIn(self.base.version, self.pin.ships_in)
 
     def test_prebuilt_version_comes_from_the_pin_not_the_release_data(self) -> None:
         self.assertEqual(self.pin.version, self.declared.binary_versions["shadow-code"])
@@ -368,7 +379,7 @@ class ReleaseLinkageTests(unittest.TestCase):
 
     def test_a_release_the_pin_ships_in_must_declare_it(self) -> None:
         with self.assertRaises(ShadowCodeError) as caught:
-            shadowcode.check_release_linkage("5.0.0", self.base.document, self.pin)
+            shadowcode.check_release_linkage(self.shipping, self.base.document, self.pin)
         self.assertIn("[packages.prebuilt]", str(caught.exception))
 
     def test_a_release_may_not_declare_what_the_pin_does_not_ship_in(self) -> None:
@@ -377,7 +388,7 @@ class ReleaseLinkageTests(unittest.TestCase):
 
     def test_consistent_linkage(self) -> None:
         self.assertFalse(shadowcode.check_release_linkage("4.0.0", self.base.document, self.pin))
-        self.assertTrue(shadowcode.check_release_linkage("5.0.0", self.declared.document, self.pin))
+        self.assertTrue(shadowcode.check_release_linkage(self.shipping, self.declared.document, self.pin))
 
 
 class PackageGateShadowCodeTests(unittest.TestCase):
