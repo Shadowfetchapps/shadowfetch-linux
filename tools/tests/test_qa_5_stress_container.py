@@ -282,7 +282,8 @@ class Loop(unittest.TestCase):
         self.assertIn('rc 1', r['primary_error']['reason'])
 
     def test_remaining_container_fails_even_after_clean_cycles(self):
-        p = Profile(plan=lambda n: dict(result_after=1.0, cleanup=0.2), listing='sfqa-stress-pure-test-2\n')
+        p = Profile(plan=lambda n: dict(result_after=1.0, cleanup=0.2),
+                    listing='sfqa-unrelated\nsfqa-stress-pure-test-2\nsfqa-stress-other-run-2\n')
         r = p.go(60)
         self.assertEqual(r['status'], 'FAIL')
         self.assertIs(r['final_container_exists'], True)

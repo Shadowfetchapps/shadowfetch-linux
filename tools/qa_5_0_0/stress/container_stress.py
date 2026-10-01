@@ -438,12 +438,15 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
             cleanup_operations.append(removal)
             if removal.get('error') or removal.get('rc') != 0:
                 cleanup_errors.append({'error': 'Exact-name container removal failed', 'operation': removal})
-        listing = invoke(['podman', 'ps', '-a', '--filter', f'name=^{prefix}', '--format', '{{.Names}}'], FINAL_OP_TIMEOUT)
+        # Every name, filtered here: a server-side name filter that ever
+        # stopped matching would silently hide a leftover.
+        listing = invoke(['podman', 'ps', '-a', '--format', '{{.Names}}'], FINAL_OP_TIMEOUT)
         cleanup_operations.append(listing)
         if listing.get('error') or listing.get('rc') != 0:
             cleanup_errors.append({'error': 'Final container listing is unverified', 'operation': listing})
         else:
-            remaining = sorted(name for name in listing.get('stdout', '').split() if name.startswith(prefix))
+            ours = {cycle['name'] for cycle in cycles}
+            remaining = sorted(name for name in listing.get('stdout', '').split() if name in ours)
             final_exists = bool(remaining)
             if remaining:
                 cleanup_errors.append({'error': 'Named QA containers remain after cleanup', 'containers': remaining,
