@@ -246,9 +246,22 @@ upload.
      before recording anything.
    * `apt_packages_sha256` / `apt_sources_sha256` are the SHA-256 of
      `repo/dists/<codename>/main/binary-amd64/Packages` and
-     `main/source/Sources`, which pin every `.deb` and source file. A rebuilt
-     repository changes them, and the publisher refuses until the subset is
-     re-run against it and these two are updated.
+     `main/source/Sources`, which pin every `.deb` and source file. **Set them
+     before recording anything, too.** `acceptance.py record` stamps both onto
+     every evidence entry and every waiver it writes, and the publisher
+     requires each entry and waiver of the subset to carry the digests of the
+     indices being published. The base image digest cannot do that job on its
+     own: every 5.0.0 receipt is bound to `2d8a72e0...` as well. Setting the
+     manifest-level digests afterwards binds nothing recorded before them. A
+     rebuilt repository changes both, and the publisher refuses until the
+     subset is re-run against it, these two are updated, and the cases are
+     recorded again.
+
+   The base release's acceptance is never this update's: an evidence file
+   that `qa/<base>/acceptance.json` records, a file in the base release's
+   evidence directory, an `evidence_root` pointing there, and a waiver
+   whose reason is the base release's reason for that case, word for word,
+   are each refused. A waiver is argued again for this release.
 
    `make acceptance-gate` still refuses such a manifest, and that is correct.
    It is the gate for an ISO release and is unchanged.

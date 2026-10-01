@@ -103,6 +103,13 @@ DELIVERIES = (DELIVERY_ISO, APT_ONLY)
 # an ISO release passes -- is neither used nor changed by this mode: an ISO
 # release still needs every required case.
 APT_ONLY_FLOOR = ("SRC-01", "PKG-01", "UPGRADE-01")
+# The packages under test: the manifest field, and the index under
+# dists/<codename>/ whose digest it must be. The binary and source indices pin
+# every .deb and source file by SHA-256, so these two digests are the packages.
+PACKAGE_INDICES = (
+    ("apt_packages_sha256", "main/binary-amd64/Packages"),
+    ("apt_sources_sha256", "main/source/Sources"),
+)
 # How long the signed index must stay valid when it is published: the same
 # floor pre_release_check.sh is given, read from the text the signature covers.
 MIN_VALID_FOR = datetime.timedelta(days=7)
@@ -385,13 +392,52 @@ def base_release(release=None):
         raise ValueError(f"Base release {base.version} is not an earlier ISO release")
     return base
 
+def base_manifest(root, base):
+    """qa/<base>/acceptance.json: the base release's own accepted manifest."""
+    path = root / f"qa/{base.version}/acceptance.json"
+    return path, json.loads(path.read_text(encoding="utf-8"))
+
 def base_image_digest(root, base):
     """The base image's digest, as that release's own accepted manifest records it."""
-    manifest = root / f"qa/{base.version}/acceptance.json"
-    value = (json.loads(manifest.read_text(encoding="utf-8")).get("artifact") or {}).get("iso_sha256")
+    manifest, data = base_manifest(root, base)
+    value = (data.get("artifact") or {}).get("iso_sha256")
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value):
         raise ValueError(f"{manifest} records no artifact.iso_sha256 for the base image")
     return value.lower()
+
+@dataclass(frozen=True)
+class BaseRecord:
+    """What the base release accepted, so it cannot be accepted again as this.
+
+    Every receipt of the base release is bound to the same image digest an
+    APT-only update's evidence is bound to, so that binding cannot tell the
+    two apart; the package-index stamps can (evidence_errors). These are the
+    belt to those braces: a file the base release recorded, a reason it gave
+    for a waiver, and the directory it kept its evidence in.
+    """
+    version: str
+    evidence: dict  # sha256 -> "CASE-ID path"
+    waivers: dict  # case id -> reason
+    evidence_root: Path | None
+
+def base_record(root, base, acceptance):
+    manifest, data = base_manifest(root, base)
+    evidence, waivers = {}, {}
+    for case in data.get("cases") or []:
+        if not isinstance(case, dict):
+            continue
+        for item in case.get("evidence") or []:
+            if isinstance(item, dict) and isinstance(item.get("sha256"), str):
+                evidence.setdefault(item["sha256"].lower(), f"{case.get('id')} {item.get('path')}")
+        reason = (case.get("waiver") or {}).get("reason") if isinstance(case.get("waiver"), dict) else None
+        if isinstance(reason, str) and reason.strip():
+            waivers[case.get("id")] = reason
+    named = data.get("evidence_root")
+    evidence_root = acceptance.evidence_root_for(manifest, data) if isinstance(named, str) and named.strip() else None
+    return BaseRecord(base.version, evidence, waivers, evidence_root)
+
+def _inside(path, directory):
+    return directory is not None and (path == directory or directory in path.parents)
 
 def release_acceptance():
     """tools/release/acceptance.py -- its evidence floors, not a copy of them.
@@ -407,8 +453,27 @@ def release_acceptance():
         spec.loader.exec_module(module)
     return sys.modules[name]
 
-def evidence_errors(acceptance, case, evidence_root, bound_to):
-    """One passing case's evidence: present, unchanged, usable, and bound."""
+def package_binding_errors(label, item, packages):
+    """`item` (an evidence entry or a waiver) carries the digests of the indices
+    being published, as `acceptance.py record` stamps them from the manifest."""
+    errors = []
+    for field, index in PACKAGE_INDICES:
+        stamped, published = item.get(field), packages.get(field)
+        if published is None:
+            continue  # the index itself is missing; reported once, above
+        if not isinstance(stamped, str) or stamped.lower() != published:
+            against = f"recorded against {index} {stamped[:16]}..." if isinstance(stamped, str) \
+                else f"carries no {field}, so it was recorded against no particular {index}"
+            errors.append(
+                f"{label}: {against}, not the one being published ({published[:16]}...). Re-run it "
+                f"against this repository and re-record it once artifact.{field} names it: "
+                "`acceptance.py record` stamps the digest from there")
+    return errors
+
+def evidence_errors(acceptance, case, evidence_root, bound_to, packages, base):
+    """One passing case's evidence: present, unchanged, usable, and bound to
+    the base image AND to the packages being published -- never the base
+    release's own."""
     case_id = case["id"]
     if not case["evidence"]:
         return [f"{case_id}: passing case has no evidence"]
@@ -428,14 +493,20 @@ def evidence_errors(acceptance, case, evidence_root, bound_to):
         except ValueError as error:
             errors.append(f"{label}: {error}")
             continue
+        if _inside(path, base.evidence_root):
+            errors.append(f"{label}: {value} is in {base.version}'s evidence directory; an update's acceptance is re-run, not inherited")
+            continue
         if not path.is_file():
             errors.append(f"{label}: missing file {path}")
             continue
         if acceptance.sha256_file(path) != recorded.lower():
             errors.append(f"{label}: SHA-256 mismatch for {value}")
+        if recorded.lower() in base.evidence:
+            errors.append(f"{label}: {value} is {base.version}'s own evidence ({base.evidence[recorded.lower()]} in qa/{base.version}/acceptance.json); an update's acceptance is re-run, not inherited")
         bound = item.get("artifact_sha256")
         if not isinstance(bound, str) or bound.lower() != bound_to:
             errors.append(f"{label}: recorded against {str(bound)[:16]}..., not the image this update is applied to ({bound_to[:16]}...)")
+        errors.extend(package_binding_errors(label, item, packages))
         errors.extend(f"{label}: {error}" for error in acceptance.evidence_quality_errors(path, kind))
         if kind == "screenshot":
             try:
@@ -445,6 +516,14 @@ def evidence_errors(acceptance, case, evidence_root, bound_to):
             else:
                 if width < 1280 or height < 720:
                     errors.append(f"{label}: screenshot is {width}x{height}, below 1280x720")
+    return errors
+
+def waiver_errors(case, packages, base):
+    """A waived case's decision was taken about these packages, for this release."""
+    waiver = case["waiver"]  # approver and reason: acceptance.validate_manifest
+    errors = package_binding_errors(f"{case['id']}.waiver", waiver, packages)
+    if base.waivers.get(case["id"], "").strip() == waiver["reason"].strip():
+        errors.append(f"{case['id']}.waiver: the reason is {base.version}'s waiver of {case['id']}, word for word; a waiver is argued again for this release, not inherited")
     return errors
 
 def apt_only_acceptance_errors(root, release=None):
@@ -461,6 +540,16 @@ def apt_only_acceptance_errors(root, release=None):
         digests of the binary and source indices being published, which pin
         every .deb and source file by SHA-256: acceptance recorded against
         another build of the packages does not describe these;
+      * and, because the base image digest is ALSO what every receipt of the
+        base release is bound to, each evidence entry and each waiver of the
+        subset carries those two index digests itself (`acceptance.py record`
+        stamps them from the manifest, as it stamps artifact_sha256). Setting
+        the manifest-level digests after the fact binds nothing that was
+        recorded before them. On top of that, no evidence file of the subset
+        is one qa/<base>/acceptance.json records, none lies in the base
+        release's evidence directory, and no waiver repeats the base release's
+        reason for waiving that case: the base release's acceptance is not
+        this update's;
       * no case anywhere in the manifest is recorded as `fail`. A case outside
         the subset may be pending; a recorded failure is not "not required".
     """
@@ -481,13 +570,19 @@ def apt_only_acceptance_errors(root, release=None):
     if declared != bound_to:
         errors.append(f"artifact.iso_sha256 must name {base.iso_name} ({bound_to[:16]}...), the image this update is applied to; it names {declared[:16] or 'nothing'}")
     dists = root / "repo/dists" / release.codename
-    for field, index in (("apt_packages_sha256", "main/binary-amd64/Packages"), ("apt_sources_sha256", "main/source/Sources")):
+    packages = {}
+    for field, index in PACKAGE_INDICES:
         path = dists / index
         if not path.is_file():
             errors.append(f"{path} is missing")
-        elif artifact.get(field) != digest(path):
-            errors.append(f"artifact.{field} is {artifact.get(field)!r} but the {index} being published is {digest(path)}: the subset was not accepted against these packages")
+            continue
+        packages[field] = digest(path)
+        if artifact.get(field) != packages[field]:
+            errors.append(f"artifact.{field} is {artifact.get(field)!r} but the {index} being published is {packages[field]}: the subset was not accepted against these packages")
     evidence_root = acceptance.evidence_root_for(manifest, data)
+    base_accepted = base_record(root, base, acceptance)
+    if _inside(evidence_root, base_accepted.evidence_root):
+        errors.append(f"evidence_root {evidence_root} is {base.version}'s evidence directory; this update's evidence is its own")
     cases = {case["id"]: case for case in data["cases"]}
     for case_id in apt_only_cases(release):
         case = cases.get(case_id)
@@ -497,8 +592,10 @@ def apt_only_acceptance_errors(root, release=None):
         if case["required"] is not True or case["phase"] != "prepublish":
             errors.append(f"{case_id}: must stay a required prepublish case")
         if case["status"] == "pass":
-            errors.extend(evidence_errors(acceptance, case, evidence_root, bound_to))
-        elif case["status"] != "waived":
+            errors.extend(evidence_errors(acceptance, case, evidence_root, bound_to, packages, base_accepted))
+        elif case["status"] == "waived":
+            errors.extend(waiver_errors(case, packages, base_accepted))
+        else:
             errors.append(f"{case_id}: required status is {case['status']}, not pass or waived")
     errors.extend(f"{case['id']}: recorded as fail" for case in data["cases"] if case["status"] == "fail")
     return errors

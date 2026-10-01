@@ -1,3 +1,4 @@
+import argparse
 import contextlib
 import dataclasses
 import datetime
@@ -161,30 +162,45 @@ def build_repository(root, release=RELEASE, version_override=None, dates=DATED,
 BASE_IMAGE = "2d" * 32
 EVIDENCE_TEXT = "{case} recorded by the harness against the update: every check held, exit 0.\n"
 
-def write_acceptance(root, release=RELEASE, cases=None, artifact=None, bind_to=BASE_IMAGE):
+def packages_under_test(root, release=RELEASE):
+    dists = root / "repo/dists" / release.codename
+    return {field: publisher.digest(dists / index) for field, index in publisher.PACKAGE_INDICES}
+
+def write_base_manifest(root, release=RELEASE, cases=(), evidence_root=None):
+    """qa/<base>/acceptance.json: the base release's own accepted manifest."""
+    base = publisher.base_release(release)
+    document = {"artifact": {"iso_sha256": BASE_IMAGE}, "cases": list(cases)}
+    if evidence_root is not None:
+        document["evidence_root"] = evidence_root
+    write(root / f"qa/{base.version}/acceptance.json", json.dumps(document))
+    return base
+
+def write_acceptance(root, release=RELEASE, cases=None, artifact=None, bind_to=BASE_IMAGE, stamp=None):
     """qa/<v>/acceptance.json for an APT-only update, with real evidence files.
 
-    `cases` maps a case id to its status; pass cases get one bound log each.
+    `cases` maps a case id to its status; pass cases get one bound log each,
+    stamped -- as `acceptance.py record` stamps it -- with the digests of the
+    indices on disk, or with `stamp` when a test says otherwise ({} for none).
+    Waivers are stamped the same way.
     """
-    base = publisher.base_release(release)
-    write(root / f"qa/{base.version}/acceptance.json", json.dumps({"artifact": {"iso_sha256": BASE_IMAGE}}))
+    base = write_base_manifest(root, release)
     write(root / "Makefile", "fixture\n")
     (root / "packages").mkdir(exist_ok=True)
     evidence_root = root / f"work/qa-{release.version}/evidence"
     statuses = {case: "pass" for case in publisher.APT_ONLY_FLOOR}
     statuses.update({"ISO-01": "pending", "INSTALL-01": "pending", "VISUAL-01": "pending", "DURABLE-01": "pending"})
     statuses.update(cases or {})
+    stamp = packages_under_test(root, release) if stamp is None else stamp
     entries = []
     for case_id, status in statuses.items():
         case = {"id": case_id, "phase": "prepublish", "required": True, "status": status, "evidence": []}
         if status == "pass":
             data = EVIDENCE_TEXT.format(case=case_id).encode()
             write(evidence_root / f"{case_id}.log", data)
-            case["evidence"] = [{"kind": "log", "path": f"{case_id}.log", "sha256": sha(data), "artifact_sha256": bind_to}]
+            case["evidence"] = [{"kind": "log", "path": f"{case_id}.log", "sha256": sha(data), "artifact_sha256": bind_to, **stamp}]
         if status == "waived":
-            case["waiver"] = {"approver": "release owner", "reason": "fixture waiver with a written reason"}
+            case["waiver"] = {"approver": "release owner", "reason": "fixture waiver with a written reason", **stamp}
         entries.append(case)
-    dists = root / "repo/dists" / release.codename
     document = {
         "schema_version": 1,
         "release": publisher.release_acceptance().expected_release(release),
@@ -192,8 +208,7 @@ def write_acceptance(root, release=RELEASE, cases=None, artifact=None, bind_to=B
         "artifact": {
             "iso_path": base.iso_name,
             "iso_sha256": BASE_IMAGE,
-            "apt_packages_sha256": publisher.digest(dists / "main/binary-amd64/Packages"),
-            "apt_sources_sha256": publisher.digest(dists / "main/source/Sources"),
+            **packages_under_test(root, release),
             **(artifact or {}),
         },
         "cases": entries,
@@ -691,6 +706,106 @@ class AptOnlyAcceptanceTests(Fixture):
         document["release"]["version"] = "0.0.1"
         write(self.root / f"qa/{V}/acceptance.json", json.dumps(document))
         self.assertIn(f"release.version must be {V!r}", publisher.apt_only_acceptance_errors(self.root, APT_ONLY_RELEASE))
+
+    # -- the base release's acceptance is not this update's ---------------------
+
+    def matching(self, errors, *fragments):
+        return [error for error in errors if all(fragment in error for fragment in fragments)]
+
+    def test_the_base_releases_own_acceptance_is_not_this_updates(self):
+        """The review's reproduction. Every receipt of the base release is bound
+        to the base image -- the digest this update's evidence is bound to as
+        well -- so its SRC-01 and PKG-01 logs and its UPGRADE-01 waiver, copied
+        in with the manifest-level index digests set, used to pass."""
+        base = publisher.base_release(APT_ONLY_RELEASE)
+        base_root = f"work/qa-{base.version}/evidence"
+        base_cases = []
+        for case_id in ("SRC-01", "PKG-01"):
+            data = f"{case_id} gate for {base.version}: every package at {base.version}-1, exit 0\n".encode()
+            write(self.root / base_root / f"gates/{case_id}.log", data)
+            base_cases.append({"id": case_id, "status": "pass", "evidence": [
+                {"kind": "log", "path": f"gates/{case_id}.log", "sha256": sha(data), "artifact_sha256": BASE_IMAGE}]})
+        base_cases.append({"id": "UPGRADE-01", "status": "waived", "evidence": [],
+                           "waiver": {"approver": "release owner", "reason": f"{base.version}: the upgrade VM ran out of time"}})
+        document = write_acceptance(self.root, APT_ONLY_RELEASE, cases={"UPGRADE-01": "waived"})
+        write_base_manifest(self.root, APT_ONLY_RELEASE, base_cases, base_root)
+        copied = {case["id"]: json.loads(json.dumps(case)) for case in base_cases}
+        for case in document["cases"]:
+            if case["id"] in copied:
+                case.update({key: copied[case["id"]][key] for key in ("status", "evidence", "waiver") if key in copied[case["id"]]})
+                for item in case["evidence"]:
+                    write(self.root / f"work/qa-{V}/evidence" / item["path"], (self.root / base_root / item["path"]).read_bytes())
+        write(self.root / f"qa/{V}/acceptance.json", json.dumps(document))
+        errors = publisher.apt_only_acceptance_errors(self.root, APT_ONLY_RELEASE)
+        for case_id in ("SRC-01", "PKG-01"):
+            self.assertTrue(self.matching(errors, f"{case_id}.evidence[0]: carries no apt_packages_sha256"), errors)
+            self.assertTrue(self.matching(errors, f"{case_id}.evidence[0]: gates/{case_id}.log is {base.version}'s own evidence"), errors)
+        self.assertTrue(self.matching(errors, "UPGRADE-01.waiver: carries no apt_sources_sha256"), errors)
+        self.assertTrue(self.matching(errors, f"UPGRADE-01.waiver: the reason is {base.version}'s waiver of UPGRADE-01, word for word"), errors)
+        # Stamping the copies by hand does not make them this update's.
+        for case in document["cases"]:
+            for item in [*case["evidence"], *([case["waiver"]] if "waiver" in case else [])]:
+                item.update(packages_under_test(self.root))
+        write(self.root / f"qa/{V}/acceptance.json", json.dumps(document))
+        errors = publisher.apt_only_acceptance_errors(self.root, APT_ONLY_RELEASE)
+        self.assertFalse(self.matching(errors, "carries no"), errors)
+        self.assertEqual(3, len(self.matching(errors, f"{base.version}'s")), errors)
+
+    def test_evidence_recorded_against_an_earlier_build_of_the_packages_is_refused(self):
+        """The manifest names this repository; the entries were recorded before
+        it was rebuilt. Setting the manifest-level digest binds nothing."""
+        errors = self.errors(stamp={"apt_packages_sha256": "3" * 64, "apt_sources_sha256": "4" * 64})
+        for case_id in publisher.APT_ONLY_FLOOR:
+            self.assertTrue(self.matching(errors, f"{case_id}.evidence[0]: recorded against main/binary-amd64/Packages 3333333333333333..., not the one being published"), errors)
+            self.assertTrue(self.matching(errors, f"{case_id}.evidence[0]: recorded against main/source/Sources 4444444444444444..."), errors)
+        self.assertFalse([error for error in errors if error.startswith("artifact.apt_")], errors)
+
+    def test_a_waiver_is_bound_to_the_packages_it_was_decided_about(self):
+        errors = self.errors(cases={"UPGRADE-01": "waived"}, stamp={})
+        self.assertTrue(self.matching(errors, "UPGRADE-01.waiver: carries no apt_packages_sha256"), errors)
+
+    def test_the_base_releases_evidence_directory_is_not_this_updates(self):
+        base = publisher.base_release(APT_ONLY_RELEASE)
+        document = write_acceptance(self.root, APT_ONLY_RELEASE)
+        write_base_manifest(self.root, APT_ONLY_RELEASE, [], f"work/qa-{base.version}/evidence")
+        for evidence_root, prefix in ((f"work/qa-{base.version}/evidence", ""), ("work", f"qa-{base.version}/evidence/")):
+            with self.subTest(evidence_root=evidence_root):
+                moved = json.loads(json.dumps(document))
+                moved["evidence_root"] = evidence_root
+                for case in moved["cases"]:
+                    for item in case["evidence"]:
+                        write(self.root / f"work/qa-{base.version}/evidence" / item["path"], (self.root / f"work/qa-{V}/evidence" / item["path"]).read_bytes())
+                        item["path"] = prefix + item["path"]
+                write(self.root / f"qa/{V}/acceptance.json", json.dumps(moved))
+                errors = publisher.apt_only_acceptance_errors(self.root, APT_ONLY_RELEASE)
+                self.assertEqual(3, len(self.matching(errors, f"is in {base.version}'s evidence directory")), errors)
+                self.assertEqual(not prefix, bool(self.matching(errors, f"evidence_root {self.root.resolve() / evidence_root} is {base.version}'s evidence directory")), errors)
+
+    def test_what_the_recorder_writes_is_what_the_publisher_accepts(self):
+        """acceptance.py record stamps the index digests from the manifest; a
+        rebuilt repository is refused until the subset is recorded again."""
+        acceptance = publisher.release_acceptance()
+        manifest = self.root / f"qa/{V}/acceptance.json"
+
+        def record_floor():
+            for case_id in publisher.APT_ONLY_FLOOR:
+                log = write(self.root / f"work/qa-{V}/evidence/{case_id}-run.log", EVIDENCE_TEXT.format(case=case_id) + publisher.digest(self.dists / "main/binary-amd64/Packages") + "\n")
+                quietly(acceptance.record, argparse.Namespace(
+                    manifest=manifest, release=APT_ONLY_RELEASE, case_id=case_id, status="pass", evidence=[log],
+                    kind="log", notes=None, waiver_approver=None, waiver_reason=None, clear_evidence=False))
+
+        write_acceptance(self.root, APT_ONLY_RELEASE, cases={case: "pending" for case in publisher.APT_ONLY_FLOOR})
+        record_floor()
+        self.assertEqual([], publisher.apt_only_acceptance_errors(self.root, APT_ONLY_RELEASE))
+        build_repository(self.root, version_override={"shadowfetch-missions": f"{V}-9"})
+        document = json.loads(manifest.read_text())
+        document["artifact"].update(packages_under_test(self.root))
+        write(manifest, json.dumps(document))
+        errors = publisher.apt_only_acceptance_errors(self.root, APT_ONLY_RELEASE)
+        self.assertEqual(3, len(self.matching(errors, "recorded against main/binary-amd64/Packages", "not the one being published")), errors)
+        self.assertFalse(self.matching(errors, "main/source/Sources"), "the rebuild changed no source package")
+        record_floor()
+        self.assertEqual([], publisher.apt_only_acceptance_errors(self.root, APT_ONLY_RELEASE))
 
 
 # -- the packages-only upload --------------------------------------------------------
