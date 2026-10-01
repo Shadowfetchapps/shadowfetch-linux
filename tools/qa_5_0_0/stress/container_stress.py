@@ -323,13 +323,44 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
         cycle['probes'].append(found)
         return found
 
+    def wrong_result(cycle, reason, rc, lines):
+        cycle['verdict'], cycle['reason'] = 'wrong_result', reason
+        fail({'error': 'Container produced a wrong result', 'cycle': cycle['number'], 'name': cycle['name'],
+              'reason': reason, 'rc': rc,
+              'stdout': ''.join(line for _, line in lines)[-2000:], 'stderr': cycle['client'].stderr[-2000:]})
+
+    def look(client):
+        """ONE consistent look at a client: (exited_at, rc, lines).
+
+        The waiter thread drains stdout, then sets rc, then exited_at. So
+        exited_at is read first, and whenever it is set the rc and output read
+        after it are final. Judging one look and acting on a later one let a
+        client that exited in between be finalized unjudged: a nonzero exit,
+        or an exit with no checksum at all, was recorded as 'ok'.
+        """
+        exited_at = client.exited_at
+        rc = client.rc if exited_at is not None else None
+        return exited_at, rc, list(client.lines)
+
     def finalize(cycle, now):
         client = cycle['client']
+        exited_at, rc, lines = look(client)
+        if cycle['verdict'] == 'pending':
+            # Never promoted by default: only a judgment of the client's final
+            # state may say 'ok'.
+            if exited_at is None:
+                cycle['verdict'], cycle['reason'] = 'aborted', 'finalized before its client exited'
+            else:
+                view = judge(lines, finished=True, rc=rc, started=client.started, now=now)
+                if cycle['result_at'] is None:
+                    cycle['result_at'] = view['result_at']
+                if view['reason']:
+                    wrong_result(cycle, view['reason'], rc, lines)
+                else:
+                    cycle['verdict'] = 'ok'
         result_at = cycle['result_at']
         workload = None if result_at is None else result_at - client.started
-        cleanup = None if result_at is None or client.exited_at is None else client.exited_at - result_at
-        if cycle['verdict'] == 'pending':
-            cycle['verdict'] = 'ok'
+        cleanup = None if result_at is None or exited_at is None else exited_at - result_at
         found = phase_observations(workload, cleanup) + cycle['observations']
         row = {'container_cycle': cycle['number'], 'name': cycle['name'], 'verdict': cycle['verdict'],
                'reason': cycle['reason'],
@@ -337,10 +368,10 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
                'result_elapsed': None if result_at is None else round(result_at - start, 3),
                'workload_seconds': None if workload is None else round(workload, 3),
                'cleanup_seconds': None if cleanup is None else round(cleanup, 3),
-               'seconds': round((client.exited_at if client.exited_at is not None else now) - client.started, 3),
-               'exit': client.rc, 'stdout': ''.join(line for _, line in client.lines), 'stderr': client.stderr,
+               'seconds': round((exited_at if exited_at is not None else now) - client.started, 3),
+               'exit': rc, 'stdout': ''.join(line for _, line in lines), 'stderr': client.stderr,
                'client_pid': client.pid, 'client_start_ticks': client.start_ticks,
-               'client_exited': client.finished, 'termination_errors': list(client.termination_errors),
+               'client_exited': exited_at is not None, 'termination_errors': list(client.termination_errors),
                'observations': found, 'probes': cycle['probes'], 'argv': client.argv}
         rows.append(row)
         for item in found:
@@ -357,15 +388,16 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
 
     def update(cycle, now):
         client = cycle['client']
-        view = judge(client.lines, finished=client.finished, rc=client.rc, started=client.started, now=now)
+        exited_at, rc, lines = look(client)
+        finished = exited_at is not None
+        view = judge(lines, finished=finished, rc=rc, started=client.started, now=now)
         if cycle['result_at'] is None and view['result_at'] is not None:
             cycle['result_at'] = view['result_at']
         if view['reason'] and cycle['verdict'] == 'pending':
-            cycle['verdict'], cycle['reason'] = 'wrong_result', view['reason']
-            fail({'error': 'Container produced a wrong result', 'cycle': cycle['number'], 'name': cycle['name'],
-                  'reason': view['reason'], 'rc': client.rc,
-                  'stdout': ''.join(line for _, line in client.lines)[-2000:], 'stderr': client.stderr[-2000:]})
-        if client.finished:
+            wrong_result(cycle, view['reason'], rc, lines)
+        if finished:
+            if cycle['verdict'] == 'pending':
+                cycle['verdict'] = view['verdict']  # 'ok': a finished client is never left pending
             finalize(cycle, now)
             return
         if view['overdue']:
@@ -456,7 +488,7 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
                 cleanup_errors.append({'error': 'Podman client exit was not verified',
                                        'operation': {key: value.get(key) for key in ('name', 'argv', 'client_pid', 'termination_errors')}})
     verified = [row for row in rows if row['verdict'] == 'ok']
-    marks = sorted(row['result_elapsed'] for row in verified)
+    marks = sorted(row['result_elapsed'] for row in verified if row['result_elapsed'] is not None)
     coverage = max(0.0, min(marks[-1], duration) - min(marks[0], duration)) if len(marks) > 1 else 0.0
     minimum = max(1, duration // 120)
     if len(verified) < minimum or (duration >= 120 and coverage < .75 * duration):

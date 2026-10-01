@@ -98,6 +98,27 @@ class FakeClient:
                 self.termination_errors.append("Client remains after bounded TERM/KILL observation; owned-process cleanup required")
 
 
+class ExitsBetweenReads(FakeClient):
+    """A client whose waiter thread sets exited_at between two reads.
+
+    The first read of exited_at after the client's exit time still says
+    "running"; every later read says "exited". That is the real Client when
+    the process exits while update() is between two looks at it.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reads_after_exit = 0
+
+    @property
+    def exited_at(self):
+        natural = FakeClient.exited_at.fget(self)
+        if natural is None:
+            return None
+        self.reads_after_exit += 1
+        return None if self.reads_after_exit == 1 else natural
+
+
 class Profile:
     def __init__(self, *, plan=lambda n: {}, listing='', listing_rc=0, inspect='exited'):
         self.clock = Clock()
@@ -106,7 +127,8 @@ class Profile:
         self.live_peak = 0
 
     def start_client(self, argv):
-        client = FakeClient(self.clock, argv, **self.plan(len(self.clients) + 1))
+        spec = dict(self.plan(len(self.clients) + 1))
+        client = spec.pop('cls', FakeClient)(self.clock, argv, **spec)
         self.clients.append(client)
         live = sum(1 for c in self.clients if not c.finished)
         self.live_peak = max(self.live_peak, live)
@@ -280,6 +302,33 @@ class Loop(unittest.TestCase):
         r = p.go(2700)
         self.assertEqual(r['primary_error']['error'], 'Container produced a wrong result')
         self.assertIn('rc 1', r['primary_error']['reason'])
+
+    def test_exit_between_reads_after_checksum_with_rc_1_still_fails(self):
+        # Review of v3: update() judged finished=False, then read finished
+        # again, saw True and finalize() turned 'pending' into 'ok'.
+        p = Profile(plan=lambda n: dict(cls=ExitsBetweenReads, result_after=5.0, cleanup=1.0, rc=1))
+        r = p.go(60)
+        self.assertEqual(r['status'], 'FAIL')
+        self.assertEqual(r['primary_error']['error'], 'Container produced a wrong result')
+        self.assertIn('rc 1', r['primary_error']['reason'])
+        self.assertEqual(r['verified_cycles'], 0)
+        first = json.loads(next(line for line in p.emitted if '"container_cycle": 1,' in line))
+        self.assertEqual(first['verdict'], 'wrong_result')
+
+    def test_exit_between_reads_without_output_fails_and_does_not_crash(self):
+        # The same race with no checksum: v3 recorded 'ok' with no result
+        # time, and sorting the result times raised TypeError after cleanup.
+        def plan(n):
+            if n == 3:
+                return dict(cls=ExitsBetweenReads, result_after=None, cleanup=3.0, rc=1)
+            return dict(result_after=1.0, cleanup=0.2)
+        p = Profile(plan=plan)
+        r = p.go(60)
+        self.assertEqual(r['status'], 'FAIL')
+        self.assertEqual(r['primary_error']['cycle'], 3)
+        self.assertIn('without printing the checksum', r['primary_error']['reason'])
+        self.assertEqual(r['verified_cycles'], 2)
+        self.assertEqual(r['verdicts'], {'ok': 2, 'wrong_result': 1})
 
     def test_remaining_container_fails_even_after_clean_cycles(self):
         p = Profile(plan=lambda n: dict(result_after=1.0, cleanup=0.2),
