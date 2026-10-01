@@ -28,7 +28,7 @@ Nothing is connected until you sign in. Welcome's last step opens ShadowCode so 
 | --- | --- |
 | Version / codename | 5.0.0 / Umbra |
 | Edition | ShadowCode — "One Harness. All Models." |
-| Publication date / channel | TODO(publish): not yet published / stable |
+| Publication date / channel | 2026-09-30 / stable |
 | ISO | shadowfetch-5.0.0-amd64.iso |
 | Size | 4085778432 bytes |
 | SHA-256 | `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21` |
@@ -64,11 +64,11 @@ No Shadowfetch account is required. No API keys, account sessions or model weigh
 
 ## Verify and install
 
-The [download page](https://www.shadowfetchlinux.org/download) links the ISO, checksum and detached signature. TODO(publish): the SBOM (`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA evidence bundle (`evidence-bundle-5.0.0.tar.gz`) will be attached to the v5.0.0 GitHub release; link it once it exists. Use the exact accepted filename below. These commands download and verify files; they do not write a USB device.
+The [download page](https://www.shadowfetchlinux.org/download) links the ISO, checksum and detached signature. The SBOM (`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA evidence bundle (`evidence-bundle-5.0.0.tar.gz`) are attached to the [v5.0.0 GitHub release](https://github.com/Shadowfetchapps/shadowfetch-linux/releases/tag/v5.0.0). Use the exact accepted filename below. These commands download and verify files; they do not write a USB device.
 
 ```sh
 ISO='shadowfetch-5.0.0-amd64.iso'
-ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'   # TODO(publish): confirm once published
+ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.sha256"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.asc"

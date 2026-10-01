@@ -10,9 +10,9 @@ Signing fingerprint unchanged:
 Status: **NOT RELEASED.** The release image below is built, gated and
 accepted (see [Acceptance](#acceptance)). The release owner chose to ship this
 image and deliver the remaining fixes in the 5.0.1 update (see
-[Known issues](#known-issues)). Publication facts (date, URLs, SBOM/evidence
-names and hashes) are marked `TODO(publish)` until the publication step
-produces them.
+[Known issues](#known-issues)). Published 2026-09-30: the ISO, its checksum and signature are served from
+`https://www.shadowfetch.com/linux/download/`, and the SBOM, manifests and
+evidence bundle are attached to the v5.0.0 GitHub release.
 
 - Version: 5.0.0
 - Codename / repository suite: `umbra`
@@ -26,7 +26,7 @@ produces them.
   `8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1`
 - Image contents: squashfs 3830738944 bytes; 3359 packages, 19 of
   them Shadowfetch packages
-- Publication date: TODO(publish)
+- Publication date: 2026-09-30 (stable)
 - ShadowCode: 1.0.0, tag `v1.0.0`, commit
   `e0ab26553cec4243dfb1aeabb66b206bbc6c0474`; `ShadowCode_1.0.0_amd64.deb`,
   28,862,468 bytes, SHA-256
@@ -455,7 +455,7 @@ download and verify files, they do not write a USB device.
 
 ```sh
 ISO='shadowfetch-5.0.0-amd64.iso'
-ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'   # TODO(publish): confirm once published
+ARTIFACT_BASE='https://www.shadowfetch.com/linux/download'
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.sha256"
 curl --fail --location --remote-name "$ARTIFACT_BASE/$ISO.asc"
@@ -472,7 +472,9 @@ SHA-256 is `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21`.
 A GPG warning about personal key trust is not a failed signature. The SBOM
 (`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA
 evidence bundle (`evidence-bundle-5.0.0.tar.gz`) will be attached to the
-v5.0.0 GitHub release: TODO(publish) (release link and file hashes).
+v5.0.0 GitHub release: https://github.com/Shadowfetchapps/shadowfetch-linux/releases/tag/v5.0.0
+(SHA-256: SBOM `552ce02cf0198244e643b62941c38b1ba2416e547fbfdd8d0c7a6a0cd71f22d9`, package manifest `4ff041494df0538dd041335fc823e0983c483223b33f94633b611c3154c1988b`,
+evidence bundle `f7a95161fc787fe9ef3680c9550850b42e174f8860de51e818c8a54f3b13f260`).
 
 ---
 
