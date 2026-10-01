@@ -79,11 +79,18 @@ already has a result waiting for review is held until that review is decided;
 `mission` and `title`, and `summary`/`message` text).
 
 Reads never wait on a writer: connections never checkpoint on close, so no
-process takes the exclusive file lock SQLite uses for that. When `cancel` cannot
-get the write lock within a couple of seconds, it saves the stop request in the
-state directory and answers with `cancel_pending: true` and a `notice`; the
-worker records it in the mission's history and stops the mission at its next
-check. `cancel_requested` remains the recorded fact.
+process takes the exclusive file lock SQLite uses for that. `cancel` first saves
+the stop request in the state directory. If it cannot get the write lock within
+a couple of seconds, it answers with `cancel_pending: true` and a `notice`; the
+worker records the stop in the mission's history (as the person's, saying when
+it was asked for), does not start a queued mission while its stop is pending,
+and stops a running one at its next check. A stop saved while a mission
+finishes is recorded with the outcome, before its final event, or, if it
+reached the database only after that, as `cancel-arrived-late` (asked for, not
+applied). The CLI's own write of a saved stop commits without an fsync, so Stop
+answers in seconds on a slow disk too; the request stays until the worker has
+synced it. If the request cannot be saved, `cancel` writes to the database as
+before. `cancel_requested` remains the recorded fact.
 
 Explicit retries preserve checkpoints; previously published
 reports/media resume only when their source/output hashes still match. Report

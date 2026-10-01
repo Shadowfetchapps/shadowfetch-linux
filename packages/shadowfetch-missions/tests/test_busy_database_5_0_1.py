@@ -14,8 +14,11 @@ unavailable); the other tests pin the mechanism without it.
 
 A worker commit still holds the write lock across its WAL fsync, so `cancel`
 can still meet a lock it cannot wait out. It now saves the request first,
-answers that it was saved, and the worker records it in the chain.
+answers that it was saved, and the worker records it in the chain. With the
+request saved, its own commit makes no fsync either, so a free lock on a slow
+disk answers as fast as a held one (review of the first 5.0.1 build).
 """
+import json
 import os
 from pathlib import Path
 import shutil
@@ -31,6 +34,11 @@ from missions_regression import Harness, SOURCE, TEST_BUDGET_SECONDS, m
 
 # The guest measured 15-34 s per sync; seconds are enough to outlast a budget.
 SLOW_SYNC_SECONDS = 1.5
+# Long enough that ONE delayed sync puts `cancel` past its lock wait plus the
+# start-up slack below; the first 5.0.1 build made two (8.1 s at 4 s each).
+CLI_SLOW_SYNC_SECONDS = 3.0
+# A fresh interpreter importing the engine under strace, on a loaded host.
+CLI_START_SLACK_SECONDS = 2.0
 
 
 def strace_delay_available():
@@ -132,6 +140,41 @@ class ReadersNeverWaitOnAClosingWriter(Harness):
         self.assertTrue(self.store.verify_chain()["chain_ok"])
 
 
+    @unittest.skipUnless(strace_delay_available(), "strace cannot delay fsync here")
+    def test_stop_answers_in_seconds_on_a_slow_disk_with_the_lock_free(self):
+        """Review of the first 5.0.1 build: the 2 s lock wait bounded only the
+        WAIT. With the lock free, `cancel`'s own commit synced the WAL and the
+        directory (a new connection's first sync), so on a disk delayed 4 s per
+        sync it took 8.1 s, and at the guest's 15-34 s it outlived the desktop's
+        30 s limit. The CLI process itself is traced here, not a writer."""
+        queued = self.mission()["id"]
+        running = self.mission(workspace="beta")["id"]
+        self.store.transition(running, "running")
+        delay_us = int(CLI_SLOW_SYNC_SECONDS * 1_000_000)
+        for mid, state in ((queued, "cancelled"), (running, "running")):
+            log = self.base / f"cancel-{state}.strace"
+            started = time.monotonic()
+            done = subprocess.run(
+                [shutil.which("strace"), "-f", "-qq", "-o", str(log),
+                 "-e", "trace=fsync,fdatasync",
+                 "-e", f"inject=fsync,fdatasync:delay_enter={delay_us}",
+                 sys.executable, str(SOURCE), "--json", "cancel", mid],
+                capture_output=True, text=True, timeout=120)
+            seconds = time.monotonic() - started
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr[-2000:])
+            payload = json.loads(done.stdout.strip().splitlines()[-1])
+            self.assertEqual(payload["state"], state)
+            self.assertEqual(payload["cancel_requested"], 1)
+            syncs = [line for line in log.read_text().splitlines() if "sync" in line]
+            self.assertEqual(syncs, [], "Stop's own commit waited on the disk")
+            self.assertLess(seconds, m.CANCEL_LOCK_WAIT_SECONDS + CLI_START_SLACK_SECONDS)
+        self.assertEqual(len(self.events(queued, "cancelled")), 1)
+        self.assertEqual(len(self.events(running, "cancel-requested")), 1)
+        self.assertEqual(self.store.apply_cancel_requests(), [])
+        self.assertEqual(len(self.events(running, "cancel-requested")), 1)
+        self.assertTrue(self.store.verify_chain()["chain_ok"])
+
+
 class CancelUnderAHeldWriteLock(Harness):
     def test_cancel_saves_the_stop_and_answers_inside_its_budget(self):
         mid = self.mission()["id"]
@@ -202,14 +245,52 @@ class CancelUnderAHeldWriteLock(Harness):
         self.assertIn("saved request", self.events(mid, "cancelled")[-1]["detail"])
         self.assertTrue(self.store.verify_chain()["chain_ok"])
 
-    def test_an_uncontended_cancel_leaves_no_saved_request(self):
-        mid = self.mission()["id"]
-        self.store.transition(mid, "running")
-        code, payload, _ = self.cli("cancel", mid)
-        self.assertEqual(code, 0, payload)
-        self.assertEqual(payload["cancel_requested"], 1)
-        self.assertFalse(payload["cancel_pending"])
+    def test_an_uncontended_cancel_keeps_its_request_until_the_worker_syncs(self):
+        """The CLI's own commit is not synced (see Store.cancel()), so the
+        saved request outlives it until the worker has synced the WAL: a crash
+        in between loses the stop only by losing both. Then it is removed, and
+        nothing is recorded twice."""
+        queued = self.mission()["id"]
+        running = self.mission(workspace="beta")["id"]
+        self.store.transition(running, "running")
+        for mid in (queued, running):
+            code, payload, _ = self.cli("cancel", mid)
+            self.assertEqual(code, 0, payload)
+            self.assertEqual(payload["cancel_requested"], 1)
+            self.assertFalse(payload.get("cancel_pending"))
+            self.assertNotIn("notice", payload)
+            self.assertIsNotNone(self.store.cancel_request(mid))
+            self.assertFalse(self.store.get(mid)["cancel_pending"],
+                             "a recorded stop is not also pending")
+        synced = []
+        real_fdatasync = os.fdatasync
+
+        def fdatasync(fd):
+            synced.append((os.readlink(f"/proc/self/fd/{fd}"),
+                           sorted(p.name for p in self.state.glob(m.CANCEL_REQUEST_PREFIX + "*"))))
+            return real_fdatasync(fd)
+
+        with patch.object(m.os, "fdatasync", fdatasync):
+            self.assertEqual(self.store.apply_cancel_requests(), [],
+                             "the worker recorded a stop the CLI had recorded")
+        self.assertEqual(len(synced), 1, synced)
+        wal, present = synced[0]
+        self.assertTrue(wal.endswith("missions.sqlite3-wal"), wal)
+        self.assertEqual(len(present), 2, "a request was removed before the sync")
         self.assertEqual(list(self.state.glob(m.CANCEL_REQUEST_PREFIX + "*")), [])
+        self.assertEqual(len(self.events(queued, "cancelled")), 1)
+        self.assertEqual(len(self.events(running, "cancel-requested")), 1)
+        self.assertEqual(self.events(queued, m.CANCEL_LATE_EVENT), [])
+        self.assertTrue(self.store.verify_chain()["chain_ok"])
+
+    def test_the_saved_stop_commit_is_not_synced_and_others_are(self):
+        with self.store._commits_without_sync():
+            with self.store.db() as db:
+                self.assertEqual(db.execute("PRAGMA synchronous").fetchone()[0], 1)
+        with self.store.db() as db:
+            self.assertEqual(db.execute("PRAGMA synchronous").fetchone()[0], 2)
+        with m.Store(lock_budget=5).db() as db:
+            self.assertEqual(db.execute("PRAGMA synchronous").fetchone()[0], 2)
 
     def test_a_stale_request_never_stops_a_retry_or_a_finished_mission(self):
         mid = self.mission()["id"]
@@ -223,6 +304,12 @@ class CancelUnderAHeldWriteLock(Harness):
         self.assertEqual(self.store.apply_cancel_requests(), [])
         self.assertIsNone(self.store.cancel_request(other))
         self.assertEqual(self.store.get(other)["state"], "waiting-review")
+        self.assertEqual(self.store.get(other)["cancel_requested"], 0)
+        # It reached the database after the mission finished: said so, once,
+        # and never as a 'cancel-requested' after the terminal event.
+        self.assertEqual(self.events(other, "cancel-requested"), [])
+        self.assertEqual(len(self.events(other, m.CANCEL_LATE_EVENT)), 1)
+        self.assertEqual(self.events(other)[-1]["event"], m.CANCEL_LATE_EVENT)
         self.assertEqual(self.store.get(mid)["state"], "queued")
 
     def test_a_request_name_is_never_a_path(self):

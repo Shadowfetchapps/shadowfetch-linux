@@ -337,13 +337,21 @@ CREATE_BUSY_MESSAGE = ("Mission Control's database is busy: another Mission "
 CANCEL_REQUEST_PREFIX = "cancel-request."
 # Once the request is saved, how long the CLI still waits to write it itself.
 # Short on purpose: the stop is already safe, so a person pressing Stop on a
-# loaded machine hears back in seconds rather than after the whole budget.
+# loaded machine hears back in seconds rather than after the whole budget. The
+# write it then makes does not wait on the disk either; see Store.cancel().
 CANCEL_LOCK_WAIT_SECONDS = 2.0
+# A saved request is a few dozen bytes of JSON; nothing past this is read.
+CANCEL_REQUEST_MAX_BYTES = 4096
 MISSION_ID_PATTERN = re.compile(r"mission-[A-Za-z0-9_-]{1,64}")
 CANCEL_SAVED_MESSAGE = ("Stop requested. Mission Control's database is busy, so "
-                        "the request was saved; the mission will not start, or "
-                        "stops at its next check, and the stop is recorded in its "
-                        "history as soon as the database is free.")
+                        "the request was saved and is recorded in the mission's "
+                        "history as soon as the database is free. A queued mission "
+                        "will not start; a running one stops at its next check, "
+                        "unless it is already finishing, which its history then says.")
+# The chained record of a saved stop that reached the database only after its
+# mission had finished: the stop was asked for and NOT applied. Never
+# 'cancel-requested', which must not land after a terminal event.
+CANCEL_LATE_EVENT = "cancel-arrived-late"
 # Why a queued mission is not running yet. DERIVED from the rows on every read
 # rather than written down: the condition comes and goes with other missions'
 # states, an event per worker pass would flood the chain (and wake the worker
@@ -384,6 +392,15 @@ def no_checkpoint_on_close(db):
     flag = getattr(sqlite3, "SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE", None)
     if setconfig is not None and flag is not None:
         setconfig(flag, True)
+
+
+def saved_stop_note(requested):
+    """The suffix a chained stop carries when it was recorded from a saved
+    request rather than written by the person's own command."""
+    asked = clean(str((requested or {}).get("requested_at")
+                      or "an unrecorded time"))[:40]
+    return (f" (stop requested at {asked} while the database was busy; "
+            "recorded from the saved request)")
 
 
 def review_gate_hold(blocker):
@@ -917,6 +934,8 @@ class Store:
         """
         self.lock_wait = DB_LOCK_WAIT_SECONDS
         self._lock_deadline = (time.monotonic() + lock_budget) if lock_budget else None
+        # True only inside _commits_without_sync(); see cancel().
+        self._unsynced_commits = False
         self.root = Path(path or os.environ.get("SHADOWFETCH_MISSIONS_STATE", str(Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "shadowfetch/missions"))).expanduser().resolve()
         if self.root == workspace_root() or workspace_root() in self.root.parents:
             raise MissionError("Mission controller state must be outside the workspace root")
@@ -1307,6 +1326,13 @@ class Store:
             # would land on the one caller promised a quick answer. The worker
             # (and run/review/audit) keep SQLite's default auto-checkpoint.
             db.execute("PRAGMA wal_autocheckpoint=0")
+        if getattr(self, "_unsynced_commits", False):
+            # One saved Stop's own commit; see cancel(). In WAL mode NORMAL
+            # skips the commit's WAL sync (and the directory sync a new
+            # connection's first sync adds) and stays consistent after a
+            # crash; the commit is durable at the next synced commit or
+            # checkpoint, and the saved request is kept until then.
+            db.execute("PRAGMA synchronous=NORMAL")
         deadline = time.monotonic() + wait
         while True:
             try:
@@ -1329,6 +1355,31 @@ class Store:
                 yield db
         finally:
             db.close()
+
+    @contextlib.contextmanager
+    def _commits_without_sync(self):
+        """Connections opened inside this block commit without an fsync. Only
+        for a write whose request is already saved; see cancel()."""
+        previous, self._unsynced_commits = self._unsynced_commits, True
+        try:
+            yield
+        finally:
+            self._unsynced_commits = previous
+
+    def _sync_wal(self):
+        """Make every commit already in the WAL durable: one fdatasync of the
+        WAL file, outside any transaction and holding no database lock. SQLite
+        locks the database and -shm files, never the WAL, so this descriptor's
+        close releases nothing it holds."""
+        try:
+            fd = os.open(str(self.db_path) + "-wal", os.O_RDONLY | os.O_CLOEXEC)
+        except FileNotFoundError:
+            # Checkpointed and removed, which syncs first: nothing is pending.
+            return
+        try:
+            os.fdatasync(fd)
+        finally:
+            os.close(fd)
 
     def _retry_on_lock(self, operation, retries, backoff, backoff_max, busy_message):
         """Run operation(); on "database is locked" run it AGAIN, bounded.
@@ -2842,14 +2893,26 @@ class Store:
             raise TransitionError(f"Refused {current} -> {target}: {blocked}")
         return self.unpack(result)
 
-    def finish_execution(self, mid, state, error, **correlation):
-        # Publish readiness with its final event only after the receipt exists.
-        # Readers see either the previous state or this complete transaction.
+    def finish_execution(self, mid, state, error, *, saved_stop=None, **correlation):
+        """Publish the outcome with its final event, after the receipt exists.
+        Readers see either the previous state or this complete transaction.
+
+        saved_stop= is a stop request run_mission() found saved and not yet in
+        the chain (check() could not record it, or it was saved after the last
+        check()). It commits HERE, in this transaction and before the terminal
+        event, as the person's 'cancel-requested' with its flag -- the last
+        moment it can, because the chain never records a stop request after a
+        terminal event. Before this, a stop saved while the worker finalised
+        was deleted with no record at all, after the person had been told it
+        was saved and would be recorded.
+        """
         at = now()
         detail = error or "Execution finished. Inspect artifacts and diff, then Accept or Undo"
+        stop = None
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT state FROM missions WHERE id=?", (mid,)).fetchone()
+            row = db.execute("SELECT state, cancel_requested FROM missions WHERE id=?",
+                             (mid,)).fetchone()
             if row is None:
                 raise MissionError("Mission does not exist")
             allowed, event, reason = transition_allowed(row["state"], state)
@@ -2872,10 +2935,22 @@ class Store:
                     detail=f"Refused {previous} -> {state}: {refusal}")
             else:
                 blocked, previous = None, row["state"]
+                if (saved_stop is not None and row["state"] in ACTIVE
+                        and not row["cancel_requested"]):
+                    outcome = ("Running process is terminated; workspace checkpoint "
+                               "remains available" if state == MissionState.CANCELLED
+                               else "Execution had already finished when this stop "
+                                    "could be recorded; the mission was not stopped")
+                    stop = self._append(db, mission=mid, event="cancel-requested",
+                                        actor=ACTOR_USER, at=at,
+                                        detail=outcome + saved_stop_note(saved_stop))
+                    db.execute("UPDATE missions SET cancel_requested=1 WHERE id=?", (mid,))
                 appended = self._append(db, mission=mid, event=event, detail=detail,
                                         actor=ACTOR_ORCHESTRATOR, at=at, **correlation)
                 db.execute("UPDATE missions SET state=?,error=?,updated_at=? WHERE id=?", (state, error, at, mid))
             row = db.execute("SELECT * FROM missions WHERE id=?", (mid,)).fetchone()
+        if stop is not None:
+            self.mirror(stop)
         self.mirror(appended)
         if blocked:
             raise TransitionError(f"Refused {previous} -> {state}: {blocked}")
@@ -2920,10 +2995,9 @@ class Store:
             mission["hold"] = (review_gate_hold(blocker)
                                if blocker is not None and blocker["id"] != mission["id"]
                                else None)
-            path = self._cancel_request_path(mission["id"])
             mission["cancel_pending"] = bool(
                 mission["state"] in ACTIVE and not mission["cancel_requested"]
-                and path is not None and path.is_file())
+                and self._request_saved(mission["id"]))
         return missions
 
     def queue(self):
@@ -3203,20 +3277,36 @@ class Store:
             self.mirror(appended)
         return self.unpack(row)
 
-    def cancel(self, mid, *, requested=None):
+    def cancel(self, mid):
         """Stop a mission: a queued one is cancelled, a running one is asked.
 
         A BOUNDED caller (the CLI, i.e. the desktop's Stop) saves the request
         BEFORE it queues for the write lock. 5.0.0 STRESS-01: `cancel` waited
         out its 10 s budget behind a worker commit stalled on a slow disk and
         answered "busy" -- the stop simply did not happen. Now, if the lock does
-        not come inside the budget (or the client gives up and kills the
-        command), the request survives, the answer says it was saved, and the
-        worker records and honours it as soon as it can. A request that did get
-        written here is removed again, so there is one record, not two.
+        not come inside CANCEL_LOCK_WAIT_SECONDS (or the client gives up and
+        kills the command), the request survives, the answer says it was saved,
+        and the worker records and honours it as soon as it can.
 
-        requested= is a saved request being recorded on the person's behalf by
-        apply_cancel_requests(); the event then says when it was asked for.
+        With the request saved, this write also commits WITHOUT an fsync
+        (synchronous=NORMAL). The lock limit bounds only the WAIT: with the lock
+        free, the commit's WAL sync plus the directory sync every new connection
+        makes on its first sync still ran -- 8.1 s on a disk delayed 4 s per
+        sync, while the 5.0.0 guest's syncs took 15-34 s, so Stop outlived the
+        desktop's 30 s limit in exactly the condition the saved request was for.
+        In WAL mode NORMAL stays consistent after a crash, and the commit is
+        durable at the next synced commit or checkpoint. Until then the saved
+        request is KEPT (apply_cancel_requests() removes it after syncing the
+        WAL), so a crash loses the stop only by losing both the commit and the
+        request -- the window a saved request already had on its own.
+        Residual, measured: when a checkpoint has just emptied the WAL, the next
+        write restarts it and SQLite syncs the new WAL header even under NORMAL
+        (two syncs). OFF would skip that and is not crash-safe there.
+
+        If the request cannot be saved (a full disk, a read-only state
+        directory) this is the 5.0.0 cancel: the whole budget, a synced commit,
+        and "busy" if the lock never comes. The database is still tried, and
+        the OSError -- which names the state directory -- is not the answer.
         """
         mission = self.get(mid)
         if mission["state"] not in ACTIVE:
@@ -3226,15 +3316,22 @@ class Store:
             # twice means the same thing once -- but it must not append a second
             # request event, or the log implies two decisions.
             return mission
-        saved = requested is None and self._lock_deadline is not None
+        saved = False
+        if self._lock_deadline is not None:
+            try:
+                self.save_cancel_request(mid)
+                saved = True
+            except OSError:
+                pass
         if saved:
-            self.save_cancel_request(mid)
             # This Store is the one-command CLI's, so tightening its deadline
             # for the rest of its life bounds exactly this write.
             self._lock_deadline = min(self._lock_deadline,
                                       time.monotonic() + CANCEL_LOCK_WAIT_SECONDS)
         try:
-            result = self._record_cancel(mid, mission["state"], requested)
+            with (self._commits_without_sync() if saved
+                  else contextlib.nullcontext()):
+                result, _ = self._record_cancel(mid, mission["state"])
         except (DatabaseBusy, sqlite3.OperationalError) as exc:
             if not saved or not (isinstance(exc, DatabaseBusy) or is_lock_error(exc)):
                 raise
@@ -3247,27 +3344,28 @@ class Store:
                 raise
             current = self.get(mid)
             if current["cancel_requested"]:
-                # The worker recorded this same saved request first.
-                self.clear_cancel_request(mid)
+                # Recorded first -- by the worker from this same saved request,
+                # or by another Stop. The worker removes the request.
                 return current
             if current["state"] in ACTIVE:
                 # It started between the read and the write. The saved request
                 # stands: the worker stops it at its next check and records it.
                 current["notice"] = CANCEL_SAVED_MESSAGE
                 return current
+            # It finished first and the stop is refused, so it is withdrawn.
             self.clear_cancel_request(mid)
             raise
-        if saved:
-            self.clear_cancel_request(mid)
         return result
 
     def _record_cancel(self, mid, state, requested=None):
-        """Write a stop into the chain: one transaction, flag or state with its event."""
-        when = ""
-        if requested is not None:
-            asked = clean(str(requested.get("requested_at") or "an unrecorded time"))[:40]
-            when = (f" (stop requested at {asked} while the database was busy; "
-                    "recorded from the saved request)")
+        """Write a stop into the chain: one transaction, flag or state with its event.
+
+        requested= is a saved request recorded on the person's behalf; the event
+        then says when it was asked for. Returns (mission, wrote): wrote is
+        False when the stop was already recorded by the time this transaction
+        looked.
+        """
+        when = saved_stop_note(requested) if requested is not None else ""
         if state == MissionState.QUEUED:
             # A queued mission has started nothing, so cancelling it IS the
             # terminal transition and it lands atomically with its event.
@@ -3275,7 +3373,7 @@ class Store:
             # prints and the desktop reads.
             return self.transition(mid, MissionState.CANCELLED, actor=ACTOR_USER,
                                    expect=MissionState.QUEUED, cancel_requested=1,
-                                   detail="Cancelled before execution started" + when)
+                                   detail="Cancelled before execution started" + when), True
         # A running mission is asked, not told: the flag is what Executor.check()
         # observes. The state moves only when execution actually stops.
         #
@@ -3298,7 +3396,7 @@ class Store:
                     f"This mission is {row['state']}, not running; it finished while "
                     "you were looking at it")
             if row["cancel_requested"]:
-                return self.get(mid)
+                return self.get(mid), False
             db.execute("UPDATE missions SET cancel_requested=1,updated_at=? WHERE id=?",
                        (at, mid))
             appended = self._append(
@@ -3306,7 +3404,7 @@ class Store:
                 detail="Running process is terminated; workspace checkpoint remains available"
                        + when)
         self.mirror(appended)
-        return self.get(mid)
+        return self.get(mid), True
 
     # -------------------------------------------- saved stop requests ---
     def _cancel_request_path(self, mid):
@@ -3316,18 +3414,32 @@ class Store:
             return None
         return self.root / (CANCEL_REQUEST_PREFIX + mid)
 
+    def _request_saved(self, mid):
+        """Whether a stop request is saved for `mid`: a REGULAR file by that
+        name, the only kind this engine writes and cancel_request() reads.
+        lstat, so a symbolic link, a directory or a FIFO is not one -- and
+        `show` and the worker agree on that."""
+        path = self._cancel_request_path(mid)
+        if path is None:
+            return False
+        try:
+            return stat.S_ISREG(os.lstat(path).st_mode)
+        except OSError:
+            return False
+
     def save_cancel_request(self, mid):
         """Save a stop request without touching the database.
 
         Not fsynced, deliberately: an fsync would put Stop back behind the very
         disk the database is waiting on. A request lost to a power cut is moot
         -- the mission's process dies with the machine and recovery records the
-        interruption. The first request's time is kept.
+        interruption. The first request's time is kept. Raises OSError when it
+        cannot be saved; cancel() then writes to the database directly.
         """
         path = self._cancel_request_path(mid)
         if path is None:
             raise MissionError("Mission does not exist")
-        if path.is_file():
+        if self._request_saved(mid):
             return
         tmp = self.root / f".{path.name}.{uuid.uuid4().hex}.tmp"
         payload = json.dumps({"mission": mid, "requested_at": now(),
@@ -3344,21 +3456,34 @@ class Store:
     def cancel_request(self, mid):
         """The saved stop request for `mid` as a dict, or None if there is none.
 
-        A file that exists but does not parse is still a request ({}): somebody
-        asked, and the time is what was lost. A symbolic link is not one this
-        engine wrote and is ignored.
+        A regular file that does not parse, or cannot be read, is still a
+        request ({}): somebody asked, and the time is what was lost. Anything
+        else by that name is not a request and is never waited on: the worker
+        reads these at the top of every pass, and a directory used to raise
+        IsADirectoryError out of its loop (the worker exited; under systemd, a
+        crash loop) while a FIFO blocked it in open() for good. O_NONBLOCK opens
+        a FIFO without waiting, O_NOFOLLOW refuses a symbolic link, fstat
+        refuses whatever is not a regular file. Never raises OSError.
         """
         path = self._cancel_request_path(mid)
         if path is None:
             return None
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
-        except FileNotFoundError:
-            return None
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+                         | os.O_CLOEXEC)
         except OSError:
             return None
-        with os.fdopen(fd, "rb") as stream:
-            raw = stream.read(4096)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return None
+            try:
+                raw = os.read(fd, CANCEL_REQUEST_MAX_BYTES)
+            except OSError:
+                return {}
+        except OSError:
+            return None
+        finally:
+            os.close(fd)
         try:
             request = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
@@ -3366,34 +3491,70 @@ class Store:
         return request if isinstance(request, dict) else {}
 
     def clear_cancel_request(self, mid):
+        """Remove the saved request for `mid`. A directory by that name was
+        never a request (cancel_request() ignores it) and is left alone rather
+        than raising out of the worker."""
         path = self._cancel_request_path(mid)
-        if path is not None:
+        if path is None:
+            return
+        try:
             path.unlink(missing_ok=True)
+        except IsADirectoryError:
+            pass
 
     def apply_cancel_requests(self, mid=None):
-        """Record saved stop requests in the chain: the worker's half.
+        """Settle saved stop requests: the worker's half. Returns the ids whose
+        stop THIS call recorded.
 
-        Each request becomes the ordinary cancel -- 'cancelled' for a queued
-        mission, 'cancel-requested' plus the flag for a running one -- through
-        the same transaction a direct cancel uses, so transition atomicity and
-        the chain are exactly as they were. A request whose mission is no
-        longer active (or does not exist) is moot and is removed; one the
-        database still cannot take stays for the next pass. Returns the ids
-        whose stop is now recorded.
+        By the state of each request's mission:
+        - active, stop not recorded: the ordinary cancel -- 'cancelled' for a
+          queued mission, 'cancel-requested' plus the flag for a running one --
+          through the same transaction a direct cancel uses, saying when it was
+          asked for. That commit is synced; then the request is removed.
+        - stop already recorded, or no such mission: the request is removed,
+          after one sync of the WAL, because the record may be a CLI commit
+          made without one (see cancel()).
+        - finished with no stop recorded: the request reached the database only
+          after the mission ended. Recorded as CANCEL_LATE_EVENT -- asked for,
+          NOT applied -- then removed. The person was told the stop was saved
+          and would be recorded, so it is never deleted silently.
+        A request the database cannot take yet, or whose mission moves under
+        the write, stays for the next pass. An entry that is not a request is
+        skipped and nothing here raises OSError: this runs at the top of every
+        worker pass, and one bad entry must not stop the loop.
         """
         if mid is not None:
             names = [mid]
         else:
-            names = sorted(path.name[len(CANCEL_REQUEST_PREFIX):]
-                           for path in self.root.glob(CANCEL_REQUEST_PREFIX + "*"))
-        recorded = []
+            try:
+                names = sorted(path.name[len(CANCEL_REQUEST_PREFIX):]
+                               for path in self.root.glob(CANCEL_REQUEST_PREFIX + "*"))
+            except OSError:
+                return []
+        recorded, done, needs_sync = [], [], []
         for name in names:
             request = self.cancel_request(name)
             if request is None:
                 continue
             try:
-                self.cancel(name, requested=request)
-                recorded.append(name)
+                try:
+                    mission = self.get(name)
+                except DatabaseBusy:
+                    raise
+                except MissionError:
+                    mission = None
+                if mission is None or mission["cancel_requested"]:
+                    needs_sync.append(name)
+                elif mission["state"] in ACTIVE:
+                    _, wrote = self._record_cancel(name, mission["state"], request)
+                    (recorded if wrote else needs_sync).append(name)
+                else:
+                    self.append_event(
+                        name, CANCEL_LATE_EVENT,
+                        f"Stop arrived after the mission finished ({mission['state']}); "
+                        "it was not applied" + saved_stop_note(request),
+                        actor=ACTOR_USER)
+                    done.append(name)
             except DatabaseBusy:
                 continue
             except sqlite3.OperationalError as exc:
@@ -3401,8 +3562,17 @@ class Store:
                     continue
                 raise
             except MissionError:
-                pass
-            self.clear_cancel_request(name)
+                continue
+        if needs_sync:
+            try:
+                self._sync_wal()
+            except OSError:
+                needs_sync = []
+        for name in recorded + done + needs_sync:
+            try:
+                self.clear_cancel_request(name)
+            except OSError:
+                continue
         return recorded
 
     def retry(self, mid):
@@ -5210,6 +5380,15 @@ def run_mission(store, mid):
             raise MissionError("This mission's workspace changed while it was starting")
         if mission["state"] != "queued":
             raise MissionError("Only queued missions can run")
+        if mission["cancel_pending"]:
+            # The stop is saved and the database would not take it yet. This
+            # used to start the mission anyway -- an attempt spent and the
+            # workspace checkpoint taken before the first check() cancelled it,
+            # with no record of who asked -- after the person had been told it
+            # would not start. It stays queued; a later pass records the stop.
+            raise MissionError("A stop was requested for this mission, so it was not "
+                               "started; the stop is recorded as soon as the "
+                               "database is free")
         # BEFORE the state moves. A mission that needs approval and has none
         # never reaches running, so there is no window in which it is executing
         # unapproved, and every entry point -- CLI, worker, desktop -- is covered
@@ -5252,9 +5431,19 @@ def run_mission(store, mid):
                     # was summarising. The mission still reaches review; the
                     # failure is recorded where a person will see it.
                     store.event(mid, "review-summary-failed", clean(exc)[:500])
-            result = store.finish_execution(mid, state, error)
-            # Whatever stop was saved for this run is settled by its end.
-            store.clear_cancel_request(mid)
+            # A stop saved and not yet in the chain -- check() could not record
+            # it, or it was saved after the last check() while this run
+            # finalised -- commits with the outcome, before the terminal event.
+            # Deleting it here unrecorded is what this replaced.
+            saved_stop = store.cancel_request(mid)
+            result = store.finish_execution(mid, state, error, saved_stop=saved_stop)
+            if saved_stop is not None:
+                # In the chain now, by that synced commit, or it already was.
+                store.clear_cancel_request(mid)
+            else:
+                # One saved after that look, while the outcome committed,
+                # arrived too late: recorded as asked for and not applied.
+                store.apply_cancel_requests(mid)
         return result
 
 
