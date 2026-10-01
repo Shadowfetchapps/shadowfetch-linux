@@ -14,6 +14,21 @@ import unittest
 SCRIPT = Path(__file__).resolve().parents[1] / "pre_release_check.sh"
 
 
+def http_date(moment: datetime.datetime) -> str:
+    return moment.strftime("%a, %d %b %Y %H:%M:%S UTC")
+
+
+def clearsigned(signed_text: str) -> str:
+    """InRelease's shape: one clearsigned message. The signature is not real;
+    gpgv is the publisher's job, this script reads the signed text."""
+    return (
+        "-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n"
+        + signed_text
+        + "-----BEGIN PGP SIGNATURE-----\n\niHUEARYKAB0WIQQfixture\n=abcd\n"
+        "-----END PGP SIGNATURE-----\n"
+    )
+
+
 @unittest.skipUnless(shutil.which("git"), "git is required")
 class PreReleaseCheckTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -22,12 +37,13 @@ class PreReleaseCheckTests(unittest.TestCase):
         distribution = self.root / "repo" / "dists" / "umbra"
         (distribution / "main" / "binary-amd64").mkdir(parents=True)
         (distribution / "main" / "source").mkdir(parents=True)
-        valid_until = datetime.datetime.now(
-            datetime.timezone.utc
-        ) + datetime.timedelta(days=30)
-        (distribution / "InRelease").write_text(
-            "Origin: Shadowfetch\n"
-            f"Valid-Until: {valid_until.strftime('%a, %d %b %Y %H:%M:%S UTC')}\n",
+        self.now = datetime.datetime.now(datetime.timezone.utc)
+        self.inrelease = distribution / "InRelease"
+        self.inrelease.write_text(
+            clearsigned(
+                "Origin: Shadowfetch\n"
+                f"Valid-Until: {http_date(self.now + datetime.timedelta(days=30))}\n"
+            ),
             encoding="utf-8",
         )
         (distribution / "main" / "binary-amd64" / "Packages").write_text(
@@ -119,6 +135,40 @@ class PreReleaseCheckTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("present in release tree: sub/.write-token.txt\n", result.stderr)
+
+    def test_valid_until_outside_the_signed_text_is_not_believed(self) -> None:
+        """gpgv verifies a clearsigned message with unsigned lines before its
+        header; apt does not. The signed text here expired in 2024, and an
+        unsigned line above the header says 2027 -- a first-match grep of
+        the file read that one and passed."""
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        expired = clearsigned("Origin: Shadowfetch\nValid-Until: Mon, 01 Jan 2024 00:00:00 UTC\n")
+        later = f"Valid-Until: {http_date(self.now + datetime.timedelta(days=180))}\n"
+        for name, text in (("before the header", later + expired), ("after the signature", expired + later)):
+            with self.subTest(name):
+                self.inrelease.write_text(text, encoding="utf-8")
+                result = self.check()
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("is not exactly one clearsigned message", result.stderr)
+        self.inrelease.write_text(expired, encoding="utf-8")
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("expired Valid-Until", result.stderr)
+
+    def test_two_clearsigned_messages_are_refused(self) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        text = self.inrelease.read_text(encoding="utf-8")
+        self.inrelease.write_text(text + text, encoding="utf-8")
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("is not exactly one clearsigned message", result.stderr)
+
+    def test_valid_until_missing_from_the_signed_text_fails(self) -> None:
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        self.inrelease.write_text(clearsigned("Origin: Shadowfetch\n"), encoding="utf-8")
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("missing Valid-Until in the signed text", result.stderr)
 
     def test_tracked_wrangler_state_still_fails(self) -> None:
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)

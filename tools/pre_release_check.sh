@@ -16,10 +16,24 @@ add_failure() {
   failures+=("$1")
 }
 
+# Valid-Until is read from the text the signature covers, never from the file
+# around it: gpgv accepts a clearsigned message with unsigned lines before its
+# header, and a first-match grep of the whole file would believe one of those.
+# So InRelease must be exactly one clearsigned message, and the field is taken
+# from between its armor headers' blank line and the signature block.
 if [[ ! -f "$INRELEASE" ]]; then
   add_failure "missing APT metadata: $INRELEASE"
-elif ! valid_until_line=$(grep -m1 '^Valid-Until:' "$INRELEASE"); then
-  add_failure "missing Valid-Until in $INRELEASE"
+elif [[ $(awk 'NR == 1 { print; exit }' "$INRELEASE") != '-----BEGIN PGP SIGNED MESSAGE-----' \
+        || $(awk 'END { print }' "$INRELEASE") != '-----END PGP SIGNATURE-----' \
+        || $(grep -c -x -e '-----BEGIN PGP SIGNED MESSAGE-----' -e '-----BEGIN PGP SIGNATURE-----' -e '-----END PGP SIGNATURE-----' "$INRELEASE") != 3 ]]; then
+  add_failure "$INRELEASE is not exactly one clearsigned message: text outside the signature is not what apt verifies"
+elif ! valid_until_line=$(awk '
+    /^-----BEGIN PGP SIGNATURE-----$/ { exit }
+    body && /^Valid-Until:/ { print; found = 1; exit }
+    /^$/ { body = 1 }
+    END { exit !found }
+  ' "$INRELEASE"); then
+  add_failure "missing Valid-Until in the signed text of $INRELEASE"
 else
   valid_until_value="${valid_until_line#Valid-Until: }"
   if ! valid_until_epoch=$(date -u -d "$valid_until_value" +%s 2>/dev/null); then
