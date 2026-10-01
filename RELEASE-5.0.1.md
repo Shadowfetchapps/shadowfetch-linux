@@ -387,9 +387,10 @@ used the removed commands, and connect your services in ShadowCode.
   fixes above are proven by host-side tests, the live-USB change by a VM of the
   5.0.0 image with the drop-in added, and the Fireproof self-update by a
   diagnostic VM run with a prototype of the fix. The APT-only acceptance cases
-  (SRC-01, PKG-01, UPGRADE-01, DURABLE-01, MISSION-01) still have to be run and
-  recorded against the repository that is published, and UPGRADE-01 re-run
-  with `fireproof update` on the final packages. The Fireproof no-removals
+  are recorded against the published repository (SRC-01, PKG-01, UPGRADE-01
+  and DURABLE-01 pass; MISSION-01 is waived for the paid-account code mission
+  only), and after the final upgrade `fireproof update` exited 0 with nothing
+  removed. The Fireproof no-removals
   fix is proven on the 4.1 base against the final repository (see
   [Release state](#release-state)).
 - **Package retirements and manually installed packages.** Fireproof only
