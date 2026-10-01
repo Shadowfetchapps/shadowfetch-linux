@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# STRESS-01 on an installed 5.0.0 VM (already running under sfvm.py, with the
-# QA user's Plasma session up): tools/qa_5_0_0/stress/stress_45m.sh (the 4.x
-# canonical workload, see stress/ for the two documented 5.0 deltas), with
-# ShadowCode open in the user's session for the whole run, plus host-side
-# sampling and the crash/OOM/thermal/responsiveness audit.
-# Usage: run_stress.sh VM_NAME [DURATION_SECONDS]
+# STRESS-01 on an installed VM of the release under test (already running
+# under sfvm.py, with the QA user's Plasma session up):
+# tools/qa_5_0_0/stress/stress_45m.sh (the 4.x canonical workload, see stress/
+# for the two documented 5.0 deltas), with ShadowCode open in the user's
+# session for the whole run, plus host-side sampling and the
+# crash/OOM/thermal/responsiveness audit.
+# Usage: QA_RELEASE=MAJOR.MINOR.PATCH run_stress.sh VM_NAME [DURATION_SECONDS]
+# QA_RELEASE is required and is passed to the guest runner, which refuses an
+# installed release that differs from it.
 #
 # Idle host only (5.0.1). Both 5.0.0 runs shared the host with unrelated builds
 # (host load up to 32, kswapd at 100%) and with other VMs, which starved the
@@ -19,12 +22,19 @@ set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 vm="$root/tools/qa_5_0_0/sfvm.py"
 name="${1:?vm name}"; duration="${2:-2700}"
+release="${QA_RELEASE:?Set QA_RELEASE to the release under test, e.g. QA_RELEASE=5.0.1}"
+[[ $release =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "QA_RELEASE must be MAJOR.MINOR.PATCH" >&2; exit 2; }
+[[ $duration =~ ^[0-9]+$ ]] || { echo "DURATION_SECONDS must be a whole number" >&2; exit 2; }
 user="${QA_USER:-demo}"
+[[ $user =~ ^[a-z_][a-z0-9_-]*$ ]] || { echo "QA_USER must be a plain user name" >&2; exit 2; }
 max_load="${QA_HOST_MAX_LOAD:-4}"
 run_max_load="${QA_HOST_MAX_RUN_LOAD:-$(( $(nproc) / 2 ))}"
-out="$root/work/qa-5.0.0/stress/$(date -u +%Y%m%dT%H%M%SZ)"
+out="$root/work/qa-$release/stress/$(date -u +%Y%m%dT%H%M%SZ)"
 guest_dir=/opt/shadowfetch-qa-5
-guest_out=/var/tmp/sf-stress-5.0.0
+guest_out=/var/tmp/sf-stress-$release
+# The guest runner's exit status, written when it exits: a runner that stops
+# before result.json (a refused release, a missing tool) ends the wait.
+runner_rc=/var/tmp/sf-stress-runner.rc
 host_load1() { cut -d' ' -f1 /proc/loadavg; }
 # QEMU processes other than this run's VM (sfvm.py names it sf-qa-NAME).
 other_vms() { pgrep -a -f '^[^ ]*qemu-system' | grep -cvF -- "-name sf-qa-$name " || true; }
@@ -58,6 +68,7 @@ gx "chown -R root:root $guest_dir; sha256sum $guest_dir/*" | tee "$out/guest-hel
 say "cache the Alpine image as $user (network pull is setup, not part of the load)"
 ux 'podman pull -q docker.io/library/alpine:3.22 >/dev/null; podman image inspect --format "{{.Id}}" docker.io/library/alpine:3.22' 600 | tee "$out/alpine-id.txt"
 alpine=$(tail -1 "$out/alpine-id.txt" | tr -d '\r\n'); alpine=${alpine#sha256:}
+[[ $alpine =~ ^[a-f0-9]{64}$ ]] || { say "guest did not report a 64-hex Alpine image ID"; exit 2; }
 override=""
 if [[ $alpine != b66e0ce64844f5c6435b0c4bfd965558199ab0f53270846861c979cb1ac29365 ]]; then
   say "NOTE: docker.io alpine:3.22 is now $alpine, not the 4.x pin; overriding (recorded)"
@@ -72,7 +83,7 @@ sleep 30
 gx 'date +%s' > "$out/start-epoch.txt"; since=$(tr -d '\r\n' < "$out/start-epoch.txt")
 gx 'coredumpctl --no-pager --no-legend list 2>&1 | tail -20' > "$out/coredumps-before.txt"
 say "start stress (duration ${duration}s)"
-"$vm" exec "$name" "rm -rf $guest_out; setsid /usr/bin/env QA_RELEASE=5.0.0 QA_USER=$user QA_DURATION_SECONDS=$duration $override $guest_dir/stress_45m.sh $guest_out > /var/tmp/sf-stress-runner.log 2>&1 < /dev/null & echo started" | tee -a "$out/run.log"
+"$vm" exec "$name" "rm -rf $guest_out $runner_rc; setsid /bin/sh -c '/usr/bin/env QA_RELEASE=$release QA_USER=$user QA_DURATION_SECONDS=$duration $override $guest_dir/stress_45m.sh $guest_out; echo \$? > $runner_rc' > /var/tmp/sf-stress-runner.log 2>&1 < /dev/null & echo started" | tee -a "$out/run.log"
 
 printf 'utc\tload1\tload5\tmem_avail_kib\tswap_used_kib\tshadowcode\tkwin_window\thost_load1\thost_other_vms\n' > "$out/samples.tsv"
 # The guest's container helper may legitimately run to duration + 2400 s (see
@@ -86,13 +97,14 @@ while (( $(date +%s) < deadline )); do
   win=$(ux 'dbus-send --session --print-reply --dest=org.kde.KWin /WindowsRunner org.kde.krunner1.Match string:ShadowCode | grep -c "string \"ShadowCode"' 60 | tr -d '\r\n')
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$row" "$sc" "$win" "$(host_load1)" "$(other_vms)" >> "$out/samples.tsv"
   (( n % 10 == 0 )) && "$vm" shot "$name" "$out/shots/$(printf %02d $n)-during.png" >/dev/null
-  gx "test -s $guest_out/result.json" 30 >/dev/null 2>&1 && break
+  gx "test -s $guest_out/result.json || test -e $runner_rc" 30 >/dev/null 2>&1 && break
 done
-say "stress finished or timed out"
+gx "cat $runner_rc 2>/dev/null || echo still-running" 30 > "$out/runner.rc" 2>&1
+say "stress finished or timed out (guest runner exit: $(tr -d '\r\n' < "$out/runner.rc"))"
 "$vm" shot "$name" "$out/shots/99-after.png"
 gx "cat $guest_out/result.json" | tee "$out/result.json"
 gx "cat /var/tmp/sf-stress-runner.log" > "$out/runner.log" 2>&1
-gx "tar -C /var/tmp -czf /var/tmp/sf-stress-out.tgz sf-stress-5.0.0" 600
+gx "tar -C /var/tmp -czf /var/tmp/sf-stress-out.tgz sf-stress-$release" 600
 "$vm" pull "$name" /var/tmp/sf-stress-out.tgz "$out/guest-evidence.tgz"
 
 say "audit"
@@ -104,7 +116,7 @@ gx "journalctl -k --no-pager --since=@$since 2>&1 | grep -iE 'out of memory|oom-
 gx "journalctl --no-pager --since=@$since -p err 2>&1 | tail -300" > "$out/journal-errors.txt"
 gx "ls /sys/class/thermal/ 2>&1; for z in /sys/class/thermal/thermal_zone*; do echo \$z \$(cat \$z/type \$z/temp 2>/dev/null); done" > "$out/guest-thermal.txt"
 (command -v sensors >/dev/null && sensors -A 2>/dev/null | grep -E '^(Tctl|Tccd|Package|Core|edge)' ) > "$out/host-thermal-after.txt" || true
-python3 - "$out" "$host_gate" "$run_max_load" <<'EOF'
+python3 - "$out" "$host_gate" "$run_max_load" "$release" <<'EOF'
 import json, sys, tarfile, statistics
 from pathlib import Path
 out = Path(sys.argv[1])
@@ -133,7 +145,7 @@ summary["host"] = {"gate": sys.argv[2], "run_max_load1": limit, "samples": len(h
                    "environment": "contended" if contended else "idle" if host_load else "unknown"}
 try:
     with tarfile.open(out/"guest-evidence.tgz") as t:
-        probe = t.extractfile("sf-stress-5.0.0/probe-loop.jsonl").read().decode().splitlines()
+        probe = t.extractfile(f"sf-stress-{sys.argv[4]}/probe-loop.jsonl").read().decode().splitlines()
     last = json.loads(probe[-1]); summary["probe_summary"] = last
 except Exception as e:
     summary["probe_summary_error"] = str(e)
