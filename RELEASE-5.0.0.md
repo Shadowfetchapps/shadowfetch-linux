@@ -333,16 +333,22 @@ Shadowfetch APT repository like any other update (`sudo apt update`, then
 cannot change: 5.0.1 turns it off on the live USB, and a 5.0.0 USB stick keeps
 it, so use the workaround.
 
-- **Upgrade with apt for now, not `fireproof update`.** When `fireproof update`
+- **Update with apt for now, not `fireproof update`.** When `fireproof update`
   installs a new version of Fireproof itself, which every 4.1 to 5.0 upgrade
-  does, Fireproof's package scripts stop the update service that is running
-  the upgrade, so the upgrade can stop partway through: packages are left
-  unpacked but not configured, and apt or reboot can be blocked for up to an
-  hour while the service waits. Until a fixed Fireproof ships in the 5.0.1
-  update, upgrade with `sudo apt update` then `sudo apt full-upgrade`. If an
-  upgrade already stopped partway, run `sudo dpkg --configure -a` and then
-  `sudo apt -f install` (if apt says the package lock is held, wait for the
-  stalled service to give up, at most an hour, or restart), then reboot.
+  does, it stops partway through and can stay stuck for up to an hour.
+  Fireproof's update plan can also currently remove the desktop metapackages
+  (`shadowfetch-desktop`, `shadowfetch-creative-base`) and apps such as Krita
+  and Kdenlive while Debian testing is mid-transition; apt holds them back
+  instead. Until further notice, update with `sudo apt update` then
+  `sudo apt full-upgrade`, not `fireproof update` or Control Center's Software
+  page. If an update already stopped partway (`sudo dpkg --audit` prints
+  anything, or apt asks for `dpkg --configure -a`):
+  1. If apt says the lock is held by fireproofd, run
+     `sudo systemctl kill --signal=KILL fireproofd.service` (a normal restart
+     is refused while it is stuck; `sudo systemctl reboot -i` also works).
+  2. Run `sudo dpkg --configure -a`, then `sudo apt full-upgrade`, then
+     `sudo apt install shadowfetch-desktop shadowfetch-creative-base`.
+  3. Restart.
 - **ShadowCode 1.0.0's window grows each time it opens (Wayland).** Each
   launch restores a slightly larger window, which can end up extending under
   the panel. On a 1366x768 screen even the first window is larger than the
@@ -441,7 +447,7 @@ The supported in-place path is the signed Shadowfetch APT repository:
 
 ```bash
 sudo apt update
-sudo apt full-upgrade     # for now; see Known issues: fireproof update can stop partway when it updates itself
+sudo apt full-upgrade     # not fireproof update for now; see Known issues
 ```
 
 This pulls in `shadow-code` as a new dependency of `shadowfetch-desktop`.

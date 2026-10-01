@@ -96,7 +96,7 @@ Acceptance, recorded in `qa/5.0.0/acceptance.json` against this exact ISO: SRC-0
 
 ## Known issues
 
-**Upgrade with apt for now, not `fireproof update`:** when it installs a new Fireproof, which every 4.1 to 5.0 upgrade does, it can stop partway through. Use `sudo apt update` then `sudo apt full-upgrade`. If an upgrade already stopped partway: `sudo dpkg --configure -a`, then `sudo apt -f install`, then reboot. Fixed in the 5.0.1 update.
+**Update with apt for now, not `fireproof update`:** it can stop partway when it installs a new Fireproof (every 4.1 → 5.0 upgrade does), and its plan can currently remove the desktop metapackages during a Debian testing transition. Use `sudo apt update` then `sudo apt full-upgrade`. If an update already stopped partway: if apt says fireproofd holds the lock, `sudo systemctl kill --signal=KILL fireproofd.service` (or `sudo systemctl reboot -i`); then `sudo dpkg --configure -a`, `sudo apt full-upgrade`, `sudo apt install shadowfetch-desktop shadowfetch-creative-base`, and restart. See the release notes.
 
 The first two are fixed by the 5.0.1 update, which arrives through the Shadowfetch APT repository (`sudo apt update`, then `sudo apt full-upgrade`). The third affects only the live USB, which an update cannot change: 5.0.1 turns it off on the live USB, and a 5.0.0 stick keeps it, so use the workaround. The [release notes](RELEASE-5.0.0.md#known-issues) list every known issue.
 
