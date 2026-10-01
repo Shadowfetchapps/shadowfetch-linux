@@ -22,8 +22,9 @@ packages in the signed repository, with no new ISO, and installs on top of the
 - Source branch: `release/5.0.1`
 - Packages: every Shadowfetch package moves to `5.0.1-1`. `grub-btrfs` keeps
   its own `4.14-2`.
-- ShadowCode: **still 1.0.0** in this tree. ShadowCode 1.0.1 is pending; see
-  [ShadowCode 1.0.1](#shadowcode-101-the-window-size-fix-pending).
+- ShadowCode: **1.0.1** (tag `v1.0.1`, commit
+  `e923e5e2758ef6189738f944c86653ca0e87e93f`), the signed upstream release; see
+  [ShadowCode 1.0.1](#shadowcode-101-the-window-size-fix).
 
 ---
 
@@ -167,23 +168,20 @@ workaround: stay offline in the live session, or run
 `systemctl --user stop app-org.kde.discover.notifier@autostart.service` soon
 after logging in.
 
-## ShadowCode 1.0.1, the window-size fix: pending
+## ShadowCode 1.0.1, the window-size fix
 
 **5.0.0 known issue.** Under Wayland, ShadowCode 1.0.0 opens a slightly larger
 window each time, and on a 1366x768 screen even the first window is larger than
 the screen.
 
-ShadowCode 1.0.1 fixes this. It is **not yet in 5.0.1.**
-`tools/release/shadowcode.toml` still pins 1.0.0, and
-`shadowfetch-desktop` still requires `shadow-code (>= 1.0.0)`. The pin moves to
-1.0.1 only after ShadowCode's owner publishes the signed 1.0.1 release. Then
-`tools/bump_shadowcode.py` authenticates it and moves the pin, the vendored
-metadata and the desktop's dependency floor together. The vendored trust
-policy authorises its key only up to 1.0.0, so that bump first needs a
-reviewed trust refresh (`--refresh-trust`) from a published ShadowCode commit.
-
-Until then, the 5.0.0 workaround applies: maximize the ShadowCode window (its
-maximize button, or Meta+PgUp). ShadowCode then does not save the size.
+5.0.1 ships ShadowCode 1.0.1, which fixes this: the window no longer saves its
+size (position and maximized state are still restored), and the first window is
+fitted to the screen it opens on. `shadowfetch-desktop` now requires
+`shadow-code (>= 1.0.1)`. The pin was moved with `tools/bump_shadowcode.py`
+after a reviewed trust refresh from the published commit `e923e5e`, whose only
+trust change widens the same key's authorised range to 1.0.1. 1.0.1's build
+also moves its AppImage runtime build container to Alpine's openssl 3.3.7-r2
+security update; the runtime it builds is byte-identical.
 
 ---
 
@@ -314,8 +312,6 @@ used the removed commands, and connect your services in ShadowCode.
 
 # Known issues
 
-- **ShadowCode 1.0.0's window still grows (Wayland)** until the pin moves to
-  1.0.1; see above. **Workaround:** maximize the window.
 - **5.0.0 USB sticks keep the package-list refresh.** Only a 5.0.1 stick has
   the fix; see above for the workaround.
 - **A `create` that answers "database is busy" may already have queued the
@@ -380,8 +376,7 @@ Measured on this tree, not on an image:
 
 Still to do before 5.0.1 is published:
 
-1. ShadowCode's owner publishes the signed 1.0.1 release; refresh the trust
-   policy and run `tools/bump_shadowcode.py 1.0.1`.
+1. Done: ShadowCode 1.0.1 is published and pinned.
 2. Build the packages and the signed repository with umask 022, and pass
    `source_gate` and `package_gate`. There is no ISO, so no `iso_gate`.
 3. Run and record the APT-only acceptance subset in
