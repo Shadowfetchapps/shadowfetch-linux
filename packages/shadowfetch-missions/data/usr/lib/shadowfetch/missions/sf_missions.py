@@ -5282,8 +5282,12 @@ class Wakeup:
     """Blocks until the mission database changes, or the fallback expires.
 
     Watches the state DIRECTORY rather than the database file: in WAL mode the
-    writes land in -wal, and the -wal and -shm files are created and unlinked
-    constantly, so a watch on a single inode would be stale within a second.
+    writes land in -wal, not the database file. Since 5.0.1 no Store
+    connection checkpoints on close, so -wal and -shm persist after the last
+    close (they used to be created and unlinked constantly). The directory is
+    still what to watch: a saved stop request is a new file in it, and any
+    other SQLite client (an older build, a sqlite3 shell) still deletes and
+    re-creates the sidecars when it closes last.
 
     Degrades honestly. If inotify cannot be set up -- an old kernel, a
     filesystem that does not support it, the per-user watch limit reached --
