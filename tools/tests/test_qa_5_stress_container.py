@@ -211,6 +211,12 @@ class Judge(unittest.TestCase):
         self.assertEqual(kinds, ['slow_workload'])
         self.assertEqual(target.phase_observations(10.0, None), [])
 
+    def test_the_4x_bound_is_on_the_whole_client(self):
+        # 70 s + 60 s: neither phase is over 120 s, but 4.x failed the client.
+        kinds = [o['kind'] for o in target.phase_observations(70.0, 60.0, client_seconds=130.0)]
+        self.assertEqual(kinds, ['slow_client'])
+        self.assertEqual(target.phase_observations(70.0, 49.0, client_seconds=119.0), [])
+
 
 class Loop(unittest.TestCase):
     def test_5_0_0_timings_are_judged_correct_but_cannot_reach_the_floor(self):
@@ -229,6 +235,33 @@ class Loop(unittest.TestCase):
         self.assertIs(r['final_container_exists'], False)
         self.assertEqual(r['phase_seconds']['cleanup']['max'], RUN2_CLEANUP)
         self.assertEqual(r['phase_seconds']['workload']['max'], RUN2_WORKLOAD)
+        self.assertEqual(r['observation_counts'], {'slow_client': 11, 'slow_cleanup': 11})
+        self.assertIs(r['latency_target_met'], False)
+
+    def test_4_1_0_like_cycles_pass_and_meet_the_4x_bound(self):
+        p = Profile(plan=lambda n: dict(result_after=20.0, cleanup=10.0))
+        r = p.go(2700)
+        self.assertEqual(r['status'], 'PASS', r['failures'])
+        self.assertIs(r['latency_target_met'], True)
+        self.assertEqual((r['observation_counts'], r['cycles_over_latency_target']), ({}, 0))
+        self.assertGreaterEqual(r['verified_cycles'], 22)
+        self.assertEqual(r['phase_seconds']['client']['max'], 30.0)
+
+    def test_one_cycle_over_the_4x_bound_is_never_a_plain_pass(self):
+        # Correct and fully removed, but 140 s start -> exit: 4.x failed the
+        # run here. v3 finishes the loop and reports it; PASS stays 4.x's.
+        p = Profile(plan=lambda n: dict(result_after=100.0, cleanup=40.0) if n == 3 else dict(result_after=20.0, cleanup=10.0))
+        r = p.go(2700)
+        self.assertEqual(r['status'], 'PASS_WITH_OBSERVATIONS', r['failures'])
+        self.assertEqual(r['failures'], [])
+        self.assertIs(r['latency_target_met'], False)
+        self.assertEqual((r['observation_counts'], r['cycles_over_latency_target']), ({'slow_client': 1}, 1))
+        self.assertEqual(r['observations'][0]['cycle'], 3)
+
+    def test_observations_in_a_smoke_are_named_too(self):
+        p = Profile(plan=lambda n: dict(result_after=10.0, cleanup=target.LIMIT))
+        r = p.go(600)
+        self.assertEqual(r['status'], 'SMOKE_PASS_WITH_OBSERVATIONS', r['failures'])
 
     def test_one_client_at_a_time_like_4x(self):
         # Overlap was withdrawn: podman serializes a removal with the next
@@ -410,8 +443,9 @@ class FakePodmanBinary(unittest.TestCase):
             with patch.dict(os.environ, env), contextlib.ExitStack() as stack:
                 for name, value in scaled.items():
                     stack.enter_context(patch.object(target, name, value))
-                r = target.run_profile(3, 'a' * 64, 'fake-binary', emit=rows.append)
-        self.assertEqual(r['status'], 'SMOKE_PASS', r['failures'])
+                r = target.run_profile(6, 'a' * 64, 'fake-binary', emit=rows.append)
+        self.assertEqual(r['status'], 'SMOKE_PASS_WITH_OBSERVATIONS', r['failures'])
+        # One client at a time: ~2.5 s per scaled cycle, so 6 s holds two or three.
         self.assertGreaterEqual(r['cycles'], 2)
         self.assertTrue(all(row['verdict'] == 'ok' and row['exit'] == 0 for row in rows if 'container_cycle' in row))
         self.assertTrue(any(o['kind'] == 'slow_cleanup' for o in r['observations']))

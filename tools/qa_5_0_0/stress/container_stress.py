@@ -23,11 +23,18 @@ operation or actual data checksum failed" and the loop stopped at 3 of 22.
   client still running HANG_LIMIT after its phase began. A hung client's
   container state is probed for the record, the client is terminated, and the
   loop stops.
-* Slowness is an OBSERVATION, never a failure. A phase over the 4.x 120 s
-  target is recorded as slow_workload / slow_cleanup. A cleanup still running
-  CLEANUP_TIMEOUT after the result is recorded as cleanup_timeout together with
-  a bounded `podman container inspect` of its state (still running, or only
-  being removed?), and is watched on until it exits or reaches HANG_LIMIT.
+* Slowness does not stop the loop, and it does not make a PASS. 4.x failed
+  a run on the first client (start -> exit) over 120 s; v3 lets that cycle
+  finish so the evidence shows how slow it was, and records it: slow_client
+  (start -> exit over LIMIT, the 4.x bound itself), with slow_workload /
+  slow_cleanup saying which phase was over LIMIT. A cleanup still running
+  CLEANUP_TIMEOUT after the result is recorded as cleanup_timeout together
+  with a bounded `podman container inspect` of its state (still running, or
+  only being removed?), and is watched on until it exits or reaches
+  HANG_LIMIT. A run with any such observation and no failure is
+  PASS_WITH_OBSERVATIONS (SMOKE_PASS_WITH_OBSERVATIONS for a smoke), never
+  PASS: PASS keeps the 4.x meaning, and accepting a slower run is the release
+  owner's recorded decision, not this helper's.
 * One cycle at a time, paced as in 4.x: the next `podman run` starts PAUSE
   seconds after the previous client has exited. An overlapped variant (the
   next cycle started while earlier clients were still removing) was withdrawn
@@ -60,7 +67,8 @@ import sys
 import threading
 import time
 
-# The 4.x per-operation latency target. A phase over it is an observation.
+# The 4.x per-operation bound: a client (start -> exit) over it failed a 4.x
+# run. v3 records it (slow_client) and such a run cannot be PASS.
 LIMIT = 120
 # Evidence-based cleanup timeout: about twice the slowest --rm removal seen in
 # 5.0.0 STRESS-01 (138 s after the checksum, run 2; 97 s in run 1). A cleanup
@@ -275,10 +283,13 @@ def judge(lines, *, finished, rc, started, now, expected_line=EXPECTED_LINE, han
     return {'verdict': verdict, 'phase': phase, 'reason': reason, 'result_at': result_at, 'overdue': overdue}
 
 
-def phase_observations(workload_seconds, cleanup_seconds, limit=None):
-    """Slow but correct phases. Observations only; they never fail a cycle."""
+def phase_observations(workload_seconds, cleanup_seconds, limit=None, client_seconds=None):
+    """Slow but correct cycles. They never fail a cycle or stop the loop, but
+    any of them keeps the run from PASS (see the module docstring)."""
     limit = LIMIT if limit is None else limit
     found = []
+    if client_seconds is not None and client_seconds > limit:
+        found.append({'kind': 'slow_client', 'seconds': round(client_seconds, 3), 'target_seconds': limit})
     if workload_seconds is not None and workload_seconds > limit:
         found.append({'kind': 'slow_workload', 'seconds': round(workload_seconds, 3), 'target_seconds': limit})
     if cleanup_seconds is not None and cleanup_seconds > limit:
@@ -366,7 +377,8 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
         result_at = cycle['result_at']
         workload = None if result_at is None else result_at - client.started
         cleanup = None if result_at is None or exited_at is None else exited_at - result_at
-        found = phase_observations(workload, cleanup) + cycle['observations']
+        lifetime = None if exited_at is None else exited_at - client.started
+        found = phase_observations(workload, cleanup, client_seconds=lifetime) + cycle['observations']
         row = {'container_cycle': cycle['number'], 'name': cycle['name'], 'verdict': cycle['verdict'],
                'reason': cycle['reason'],
                'started_elapsed': round(client.started - start, 3),
@@ -499,8 +511,13 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
         failures.append({'error': 'Insufficient sustained container activity', 'required_cycles': minimum,
                          'verified_cycles': len(verified), 'started_cycles': len(rows), 'coverage_seconds': coverage})
     failed = bool(failures or cleanup_errors or final_exists is not False)
+    over_target = sorted({item['cycle'] for item in observations})
+    passed = ('PASS' if duration >= 2700 else 'SMOKE_PASS') + ('_WITH_OBSERVATIONS' if over_target else '')
     return {'summary': True, 'qa_profile': QA_PROFILE,
-            'status': 'CANCELLED' if stopped() else 'FAIL' if failed else 'PASS' if duration >= 2700 else 'SMOKE_PASS',
+            'status': 'CANCELLED' if stopped() else 'FAIL' if failed else passed,
+            'latency_target_met': not over_target, 'cycles_over_latency_target': len(over_target),
+            'observation_counts': {kind: sum(item['kind'] == kind for item in observations)
+                                   for kind in sorted({item['kind'] for item in observations})},
             'cycles': len(rows), 'verified_cycles': len(verified), 'minimum_cycles': minimum,
             'coverage_seconds': coverage, 'load_window_seconds': duration, 'elapsed_seconds': clock() - start,
             'tail_seconds': max(0.0, clock() - start - duration),
@@ -510,7 +527,8 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
             'pause_seconds': PAUSE, 'pacing': 'next cycle starts pause_seconds after the previous client exits (4.x)',
             'client_termination_grace_seconds': CLIENT_GRACE, 'client_kill_observation_seconds': KILL_GRACE,
             'phase_seconds': {'workload': spread(row['workload_seconds'] for row in rows),
-                              'cleanup': spread(row['cleanup_seconds'] for row in rows)},
+                              'cleanup': spread(row['cleanup_seconds'] for row in rows),
+                              'client': spread(row['seconds'] for row in rows if row['client_exited'])},
             'verdicts': {verdict: sum(row['verdict'] == verdict for row in rows) for verdict in sorted({row['verdict'] for row in rows})},
             'observations': observations, 'primary_error': primary_error, 'failures': failures,
             'cleanup_errors': cleanup_errors, 'cleanup_operations': cleanup_operations,

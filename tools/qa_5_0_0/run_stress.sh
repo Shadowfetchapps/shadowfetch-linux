@@ -60,7 +60,7 @@ say "host gate: $host_gate (1-min load $gate_load, other VMs $gate_vms)"
 
 say "push helpers"
 gx "rm -rf $guest_dir && install -d -m 0755 $guest_dir"
-for f in stress_45m.sh mission_stress.py container_stress.py classify_service_journal.py latency_probe.py; do
+for f in stress_45m.sh mission_stress.py container_stress.py classify_service_journal.py latency_probe.py workload_summary.py; do
   "$vm" push "$name" "$root/tools/qa_5_0_0/stress/$f" "$guest_dir/$f" --mode 0755
 done
 gx "chown -R root:root $guest_dir; sha256sum $guest_dir/*" | tee "$out/guest-helpers.sha256"
@@ -116,10 +116,12 @@ gx "journalctl -k --no-pager --since=@$since 2>&1 | grep -iE 'out of memory|oom-
 gx "journalctl --no-pager --since=@$since -p err 2>&1 | tail -300" > "$out/journal-errors.txt"
 gx "ls /sys/class/thermal/ 2>&1; for z in /sys/class/thermal/thermal_zone*; do echo \$z \$(cat \$z/type \$z/temp 2>/dev/null); done" > "$out/guest-thermal.txt"
 (command -v sensors >/dev/null && sensors -A 2>/dev/null | grep -E '^(Tctl|Tccd|Package|Core|edge)' ) > "$out/host-thermal-after.txt" || true
-python3 - "$out" "$host_gate" "$run_max_load" "$release" <<'EOF'
+python3 - "$out" "$host_gate" "$run_max_load" "$release" "$root/tools/qa_5_0_0/stress" <<'EOF'
 import json, sys, tarfile, statistics
 from pathlib import Path
 out = Path(sys.argv[1])
+sys.path.insert(0, sys.argv[5])
+import workload_summary
 rows = [l.split("\t") for l in (out/"samples.tsv").read_text().splitlines()[1:] if l.count("\t") >= 6]
 summary = {"samples": len(rows)}
 if rows:
@@ -143,13 +145,36 @@ summary["host"] = {"gate": sys.argv[2], "run_max_load1": limit, "samples": len(h
                    "mean_load1": round(statistics.mean(host_load), 2) if host_load else None,
                    "max_other_vms": max(host_vms, default=None),
                    "environment": "contended" if contended else "idle" if host_load else "unknown"}
+def member(t, name):
+    try:
+        return t.extractfile(f"sf-stress-{sys.argv[4]}/{name}").read().decode()
+    except Exception:
+        return None
+def as_json(text):
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return None
 try:
     with tarfile.open(out/"guest-evidence.tgz") as t:
-        probe = t.extractfile(f"sf-stress-{sys.argv[4]}/probe-loop.jsonl").read().decode().splitlines()
-    last = json.loads(probe[-1]); summary["probe_summary"] = last
+        probe = member(t, "probe-loop.jsonl")
+        guest_result = as_json(member(t, "result.json")) or {}
+        container = as_json(member(t, "container-result.json"))
+        missions = as_json(member(t, "mission-evidence/result.json"))
+except Exception as e:
+    probe, guest_result, container, missions = None, {}, None, None
+    summary["guest_evidence_error"] = str(e)
+# STRESS-01's own verdict and the workload helpers' (verified cycles, cycles
+# over the 4.x bound, phase times, busy answers) beside the host view, so a
+# PASS_WITH_OBSERVATIONS is read as such and not as PASS.
+summary["stress_status"] = guest_result.get("status")
+summary["workloads"] = workload_summary.summarize(container if isinstance(container, dict) else None,
+                                                  missions if isinstance(missions, dict) else None)
+try:
+    summary["probe_summary"] = json.loads(probe.splitlines()[-1])
 except Exception as e:
     summary["probe_summary_error"] = str(e)
 (out/"summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 print(json.dumps(summary, indent=2))
 EOF
-say "evidence: ${out#"$root"/} (host environment: see summary.json)"
+say "evidence: ${out#"$root"/} (STRESS-01 status, workload observations and host environment: see summary.json)"

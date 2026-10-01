@@ -23,6 +23,7 @@ for tool in stress-ng podman shadowfetch-missions shadowfetch-grok-bot ffmpeg ff
 done
 helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$helper_dir/classify_service_journal.py" && ! -L "$helper_dir/classify_service_journal.py" ]] || { echo "Missing structured journal classifier" >&2; exit 2; }
+[[ -f "$helper_dir/workload_summary.py" && ! -L "$helper_dir/workload_summary.py" ]] || { echo "Missing workload summary helper" >&2; exit 2; }
 run_id="$(date +%s)-$$"
 cancelled=0
 stress_pid=0
@@ -42,9 +43,13 @@ image="docker.io/library/alpine:3.22"
 # only, see the two helpers' headers): mission_stress.py asks again when
 # Mission Control answers "database is busy" and stops its worker without
 # crashing; container_stress.py judges a cycle's checksum separately from its
-# podman client's --rm exit, records slow phases as observations and fails a
-# cycle only on a wrong result or a hang. The outer bounds below follow the
-# helpers' own bounds; they only stop a helper that ignores them.
+# podman client's --rm exit, lets a cycle slower than the 4.x 120 s bound
+# finish and records it, and fails a cycle on a wrong result or a hang. What
+# the helpers tolerated that 4.x stopped on (busy answers, cycles over the
+# 4.x bound) is lifted into result.json by workload_summary.py, and such a
+# run is PASS_WITH_OBSERVATIONS, never PASS: accepting it is the release
+# owner's recorded decision. The outer bounds below follow the helpers' own
+# bounds; they only stop a helper that ignores them.
 expected_image_id="${QA_ALPINE_IMAGE_ID:-b66e0ce64844f5c6435b0c4bfd965558199ab0f53270846861c979cb1ac29365}"
 
 mkdir -p "$out"
@@ -198,7 +203,13 @@ as_user shadowfetch-health --quick --json > "$out/health-after.json" || true
 failures=0
 container_cycles="$(grep -c '"container_cycle"' "$out/container-loop.log" || true)"
 probe_cycles="$(grep -c '"probe_cycle"' "$out/probe-loop.jsonl" || true)"
-for rc in "$image_resolution_rc" "$plans_rc" "$stress_rc" "$container_rc" "$probe_rc" "$mission_rc" "$service_classifier_rc"; do
+# The helpers' own verdicts (verified cycles, cycles over the 4.x bound, phase
+# times, busy answers) at the level the acceptance record is written from.
+workload_view="$(python3 "$helper_dir/workload_summary.py" --container "$out/container-result.json" \
+    --missions "$out/mission-evidence/result.json" --output "$out/workload-summary.json" 2> "$out/workload-summary.stderr")"
+workload_summary_rc=$?
+[[ $workload_view == observed ]] && workload_observed=true || workload_observed=false
+for rc in "$image_resolution_rc" "$plans_rc" "$stress_rc" "$container_rc" "$probe_rc" "$mission_rc" "$service_classifier_rc" "$workload_summary_rc"; do
     if (( rc != 0 )); then
         failures=$((failures + 1))
     fi
@@ -242,8 +253,11 @@ cat > "$out/result.json" <<EOF
   "installed_release": "$release",
   "development_smoke": ${QA_DEVELOPMENT_SMOKE:-0},
   "probe_cycles": $probe_cycles,
+  "workload_summary_rc": $workload_summary_rc,
+  "workload_observations": $workload_observed,
+  "workloads": $(cat "$out/workload-summary.json" 2>/dev/null || printf null),
   "failure_count": $failures,
-  "status": "$([[ $cancelled -eq 1 ]] && printf CANCELLED || { [[ $failures -eq 0 ]] && { [[ ${QA_DEVELOPMENT_SMOKE:-0} == 1 ]] && printf SMOKE_PASS || printf PASS; } || printf FAIL; })"
+  "status": "$([[ $cancelled -eq 1 ]] && printf CANCELLED || { [[ $failures -eq 0 ]] && { [[ ${QA_DEVELOPMENT_SMOKE:-0} == 1 ]] && printf SMOKE_PASS || printf PASS; } && { [[ $workload_observed == true ]] && printf _WITH_OBSERVATIONS; true; } || printf FAIL; })"
 }
 EOF
 
