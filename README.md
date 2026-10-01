@@ -84,7 +84,7 @@ Continue only after the signature and checksum both verify. A GPG warning about 
 
 The boot menu offers a normal entry and an "agents offline" entry; the installer carries that choice to the installed system. The live session uses `shadow` / `shadow` with passwordless sudo. The installer creates the chosen user and removes the live account. See the [verification guide](https://www.shadowfetchlinux.org/verify), [Secure Boot guide](https://www.shadowfetchlinux.org/secure-boot) and [known issues](https://www.shadowfetchlinux.org/known-issues).
 
-**Upgrading from 4.1:** `sudo apt update` then `sudo apt full-upgrade` (not `fireproof update` for now: it can stop partway when it updates Fireproof itself; see [Known issues](#known-issues)). Read the [release notes](RELEASE-5.0.0.md) first; the upgrade removes `shadowfetch-element`, `shadowfetch-codex` and `shadowfetch-code-agent`, and moves an Ice machine to the offline agent network.
+**Upgrading from 4.1 or 5.0.0 to 5.0.1:** run `sudo apt update` then `sudo apt full-upgrade` for this update (not `fireproof update`: the Fireproof on 4.1 and 5.0.0 can stop partway when it updates itself). From 5.0.1 on, `fireproof update` is safe again and never removes packages. Read the [release notes](RELEASE-5.0.0.md) first; the upgrade removes `shadowfetch-element`, `shadowfetch-codex` and `shadowfetch-code-agent`, and moves an Ice machine to the offline agent network.
 
 ## Hardware and limits
 
@@ -96,7 +96,7 @@ Acceptance, recorded in `qa/5.0.0/acceptance.json` against this exact ISO: SRC-0
 
 ## Known issues
 
-**Update with apt for now, not `fireproof update`:** it can stop partway when it installs a new Fireproof (every 4.1 → 5.0 upgrade does), and its plan can currently remove the desktop metapackages during a Debian testing transition. Use `sudo apt update` then `sudo apt full-upgrade`. If an update already stopped partway: if apt says fireproofd holds the lock, `sudo systemctl kill --signal=KILL fireproofd.service` (or `sudo systemctl reboot -i`); then `sudo dpkg --configure -a`, `sudo apt full-upgrade`, `sudo apt install shadowfetch-desktop shadowfetch-creative-base`, and restart. See the release notes.
+**5.0.1 is out (2026-10-01, an APT update; see [RELEASE-5.0.1.md](RELEASE-5.0.1.md)).** Install it from 4.1 or 5.0.0 with `sudo apt update` then `sudo apt full-upgrade`, not `fireproof update`: the older Fireproof can stop partway when it installs a new Fireproof, and its plan can remove the desktop metapackages during a Debian testing transition. 5.0.1's Fireproof fixes both. If an update already stopped partway: if apt says fireproofd holds the lock, `sudo systemctl kill --signal=KILL fireproofd.service` (or `sudo systemctl reboot -i`); then `sudo dpkg --configure -a`, `sudo apt full-upgrade`, `sudo apt install shadowfetch-desktop shadowfetch-creative-base`, and restart.
 
 The first two are fixed by the 5.0.1 update, which arrives through the Shadowfetch APT repository (`sudo apt update`, then `sudo apt full-upgrade`). The third affects only the live USB, which an update cannot change: 5.0.1 turns it off on the live USB, and a 5.0.0 stick keeps it, so use the workaround. The [release notes](RELEASE-5.0.0.md#known-issues) list every known issue.
 
