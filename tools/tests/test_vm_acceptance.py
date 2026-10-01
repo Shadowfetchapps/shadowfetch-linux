@@ -956,6 +956,391 @@ class GuestRaceTests(unittest.TestCase):
         self.assertIn("_release_session_awake(", source)
 
 
+MIB = 1024
+# MemAvailable after each close, KiB, from the 5.0.0 soak of ISO 2d8a72e0
+# (work/qa-5.0.0/evidence/vm-acceptance/shadowcode-soak-20260930T204046Z-*).
+# The 476 MiB step between closes 3 and 4 is PackageKit writing apt lists into
+# the live overlay's RAM; ShadowCode's unit memory stayed flat across it.
+SOAK_2D8A_AFTER_CLOSE = [
+    6274964, 6250740, 6185764, 5698732, 5709232, 5672980, 5653092, 5676564,
+    5680008, 5658800, 5672648, 5666612, 5683308, 5598556, 5578144, 5669044,
+    5659576, 5670608, 5648816, 5681960, 5658940, 5635984, 5655888, 5649292,
+]
+
+
+def jitter(cycle: int, amplitude_mib: int = 20) -> int:
+    """Deterministic +-amplitude noise, in KiB."""
+    return ((cycle * 7919) % (2 * amplitude_mib + 1) - amplitude_mib) * MIB
+
+
+def plugin_file(width: int, height: int) -> str:
+    """What tauri-plugin-window-state 2.4 writes: one object per window label."""
+    return json.dumps({"main": {
+        "width": width, "height": height, "x": 270, "y": 80, "prev_x": 270,
+        "prev_y": 80, "maximized": False, "visible": True, "decorated": True,
+        "fullscreen": False,
+    }})
+
+
+class SoakMeasurementTests(unittest.TestCase):
+    """The shadowcode-soak memory metric and window check, on synthetic series.
+
+    The first 5.0.0 soak failed ShadowCode for 680 MiB of "drift" that was a
+    system job's one-time step plus a one-cycle dip, measured first close to
+    lowest later close. These pin what the replacement does and does not
+    charge: end medians and a slope, plus growth of the saved window size.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from acceptance import cases
+        cls.cases = cases
+
+    def drift(self, values):
+        return self.cases._after_close_drift(values)
+
+    def passes(self, drift, total_mib: float = 256, slope_mib: float = 8) -> bool:
+        return drift["drop_mib"] <= total_mib and drift["slope_mib_per_cycle"] >= -slope_mib
+
+    # -- memory drift ---------------------------------------------------------
+
+    def test_a_flat_noisy_soak_passes(self) -> None:
+        values = [6_000_000 + jitter(cycle) for cycle in range(1, 25)]
+        drift = self.drift(values)
+        self.assertEqual(drift["window"], 3)
+        self.assertEqual((drift["head_cycles"], drift["tail_cycles"]), ([1, 2, 3], [22, 23, 24]))
+        self.assertLess(abs(drift["drop_mib"]), 40)
+        self.assertLess(abs(drift["slope_mib_per_cycle"]), 2)
+        self.assertTrue(self.passes(drift))
+
+    def test_a_one_cycle_dip_is_not_charged_as_drift(self) -> None:
+        # 2d8a72e0 close 15: -118 MiB, recovered 89 MiB at the next close.
+        values = [6_000_000 + jitter(cycle) for cycle in range(1, 25)]
+        values[14] -= 118 * MIB
+        old_metric_mib = (values[0] - min(values[1:])) / MIB
+        self.assertGreater(old_metric_mib, 100, "the old metric charged the dip")
+        drift = self.drift(values)
+        self.assertTrue(self.passes(drift), drift)
+        self.assertLess(drift["drop_mib"], 40)
+
+    def test_first_launch_warm_up_is_not_a_leak(self) -> None:
+        values = [6_000_000 - min(cycle - 1, 2) * 44 * MIB + jitter(cycle, 5)
+                  for cycle in range(1, 25)]
+        self.assertTrue(self.passes(self.drift(values)))
+
+    def test_the_2d8a72e0_soak_without_its_packagekit_step_passes(self) -> None:
+        step = SOAK_2D8A_AFTER_CLOSE[2] - SOAK_2D8A_AFTER_CLOSE[3]
+        self.assertAlmostEqual(step / MIB, 475.6, places=1)
+        without = SOAK_2D8A_AFTER_CLOSE[:3] + [v + step for v in SOAK_2D8A_AFTER_CLOSE[3:]]
+        drift = self.drift(without)
+        self.assertTrue(self.passes(drift), drift)
+        self.assertAlmostEqual(drift["drop_mib"], 111.7, places=1)
+        self.assertAlmostEqual(drift["slope_mib_per_cycle"], -3.69, places=2)
+        # From close 4 on (after the step) the slope is noise.
+        self.assertTrue(self.passes(self.drift(SOAK_2D8A_AFTER_CLOSE[3:])))
+
+    def test_a_step_inside_the_soak_still_fails(self) -> None:
+        # The metric does not explain a step away; quiescing PackageKit before
+        # the baseline is what keeps that one out of the cycles.
+        drift = self.drift(SOAK_2D8A_AFTER_CLOSE)
+        self.assertAlmostEqual(drift["drop_mib"], 587.4, places=1)
+        self.assertFalse(self.passes(drift))
+
+    def test_a_steady_leak_under_the_total_limit_fails_on_its_slope(self) -> None:
+        values = [6_000_000 - cycle * 10 * MIB + jitter(cycle, 5) for cycle in range(1, 25)]
+        drift = self.drift(values)
+        self.assertLess(drift["drop_mib"], 256, "the end medians alone would pass it")
+        self.assertLess(drift["slope_mib_per_cycle"], -8)
+        self.assertFalse(self.passes(drift))
+
+    def test_short_soaks_never_share_a_reading_between_the_ends(self) -> None:
+        self.assertIsNone(self.drift([]))
+        self.assertIsNone(self.drift([6_000_000]))
+        three = self.drift([6_000_000, 5_990_000, 5_980_000])
+        self.assertEqual((three["window"], three["head_cycles"], three["tail_cycles"]),
+                         (1, [1], [3]))
+        five = self.drift([6_000_000] * 5)
+        self.assertEqual((five["window"], five["head_cycles"], five["tail_cycles"]),
+                         (2, [1, 2], [4, 5]))
+
+    def test_missing_readings_are_skipped_and_keep_their_cycle_numbers(self) -> None:
+        drift = self.drift([6_000_000, -1, None, 6_000_000 - 3 * 8 * MIB])
+        self.assertEqual(drift["readings"], 2)
+        self.assertEqual((drift["head_cycles"], drift["tail_cycles"]), ([1], [4]))
+        self.assertAlmostEqual(drift["slope_mib_per_cycle"], -8.0)
+
+    # -- saved window size ------------------------------------------------------
+
+    def sizes(self, *pairs):
+        return [None if pair is None else {"main": list(pair)} for pair in pairs]
+
+    def test_the_plugin_file_is_read_per_window_label(self) -> None:
+        parse = self.cases._parse_window_state
+        self.assertEqual(parse(plugin_file(1432, 1019)), {"main": [1432, 1019]})
+        for text in ("", "not json", "[]", "{}", '{"main": {"width": "wide"}}'):
+            self.assertIsNone(parse(text), text)
+
+    def test_shadowcode_1_0_0_growth_fails(self) -> None:
+        # +52 px wide, +99 px tall at every launch on Plasma Wayland.
+        closes = self.sizes(*[(1432 + 52 * n, 1019 + 99 * n) for n in range(6)])
+        growth = self.cases._window_growth(closes)
+        self.assertEqual(growth["longest_run"], 5)
+        self.assertEqual(growth["grew_at_closes"], [2, 3, 4, 5, 6])
+        self.assertGreaterEqual(growth["longest_run"], self.cases.SOAK_WINDOW_GROWTH_RUN)
+
+    def test_a_size_that_is_not_saved_or_does_not_move_passes(self) -> None:
+        # 1.0.1 leaves SIZE out of the plugin's flags: the file keeps 0x0 (or a
+        # size an older version saved) and never grows.
+        for closes in (self.sizes(*[(0, 0)] * 6), self.sizes(*[(1380, 920)] * 6)):
+            growth = self.cases._window_growth(closes)
+            self.assertEqual((growth["compared"], growth["longest_run"]), (5, 0))
+
+    def test_one_increase_is_not_a_run_but_height_alone_is(self) -> None:
+        once = self.cases._window_growth(self.sizes((1380, 920), (1432, 1019), (1432, 1019)))
+        self.assertEqual(once["longest_run"], 1)
+        taller = self.cases._window_growth(self.sizes((1380, 920), (1380, 1019), (1380, 1118)))
+        self.assertEqual(taller["longest_run"], 2)
+
+    def test_a_missing_reading_breaks_a_run_instead_of_bridging_it(self) -> None:
+        growth = self.cases._window_growth(
+            self.sizes((1380, 920), (1432, 1019), None, (1536, 1217), (1536, 1217)))
+        self.assertEqual((growth["compared"], growth["longest_run"]), (2, 1))
+        self.assertEqual(growth["sizes"][2], None)
+        self.assertEqual(growth["sizes"][0], "main=1380x920")
+
+    def test_no_readings_make_no_comparison(self) -> None:
+        growth = self.cases._window_growth([None, None, None])
+        self.assertEqual((growth["compared"], growth["longest_run"]), (0, 0))
+
+
+class FakeClock:
+    """cases.time for a whole soak: sleep advances a clock instead of waiting."""
+
+    def __init__(self) -> None:
+        import time as real
+        self._real = real
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+    def __getattr__(self, name: str):
+        return getattr(self._real, name)
+
+
+class SoakGuest:
+    """A live session running ShadowCode, answering what shadowcode-soak asks.
+
+    `saved` gives the window size the app writes at its Nth exit (None: no
+    file). The update notifier starts `notifier`; PackageKit answers
+    `packagekit` in turn (its last state repeats) with `transactions` running.
+    """
+
+    def __init__(self, pin: dict, saved, *, notifier: str = "active",
+                 packagekit=("inactive",), transactions: int = 0) -> None:
+        self.pin = pin
+        self.saved = saved
+        self.notifier = notifier
+        self.packagekit = list(packagekit)
+        self.transactions = transactions
+        self.closes = 0
+        self.stopped: set[str] = set()
+        self.log: list[str] = []
+
+    def __call__(self, command: str):
+        import re
+        pin = self.pin
+        if ".window-state.json" in command:
+            self.log.append("window-state")
+            size = self.saved(self.closes)
+            return "" if size is None else plugin_file(*size)
+        if "/proc/meminfo" in command:
+            self.log.append("meminfo")
+            return "MemAvailable: 6000000\nShmem: 200000\nAnonPages: 900000"
+        if "for p in $(pgrep -x plasmashell)" in command:
+            return "live\t1000\t\twayland-0\n"
+        if "getent passwd" in command:
+            return "/home/live"
+        if "dpkg-query" in command:
+            return f"{pin['version']}\tii "
+        if "echo present" in command:
+            return "present"
+        if command.startswith("/usr/bin/cat " + pin["desktop_file"]):
+            return "[Desktop Entry]\nName=ShadowCode\nExec=shadowcode %U\n"
+        if f"{pin['launcher']} --version" in command:
+            return f"ShadowCode {pin['version']}"
+        if "llama-server --version" in command or "llama-cli --version" in command:
+            return f"version: 1\ncommit {pin['runtime_commit']}"
+        if "WindowsRunner" in command:
+            return '   array [\n      string "ShadowCode"\n   ]\n'
+        if "kreadconfig6" in command:
+            return "false"
+        if command.startswith("/usr/bin/systemd-inhibit --list"):
+            return "WHO shadowfetch-vm-acceptance UID 1000 WHAT idle:sleep\n"
+        if "is-active sf-acceptance-soak-inhibit" in command:
+            return "active"
+        notifier = "app-org.kde.discover.notifier@autostart.service"
+        if f"systemctl --user show {notifier}" in command:
+            self.log.append(f"notifier-show:{self.notifier}")
+            return (f"LoadState=loaded\nActiveState={self.notifier}\nSubState=running\n"
+                    "ConditionResult=yes\nDropInPaths=")
+        if f"systemctl --user stop {notifier}" in command:
+            self.log.append("notifier-stop")
+            self.notifier = "inactive"
+            return ""
+        if "is-active packagekit.service" in command:
+            state = self.packagekit.pop(0) if len(self.packagekit) > 1 else self.packagekit[0]
+            self.log.append(f"packagekit:{state}")
+            return state
+        if "GetTransactionList" in command:
+            return f"ao {self.transactions}" + ' "/1_x"' * self.transactions
+        if "date +%s" in command:
+            self.log.append("since")
+            return "1790000000"
+        match = re.search(r"systemctl --user show (sf-acceptance-shadowcode-\d+)", command)
+        if match:
+            if match.group(1) in self.stopped:
+                return "ActiveState=inactive\nSubState=dead\nResult=success\nMainPID=0\n"
+            return ("LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\n"
+                    "MainPID=4242\nNRestarts=0\nMemoryCurrent=180000000\n"
+                    "MemoryPeak=220000000\nCPUUsageNSec=900000000\n")
+        match = re.search(r"systemctl --user stop (sf-acceptance-shadowcode-\d+)", command)
+        if match:
+            self.stopped.add(match.group(1))
+            self.closes += 1
+            return ""
+        if "ScreenSaver.GetActive" in command:
+            return "   boolean false\n"
+        return ""
+
+
+class SoakCaseTests(unittest.TestCase):
+    """shadowcode-soak end to end against a fake live session.
+
+    A fake clock makes the cycle count exact: five minutes at the default
+    60s hold is five open/close cycles.
+    """
+
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        (self.root / "unit.iso").write_bytes(b"not really an iso")
+        from acceptance import cases
+        self.cases = cases
+        clock = unittest.mock.patch.object(cases, "time", FakeClock())
+        clock.start()
+        self.addCleanup(clock.stop)
+        probe = self.context(FakeGuest(self.root, lambda _c: ""))
+        self.pin = cases._shadowcode_pin(probe)
+
+    def context(self, guest, **options) -> Context:
+        ctx = Context(
+            name="shadowcode-soak",
+            repo_root=REPO_ROOT,
+            run_dir=self.root / "run",
+            evidence=EvidenceSet(REPO_ROOT, self.root / "evidence"),
+            artifact={"path": str(self.root / "unit.iso"), "sha256": "b" * 64},
+            options={"version": "5.0.0", "desktop_settle": 0, "soak_minutes": 5, **options},
+        )
+        ctx.guest = lambda *_a, **_k: guest  # type: ignore[method-assign]
+        return ctx
+
+    def soak(self, session: SoakGuest, **options) -> Context:
+        ctx = self.context(FakeGuest(self.root, session), **options)
+        CASES["shadowcode-soak"].run(ctx)
+        return ctx
+
+    def check(self, ctx: Context, prefix: str) -> dict:
+        found = [c for c in ctx.checks if c["name"].startswith(prefix)]
+        self.assertEqual(len(found), 1, [c["name"] for c in ctx.checks])
+        return found[0]
+
+    def test_a_window_that_grows_at_every_launch_fails_the_soak(self) -> None:
+        # ShadowCode 1.0.0: the file appears at the first exit and grows at each.
+        ctx = self.soak(SoakGuest(self.pin, lambda n: (1380 + 52 * n, 920 + 99 * n)))
+        self.assertEqual(ctx.observations["soak_cycles"], 5)
+        growth = self.check(ctx, "the window ShadowCode restores does not grow")
+        self.assertEqual(growth["state"], "FAILED", growth)
+        self.assertIn("grew at closes [2, 3, 4, 5]", growth["detail"])
+        self.assertEqual(vm_acceptance.verdict_for(ctx),
+                         ("FAIL", growth["name"]))
+
+    def test_a_window_size_that_holds_passes_the_soak(self) -> None:
+        # ShadowCode 1.0.1: SIZE is not a saved flag; the file holds 0x0.
+        ctx = self.soak(SoakGuest(self.pin, lambda n: (0, 0) if n else None))
+        growth = self.check(ctx, "the window ShadowCode restores does not grow")
+        self.assertEqual(growth["state"], "PASSED", growth)
+        for prefix in ("available memory after close does not drift",
+                       "available memory after close does not fall"):
+            self.assertEqual(self.check(ctx, prefix)["state"], "PASSED")
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS", ctx.checks)
+        cycles = json.loads((self.root / "evidence" / "shadowcode-soak-cycles.json").read_text())
+        close = cycles["cycles"][0]
+        self.assertEqual((close["shmem_after_close_kib"], close["anon_pages_after_close_kib"]),
+                         (200000, 900000))
+        self.assertEqual(close["samples"][0]["shmem_kib"], 200000)
+        self.assertEqual(close["window_state"], {"main": [0, 0]})
+        self.assertEqual(cycles["baseline_meminfo_kib"],
+                         {"MemAvailable": 6000000, "Shmem": 200000, "AnonPages": 900000})
+
+    def test_no_window_state_file_makes_no_window_claim(self) -> None:
+        ctx = self.soak(SoakGuest(self.pin, lambda _n: None))
+        self.assertFalse([c for c in ctx.checks if "window ShadowCode restores" in c["name"]])
+        self.assertIn("window_state_unobserved", ctx.observations)
+
+    def test_the_notifier_is_stopped_and_packagekit_idle_before_the_baseline(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920),
+                            packagekit=("active", "active", "inactive"), transactions=1)
+        ctx = self.soak(session)
+        log = session.log
+        self.assertIn("notifier-stop", log)
+        baseline = log.index("since")
+        self.assertLess(log.index("notifier-stop"), baseline)
+        self.assertLess(max(i for i, e in enumerate(log) if e.startswith("packagekit:")),
+                        baseline)
+        record = ctx.observations["soak_quiesce"]
+        self.assertEqual(record["notifier_before"]["ActiveState"], "active")
+        self.assertEqual(record["notifier_after"]["ActiveState"], "inactive")
+        self.assertTrue(record["packagekit_idle"])
+        self.assertEqual(record["packagekit_busy_polls"], 2)
+        self.assertTrue((self.root / "evidence" / "shadowcode-soak-quiesce.log").is_file())
+
+    def test_a_notifier_that_is_not_running_is_left_alone(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920), notifier="inactive")
+        ctx = self.soak(session)
+        self.assertNotIn("notifier-stop", session.log)
+        self.assertIsNone(ctx.observations["soak_quiesce"]["notifier_stop"])
+
+    def test_packagekit_that_never_goes_idle_blocks_the_soak(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920),
+                            packagekit=("active",), transactions=1)
+        ctx = self.context(FakeGuest(self.root, session), soak_quiesce_timeout=60)
+        with self.assertRaises(Blocked) as caught:
+            CASES["shadowcode-soak"].run(ctx)
+        self.assertIn("packagekitd did not go idle", str(caught.exception))
+        self.assertNotIn("since", session.log, "the soak started anyway")
+        self.assertFalse(ctx.observations["soak_quiesce"]["packagekit_idle"])
+
+    def test_an_unreadable_packagekit_answer_is_never_taken_for_idle(self) -> None:
+        for state in ("activating", ""):
+            with self.subTest(state=state):
+                guest = FakeGuest(self.root, lambda c, s=state: s if "is-active" in c else "")
+                self.assertIsNone(self.cases._packagekit_transactions(guest)["transactions"])
+        busy = FakeGuest(self.root, lambda c: "active" if "is-active" in c else
+                         {"exitcode": 1, "stdout": "", "stderr": "not activatable"})
+        self.assertIsNone(self.cases._packagekit_transactions(busy)["transactions"])
+
+    def test_meminfo_is_read_in_one_pass_and_missing_fields_are_marked(self) -> None:
+        guest = FakeGuest(self.root, lambda _c: "MemAvailable: 6000000\nShmem: 200000")
+        self.assertEqual(self.cases._meminfo_kib(guest),
+                         {"MemAvailable": 6000000, "Shmem": 200000, "AnonPages": -1})
+        self.assertEqual(len(guest.commands), 1)
+
+
 class FramebufferTests(unittest.TestCase):
     def test_ppm_is_converted_to_a_png_of_the_same_size(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

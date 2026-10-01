@@ -20,7 +20,9 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+import re
 import shlex
+import statistics
 import time
 from typing import Any, Callable
 
@@ -2279,7 +2281,8 @@ def case_recovery_project(ctx: Context) -> None:
 #                    --shadowcode-minutes without a crash.
 #   shadowcode-soak  the same checks, then open/close cycles for
 #                    --soak-minutes, watching window appearance, clean exits,
-#                    leftover processes, crashes, memory drift and idle CPU.
+#                    leftover processes, crashes, memory drift, idle CPU and
+#                    whether the window ShadowCode restores grows per launch.
 #                    SHADOWCODE-01 is recorded from this case, and only when a
 #                    `shadowcode` run of the same artifact has also passed.
 #
@@ -2416,13 +2419,30 @@ def _unit_state(machine: Guest, session: dict[str, str], unit: str) -> dict[str,
     )
 
 
-def _mem_available_kib(machine: Guest) -> int:
-    value = machine.out("/usr/bin/awk '/^MemAvailable:/ {print $2}' /proc/meminfo")
-    return int(value) if value.isdigit() else -1
+# Read together, in one pass over /proc/meminfo. MemAvailable is what the drift
+# check judges; Shmem and AnonPages are there to say WHERE a change went. The
+# 5.0.0 soak's 476 MiB step was Shmem -- apt lists written into the live
+# session's RAM-backed overlay -- and a leak in ShadowCode's own processes
+# would show as AnonPages instead. Without them a step is a number with no owner.
+MEMINFO_FIELDS = ("MemAvailable", "Shmem", "AnonPages")
+
+
+def _meminfo_kib(machine: Guest) -> dict[str, int]:
+    """MEMINFO_FIELDS in KiB; -1 for a field the guest did not report."""
+    text = machine.out(
+        "/usr/bin/awk '/^(MemAvailable|Shmem|AnonPages):/ {print $1, $2}' /proc/meminfo"
+    )
+    values: dict[str, int] = {}
+    for line in text.splitlines():
+        key, _, value = line.partition(" ")
+        if value.strip().isdigit():
+            values[key.rstrip(":")] = int(value.strip())
+    return {field: values.get(field, -1) for field in MEMINFO_FIELDS}
 
 
 def _sample(machine: Guest, session: dict[str, str], unit: str) -> dict[str, Any]:
     state = _unit_state(machine, session, unit)
+    meminfo = _meminfo_kib(machine)
     return {
         "monotonic": round(time.monotonic(), 1),
         "active": state.get("ActiveState"),
@@ -2432,7 +2452,9 @@ def _sample(machine: Guest, session: dict[str, str], unit: str) -> dict[str, Any
         "memory_current": state.get("MemoryCurrent"),
         "memory_peak": state.get("MemoryPeak"),
         "cpu_ns": state.get("CPUUsageNSec"),
-        "mem_available_kib": _mem_available_kib(machine),
+        "mem_available_kib": meminfo["MemAvailable"],
+        "shmem_kib": meminfo["Shmem"],
+        "anon_pages_kib": meminfo["AnonPages"],
     }
 
 
@@ -2800,19 +2822,335 @@ def _screen_locked(machine: Guest, session: dict[str, str]) -> bool | None:
     return words[-1] == "true"
 
 
+# KDE's update notifier, as the systemd user unit the Plasma session runs it in.
+# systemd-xdg-autostart-generator names the unit after the autostart entry
+# (/etc/xdg/autostart/org.kde.discover.notifier.desktop -> app-<id>@autostart),
+# and the 2d8a72e0 soak journal shows exactly this unit starting at 42.8s. The
+# live-medium drop-in shadowfetch-defaults ships is for the same unit.
+DISCOVER_NOTIFIER_UNIT = "app-org.kde.discover.notifier@autostart.service"
+# packagekitd's own list of running transactions. --auto-start=no: asking must
+# not start the daemon the soak is trying to see idle.
+PACKAGEKIT_TRANSACTION_LIST = (
+    "/usr/bin/busctl --system --auto-start=no call org.freedesktop.PackageKit "
+    "/org/freedesktop/PackageKit org.freedesktop.PackageKit GetTransactionList"
+)
+
+
+def _packagekit_transactions(machine: Guest) -> dict[str, Any]:
+    """How many transactions packagekitd is running, asked without starting it.
+
+    `transactions` is 0 when packagekit.service is not running (no daemon, no
+    transaction), the daemon's own count when it is, and None when the answer
+    cannot be read: a daemon starting or stopping, or a reply that is not
+    `ao N ...`. None is never taken for idle.
+    """
+    state = machine.out("/usr/bin/systemctl is-active packagekit.service 2>/dev/null || true")
+    if state in ("inactive", "failed"):
+        return {"packagekit": state, "transactions": 0, "reply": ""}
+    if state != "active":
+        return {"packagekit": state or "(no answer)", "transactions": None, "reply": ""}
+    reply = machine.run(PACKAGEKIT_TRANSACTION_LIST + " 2>&1", timeout=60)
+    text = reply["stdout"].strip()
+    match = re.match(r"ao (\d+)\b", text)
+    return {
+        "packagekit": state,
+        "transactions": int(match.group(1)) if reply["exitcode"] == 0 and match else None,
+        "reply": text[:400],
+    }
+
+
+def _quiesce_update_notifier(
+    ctx: Context, machine: Guest, session: dict[str, str]
+) -> dict[str, Any]:
+    """Stop KDE's update notifier and let PackageKit go idle before the baseline.
+
+    The 5.0.0 soak of ISO 2d8a72e0 FAILED its memory check on work that was
+    never ShadowCode's. DiscoverNotifier starts at login and arms a hard-coded
+    300s timer; when it fires, PackageKit runs refresh-cache. The ISO ships
+    without apt indexes (LB_APT_INDICES=false), so the refresh downloads all of
+    them, and on the live medium they are written into the RAM-backed overlay:
+    Shmem +~350 MB and MemAvailable -476 MiB in one step between cycles 3 and
+    4, while the ShadowCode unit's own MemoryCurrent stayed flat. The timer was
+    armed before ShadowCode first launched; nothing the app did caused it.
+
+    Images built with shadowfetch-defaults' live-medium drop-in never start the
+    notifier on the live medium. This does not rely on that, so an image
+    without the drop-in is measured honestly too: the unit is stopped if it is
+    running at all, then packagekitd must report no running transaction on two
+    polls in a row -- bounded by --soak-quiesce-timeout -- so a refresh that
+    already started finishes BEFORE the baseline instead of inside the cycles.
+    What was found and done is recorded (`soak_quiesce`,
+    shadowcode-soak-quiesce.log). A notifier that will not stop, or a
+    PackageKit that never goes idle, is BLOCKED: the soak could not then say
+    whose memory it measured.
+    """
+    timeout = float(ctx.options.get("soak_quiesce_timeout", 900))
+    show = (
+        f"/usr/bin/systemctl --user show {DISCOVER_NOTIFIER_UNIT} -p LoadState "
+        "-p ActiveState -p SubState -p ConditionResult -p DropInPaths"
+    )
+
+    def notifier() -> dict[str, str]:
+        result = _as_session(machine, session, show, timeout=60)
+        return dict(
+            line.split("=", 1) for line in result["stdout"].splitlines() if "=" in line
+        )
+
+    running = ("active", "activating", "reloading")
+    before = notifier()
+    stopped: dict[str, Any] | None = None
+    if before.get("ActiveState") in running:
+        result = _as_session(
+            machine, session,
+            f"/usr/bin/systemctl --user stop {DISCOVER_NOTIFIER_UNIT}", timeout=90,
+        )
+        stopped = {"exit": result["exitcode"],
+                   "output": (result["stdout"] + result["stderr"]).strip()[:400]}
+    after = notifier() if stopped is not None else before
+
+    started = time.monotonic()
+    polls: list[dict[str, Any]] = []
+    idle = 0
+    while True:
+        poll = _packagekit_transactions(machine)
+        poll["seconds"] = round(time.monotonic() - started, 1)
+        polls.append(poll)
+        idle = idle + 1 if poll["transactions"] == 0 else 0
+        if idle >= 2 or time.monotonic() - started >= timeout:
+            break
+        time.sleep(5)
+    record = {
+        "notifier_unit": DISCOVER_NOTIFIER_UNIT,
+        "notifier_before": before,
+        # None: it was not running, so there was nothing to stop.
+        "notifier_stop": stopped,
+        "notifier_after": after,
+        "packagekit_idle": idle >= 2,
+        "packagekit_waited_seconds": polls[-1]["seconds"],
+        "packagekit_busy_polls": sum(1 for poll in polls if poll["transactions"] != 0),
+        "packagekit_first": polls[0],
+        "packagekit_last": polls[-1],
+    }
+    ctx.evidence.write_text(
+        "shadowcode-soak-quiesce.log",
+        f"{DISCOVER_NOTIFIER_UNIT} before: {before}\n"
+        f"stop: {stopped if stopped is not None else '(not running; nothing to stop)'}\n"
+        f"after: {after}\n\npackagekitd transactions (GetTransactionList, "
+        f"auto-start off), timeout {timeout:g}s:\n"
+        + "".join(f"  {poll}\n" for poll in polls),
+    )
+    ctx.observe("soak_quiesce", record)
+    if after.get("ActiveState") in running:
+        ctx.blocked(
+            f"KDE's update notifier ({DISCOVER_NOTIFIER_UNIT}) is still "
+            f"{after.get('ActiveState')!r} after being stopped; its PackageKit refresh "
+            "would land in the soak and be charged to ShadowCode"
+        )
+    if not record["packagekit_idle"]:
+        ctx.blocked(
+            f"packagekitd did not go idle within {timeout:g}s (last: "
+            f"{polls[-1]['packagekit']}, transactions {polls[-1]['transactions']}); "
+            "its writes would land in the soak and be charged to ShadowCode"
+        )
+    return record
+
+
+# How many closes at each end the drift medians are taken over. The first 5.0.0
+# check compared ONE reading (the first close) with ONE other (the lowest
+# later close), so a single warm-up close or a single late dip decided the
+# verdict -- the 2d8a72e0 run's 680 MiB "drift" included a one-cycle dip at
+# cycle 15 that recovered 89 MiB at cycle 16. The median of three ignores any
+# one bad reading at either end and still leaves the ends 18+ cycles apart in
+# a default 24-cycle soak.
+SOAK_DRIFT_WINDOW = 3
+
+
+def _after_close_drift(
+    values: list[int | None], window: int = SOAK_DRIFT_WINDOW
+) -> dict[str, Any] | None:
+    """How a per-close memory reading moved across the soak, measured two ways.
+
+    `drop_mib` is the median of the first `window` readings minus the median of
+    the last `window` (positive: less at the end). `slope_mib_per_cycle` is the
+    least-squares slope of every reading against its cycle number (negative:
+    shrinking). The medians say how far the reading moved end to end without
+    letting one reading at either end decide it. The slope says whether it
+    moved steadily, which is what a per-launch leak looks like and what a
+    single step or dip does not: a leak too small for the end-to-end limit over
+    one soak still shows as a slope.
+
+    With fewer than 2*window readings the window shrinks to half of them, so
+    the two ends never share a reading. Readings that are None or not positive
+    (the guest did not answer) are left out and the rest keep their cycle
+    numbers, so a gap does not bend the slope. None with fewer than two.
+    """
+    points = [
+        (cycle, value) for cycle, value in enumerate(values, start=1)
+        if isinstance(value, int) and value > 0
+    ]
+    if len(points) < 2:
+        return None
+    ends = max(1, min(window, len(points) // 2))
+    head = statistics.median(value for _, value in points[:ends])
+    tail = statistics.median(value for _, value in points[-ends:])
+    mean_x = statistics.fmean(cycle for cycle, _ in points)
+    mean_y = statistics.fmean(value for _, value in points)
+    sxx = sum((cycle - mean_x) ** 2 for cycle, _ in points)
+    slope = sum((cycle - mean_x) * (value - mean_y) for cycle, value in points) / sxx
+    return {
+        "readings": len(points),
+        "window": ends,
+        "head_cycles": [cycle for cycle, _ in points[:ends]],
+        "tail_cycles": [cycle for cycle, _ in points[-ends:]],
+        "head_median_kib": head,
+        "tail_median_kib": tail,
+        # + 0.0: no "-0" in a detail line for a reading that did not move.
+        "drop_mib": round((head - tail) / 1024, 1) + 0.0,
+        "slope_mib_per_cycle": round(slope / 1024, 2) + 0.0,
+    }
+
+
+# tauri-plugin-window-state's file, in ShadowCode's app config directory (the
+# identifier in its tauri.conf.json). The plugin writes it at every exit of a
+# run without --profile, which is how the soak launches it.
+SHADOWCODE_WINDOW_STATE = ".config/com.shadowfetch.shadowcode/.window-state.json"
+# Consecutive closes at which the saved window grew that fail the soak.
+SOAK_WINDOW_GROWTH_RUN = 2
+
+
+def _parse_window_state(text: str) -> dict[str, list[int]] | None:
+    """{window label: [width, height]} from the plugin's JSON; None if unreadable."""
+    try:
+        document = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(document, dict):
+        return None
+    sizes = {
+        str(label): [state["width"], state["height"]]
+        for label, state in document.items()
+        if isinstance(state, dict)
+        and isinstance(state.get("width"), int) and isinstance(state.get("height"), int)
+    }
+    return sizes or None
+
+
+def _window_state(
+    machine: Guest, session: dict[str, str]
+) -> tuple[dict[str, list[int]] | None, str]:
+    """The saved window sizes after a close, and the raw text when unreadable."""
+    path = f"{session['home']}/{SHADOWCODE_WINDOW_STATE}"
+    text = machine.out(f"/usr/bin/cat {shlex.quote(path)} 2>/dev/null || true")
+    if not text:
+        return None, ""
+    sizes = _parse_window_state(text)
+    return sizes, "" if sizes is not None else text[:400]
+
+
+def _window_growth(per_close: list[dict[str, list[int]] | None]) -> dict[str, Any]:
+    """The longest run of consecutive closes at which a saved window got larger.
+
+    ShadowCode 1.0.0 opens a larger window at every launch on Plasma Wayland.
+    tauri-plugin-window-state saves tao's inner size at exit, which there is
+    GTK's configure size -- client-side decorations and the header bar
+    included -- and restores it as the inner size, so GTK adds them again:
+    about +52 px wide and +99 px tall per launch, past the bottom of a 1080-px
+    screen by the third. It is also what drove the 2d8a72e0 soak's idle CPU
+    from 1.6% to 6.0%: the main process repaints an ever larger window. On an
+    installed system the file is on disk, so it keeps growing across reboots.
+
+    A close is compared with the previous close only when both have a reading;
+    a missing or unreadable file breaks the run rather than bridging it. A
+    window is larger when its width OR height went up. One increase can be a
+    first save settling; increases at consecutive closes are a size being fed
+    back into itself, and 1.0.0 grows at every close.
+    """
+    longest = run = compared = 0
+    grew_at: list[int] = []
+    previous: dict[str, list[int]] | None = None
+    for cycle, sizes in enumerate(per_close, start=1):
+        if sizes is None:
+            previous, run = None, 0
+            continue
+        if previous is not None:
+            common = [label for label in sizes if label in previous]
+            if common:
+                compared += 1
+            if common and any(sizes[label][0] > previous[label][0]
+                              or sizes[label][1] > previous[label][1] for label in common):
+                run += 1
+                grew_at.append(cycle)
+                longest = max(longest, run)
+            else:
+                run = 0
+        previous = sizes
+    return {
+        "compared": compared,
+        "longest_run": longest,
+        "grew_at_closes": grew_at,
+        "sizes": [
+            ",".join(f"{label}={w}x{h}" for label, (w, h) in sorted(sizes.items()))
+            if sizes else None
+            for sizes in per_close
+        ],
+    }
+
+
+def _change_mib(drift: dict[str, Any] | None) -> str:
+    return "n/a" if drift is None else f"{-drift['drop_mib'] + 0.0:+g} MiB"
+
+
 def case_shadowcode_soak(ctx: Context) -> None:
-    """Open and close ShadowCode repeatedly; watch crashes, leaks, CPU and exits."""
+    """Open and close ShadowCode repeatedly; watch crashes, leaks, CPU, exits, window size.
+
+    Memory is judged on MemAvailable after each close, and the first 5.0.0
+    soak (ISO 2d8a72e0) showed two ways that reading can blame the app for
+    what the system did:
+
+    * The system's own work landed inside the cycles. KDE's update notifier
+      has PackageKit refresh the apt indexes 300s after login, and on the live
+      medium ~350 MB of them go into RAM-backed Shmem, in one step, mid-soak.
+      The notifier is stopped and PackageKit let finish before the baseline
+      (_quiesce_update_notifier).
+    * It compared the first close with the single lowest later close, so one
+      step or one dip anywhere became the "leak" (680 MiB, reported as 28 MiB a
+      cycle, when the after-step slope was -1.5 to -1.8 MiB a cycle). Drift is
+      now the median of the first three closes against the median of the last
+      three, AND a least-squares slope over every close (_after_close_drift):
+      the first bounds how far memory moved over the soak, the second catches
+      a steady per-launch leak too small for the first. --soak-slope-mib is 8:
+      the 2d8a72e0 closes after its step slope at -1.8 MiB a cycle, and the
+      whole run with the step taken out (first-launch warm-up included) at
+      -3.7. A leak of 8 MiB a launch moves the end medians only ~170 MiB in 24
+      cycles, under the 256 MiB end-to-end limit -- which is why the slope is
+      its own check. Shmem and AnonPages are sampled beside MemAvailable so a
+      change can be attributed to tmpfs or to process memory from the
+      evidence alone.
+
+    The saved window size is read after every close (_window_growth) because
+    ShadowCode 1.0.0 restores a larger window at every launch; growth at two
+    consecutive closes fails.
+    """
     pin = _shadowcode_pin(ctx)
     soak_minutes = float(ctx.options.get("soak_minutes", 30))
     hold = float(ctx.options.get("soak_hold", 60))
     drift_mib = float(ctx.options.get("soak_drift_mib", 256))
+    slope_mib = float(ctx.options.get("soak_slope_mib", 8))
     cpu_limit = float(ctx.options.get("soak_cpu_percent", 50))
     ctx.observe("soak_thresholds", {
         "minutes": soak_minutes, "hold_seconds": hold,
-        "max_mem_available_drop_mib": drift_mib, "max_idle_cpu_percent": cpu_limit,
+        "max_mem_available_drop_mib": drift_mib,
+        "mem_available_drop": f"median of the first {SOAK_DRIFT_WINDOW} closes minus "
+                              f"median of the last {SOAK_DRIFT_WINDOW}",
+        "max_mem_available_loss_mib_per_cycle": slope_mib,
+        "mem_available_loss_per_cycle": "least-squares slope over every close",
+        "max_idle_cpu_percent": cpu_limit,
+        "window_growth_fails_after_consecutive_closes": SOAK_WINDOW_GROWTH_RUN,
         "close_method": "systemctl --user stop (SIGTERM, 20s before SIGKILL)",
         "session_awake": "screen locker Autolock=false, DPMS/dim/suspend off, "
                          "logind idle:sleep inhibitor held for the whole soak",
+        "quiesce": f"{DISCOVER_NOTIFIER_UNIT} stopped if running, then packagekitd "
+                   "idle on two polls in a row, before the baseline",
     })
     machine = _boot_live_for_shadowcode(ctx, "shadowcode-soak")
     session: dict[str, str] | None = None
@@ -2823,9 +3161,10 @@ def case_shadowcode_soak(ctx: Context) -> None:
         _shadowcode_install_checks(ctx, machine, session, pin)
         _require_window_probe(ctx, machine, session)
         awake = _hold_session_awake(ctx, machine, session)
+        quiesce = _quiesce_update_notifier(ctx, machine, session)
 
         since = machine.out("/usr/bin/date +%s")
-        baseline = _mem_available_kib(machine)
+        baseline = _meminfo_kib(machine)
         cycles: list[dict[str, Any]] = []
         deadline = time.monotonic() + soak_minutes * 60
         while time.monotonic() < deadline:
@@ -2857,18 +3196,29 @@ def case_shadowcode_soak(ctx: Context) -> None:
             cycle["screen_locked"] = _screen_locked(machine, session)
             cycle["stop"] = _stop_shadowcode(machine, session, unit)
             time.sleep(5)
-            cycle["mem_available_after_close_kib"] = _mem_available_kib(machine)
+            closed = _meminfo_kib(machine)
+            cycle["mem_available_after_close_kib"] = closed["MemAvailable"]
+            cycle["shmem_after_close_kib"] = closed["Shmem"]
+            cycle["anon_pages_after_close_kib"] = closed["AnonPages"]
+            # Read after the exit: the plugin writes the file as the app quits.
+            cycle["window_state"], unreadable = _window_state(machine, session)
+            if unreadable:
+                cycle["window_state_unreadable"] = unreadable
             cycles.append(cycle)
             ctx.log(
                 f"cycle {index}: window={seconds}s held={cycle['held']} "
                 f"stop={cycle['stop']['result']} cpu={cycle.get('idle_cpu_percent')}% "
-                f"avail={cycle['mem_available_after_close_kib']}KiB"
+                f"avail={cycle['mem_available_after_close_kib']}KiB "
+                f"shmem={cycle['shmem_after_close_kib']}KiB "
+                f"anon={cycle['anon_pages_after_close_kib']}KiB "
+                f"saved-window={cycle['window_state']}"
             )
             if not cycle["started"] or seconds is None or not cycle["held"]:
                 break
         ctx.evidence.write_json("shadowcode-soak-cycles.json", {
-            "baseline_mem_available_kib": baseline, "session_awake": awake,
-            "cycles": cycles,
+            "baseline_mem_available_kib": baseline["MemAvailable"],
+            "baseline_meminfo_kib": baseline, "session_awake": awake,
+            "quiesce": quiesce, "cycles": cycles,
         })
         ctx.observe("soak_cycles", len(cycles))
         if len(cycles) < 3 and all(c["started"] and c["window_seconds"] is not None and c["held"]
@@ -2892,17 +3242,50 @@ def case_shadowcode_soak(ctx: Context) -> None:
         ctx.check("no ShadowCode process outlived any close",
                   not any(c["stop"]["leftovers"] for c in cycles),
                   "; ".join(c["stop"]["leftovers"] for c in cycles if c["stop"]["leftovers"])[:400])
-        after = [c["mem_available_after_close_kib"] for c in cycles if c["mem_available_after_close_kib"] > 0]
-        # Drift is measured from the FIRST close, not from before the first
-        # open: page cache the first launch warms is not a leak.
-        drop_mib = (after[0] - min(after[1:])) / 1024 if len(after) >= 2 else None
+        # Drift is measured from the closes, not from before the first open:
+        # page cache the first launch warms is not a leak.
+        drift = _after_close_drift([c["mem_available_after_close_kib"] for c in cycles])
+        shmem = _after_close_drift([c.get("shmem_after_close_kib") for c in cycles])
+        anon = _after_close_drift([c.get("anon_pages_after_close_kib") for c in cycles])
+        ctx.observe("soak_after_close_drift",
+                    {"mem_available": drift, "shmem": shmem, "anon_pages": anon})
+        where = (f"; over the same closes Shmem {_change_mib(shmem)}, "
+                 f"AnonPages {_change_mib(anon)}")
         ctx.check(
-            f"available memory after close does not drift down by more than {drift_mib:g} MiB",
-            drop_mib is not None and drop_mib <= drift_mib,
-            f"after first close {after[0] if after else None} KiB, lowest later "
-            f"{min(after[1:]) if len(after) >= 2 else None} KiB, drop "
-            f"{round(drop_mib, 1) if drop_mib is not None else None} MiB",
+            f"available memory after close does not drift down by more than {drift_mib:g} MiB "
+            f"(median of the first {SOAK_DRIFT_WINDOW} closes to median of the last "
+            f"{SOAK_DRIFT_WINDOW})",
+            drift is not None and drift["drop_mib"] <= drift_mib,
+            (f"closes {drift['head_cycles']} median {round(drift['head_median_kib'])} KiB, "
+             f"closes {drift['tail_cycles']} median {round(drift['tail_median_kib'])} KiB: "
+             f"drop {drift['drop_mib']:g} MiB" if drift is not None
+             else "fewer than two after-close readings") + where,
         )
+        ctx.check(
+            f"available memory after close does not fall by more than {slope_mib:g} MiB "
+            "per cycle (least-squares slope over every close)",
+            drift is not None and drift["slope_mib_per_cycle"] >= -slope_mib,
+            (f"slope {drift['slope_mib_per_cycle']:+g} MiB/cycle over "
+             f"{drift['readings']} closes" if drift is not None
+             else "fewer than two after-close readings")
+            + (f"; Shmem {shmem['slope_mib_per_cycle']:+g}, AnonPages "
+               f"{anon['slope_mib_per_cycle']:+g} MiB/cycle" if shmem and anon else ""),
+        )
+        growth = _window_growth([c.get("window_state") for c in cycles])
+        ctx.observe("soak_window_growth", growth)
+        if growth["compared"]:
+            ctx.check(
+                "the window ShadowCode restores does not grow at "
+                f"{SOAK_WINDOW_GROWTH_RUN} consecutive launches",
+                growth["longest_run"] < SOAK_WINDOW_GROWTH_RUN,
+                f"grew at closes {growth['grew_at_closes']} (longest run "
+                f"{growth['longest_run']}); saved size after each close: "
+                + " ".join(size or "-" for size in growth["sizes"]),
+            )
+        else:
+            ctx.observe("window_state_unobserved",
+                        f"~/{SHADOWCODE_WINDOW_STATE} was not readable after two "
+                        "consecutive closes; no window-size claim is made")
         cpu = [c["idle_cpu_percent"] for c in cycles if c.get("idle_cpu_percent") is not None]
         if cpu:
             ctx.check(
@@ -3080,7 +3463,8 @@ CASES: dict[str, Case] = {
             "shadowcode-soak",
             case_shadowcode_soak,
             summary="Open/close ShadowCode for --soak-minutes watching crashes, "
-            "leftovers, memory and CPU; the case SHADOWCODE-01 is recorded from",
+            "leftovers, memory, CPU and window growth; the case SHADOWCODE-01 is "
+            "recorded from",
             manifest_case="SHADOWCODE-01",
             required_runs=({"case": "shadowcode"},),
             minutes=45,

@@ -51,6 +51,12 @@ shadowfetch-defaults (5.0.0-1) umbra; urgency=medium
     gnome-keyring's login keyring again, which Debian's sddm stopped doing,
     so the first Secret Service store no longer asks for a keyring password.
   * shadowfetch-gpu.desktop: Exec line without the invalid \" escapes.
+  * New user-unit drop-in app-org.kde.discover.notifier@autostart.service.d/
+    10-shadowfetch-live-medium.conf: KDE's update notifier does not start on
+    the live medium (ConditionPathExists=!/run/live/medium and
+    !/run/live/rootfs), where its PackageKit refresh wrote ~350 MB of apt
+    lists into RAM. Installed and upgraded systems keep update
+    notifications.
 
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Mon, 28 Sep 2026 18:30:00 -0400

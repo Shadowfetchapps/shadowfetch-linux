@@ -299,6 +299,9 @@ helper's own status.
   keyring password.
 - The live session no longer locks its screen after idle and does not show
   the KWallet setup prompt.
+- The live session no longer runs KDE's update notifier, whose package-list
+  refresh filled about 350 MB of RAM; installed systems keep update
+  notifications.
 - "Element Workbench" is now Workbench; profiles recommend an agent network
   instead of an element.
 - Plymouth, SDDM, GRUB, Calamares and the default wallpaper are restyled from

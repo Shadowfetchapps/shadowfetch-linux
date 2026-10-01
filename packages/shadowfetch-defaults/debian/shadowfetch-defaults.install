@@ -97,3 +97,4 @@ data/usr/lib/systemd/user-environment-generators/60-shadowfetch-webkit-software-
 data/etc/skel/.config/konsolerc  etc/skel/.config/
 data/etc/skel/.config/kwalletrc  etc/skel/.config/
 data/usr/share/pam-configs/shadowfetch-gnome-keyring  usr/share/pam-configs/
+data/usr/lib/systemd/user/app-org.kde.discover.notifier@autostart.service.d/10-shadowfetch-live-medium.conf  usr/lib/systemd/user/app-org.kde.discover.notifier@autostart.service.d/

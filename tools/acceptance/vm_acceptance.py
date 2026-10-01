@@ -162,6 +162,8 @@ def command_run(args: argparse.Namespace) -> int:
         "soak_minutes": args.soak_minutes,
         "soak_hold": args.soak_hold,
         "soak_drift_mib": args.soak_drift_mib,
+        "soak_slope_mib": args.soak_slope_mib,
+        "soak_quiesce_timeout": args.soak_quiesce_timeout,
         "soak_cpu_percent": args.soak_cpu_percent,
     }
     evidence = EvidenceSet(root, evidence_dir)
@@ -585,7 +587,17 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--soak-drift-mib", type=float, default=256.0,
         help="shadowcode-soak: largest allowed drop in MemAvailable after close, "
-        "first cycle to worst later cycle",
+        "median of the first three closes to median of the last three",
+    )
+    run_parser.add_argument(
+        "--soak-slope-mib", type=float, default=8.0,
+        help="shadowcode-soak: largest allowed loss of MemAvailable after close per "
+        "cycle, as the least-squares slope over every close",
+    )
+    run_parser.add_argument(
+        "--soak-quiesce-timeout", type=float, default=900.0,
+        help="shadowcode-soak: how long PackageKit may take to go idle, after KDE's "
+        "update notifier is stopped, before the soak is BLOCKED",
     )
     run_parser.add_argument(
         "--soak-cpu-percent", type=float, default=50.0,

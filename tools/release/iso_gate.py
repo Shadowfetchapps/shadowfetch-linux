@@ -128,9 +128,29 @@ WEBKIT_GENERATOR = (
     "60-shadowfetch-webkit-software-rendering"
 )
 
+# 5.0.0 soak (ISO 2d8a72e0): KDE's update notifier had PackageKit refresh the
+# apt indexes 300s after login, and on the live medium ~350 MB of them landed
+# in RAM. shadowfetch-defaults keeps it off there with a drop-in for the user
+# unit systemd-xdg-autostart-generator makes from Discover's autostart entry.
+# Both names are checked against each other: if Discover renames its entry,
+# the drop-in silently matches nothing.
+DISCOVER_NOTIFIER_AUTOSTART = "etc/xdg/autostart/org.kde.discover.notifier.desktop"
+DISCOVER_NOTIFIER_DROPIN = (
+    "usr/lib/systemd/user/app-org.kde.discover.notifier@autostart.service.d/"
+    "10-shadowfetch-live-medium.conf"
+)
+# The only conditions the drop-in may carry. Conditions are ANDed, so anything
+# else could also stop the notifier on installed systems, which keep it.
+LIVE_MEDIUM_CONDITIONS = frozenset({
+    ("ConditionPathExists", "!/run/live/medium"),
+    ("ConditionPathExists", "!/run/live/rootfs"),
+})
+
 REQUIRED_ROOT_FILES = {
     HELPER,
     DROPIN,
+    DISCOVER_NOTIFIER_AUTOSTART,
+    DISCOVER_NOTIFIER_DROPIN,
     *UPSTREAM_UNITS,
     "etc/apt/sources.list.d/shadowfetch.list",
     "etc/calamares/branding/debian/branding.desc",
@@ -252,6 +272,7 @@ CRITICAL_PACKAGE_PAYLOADS = {
         "usr/bin/shadowfetch-agent-network",
         "usr/bin/shadowfetch-passport",
         "usr/bin/shadowfetch-workbench",
+        DISCOVER_NOTIFIER_DROPIN,
     ),
     "shadowfetch-fireline": (
         "usr/bin/shadowfetch-checkpoint",
@@ -489,6 +510,77 @@ def validate_login_keyring_contract(
         rf"(?m)^{re.escape(LIVE_KEYRING_UNLOCK_EXEC)}$", unlock_autostart
     ):
         raise RuntimeError("live session does not unlock its login keyring at login")
+
+
+def xdg_autostart_unit(desktop_file: str) -> str:
+    """The user unit systemd-xdg-autostart-generator makes from an autostart entry.
+
+    app-<desktop-file id>@autostart.service, the id escaped as systemd's
+    unit_name_escape() does it: '/' becomes '-', and a leading '.' and every
+    byte outside [A-Za-z0-9:_.] -- '-' included -- becomes \\xNN.
+    """
+    name = PurePosixPath(desktop_file).name
+    if name.endswith(".desktop"):
+        name = name[: -len(".desktop")]
+    escaped = []
+    for index, byte in enumerate(name.encode("utf-8")):
+        char = chr(byte)
+        if char == "/":
+            escaped.append("-")
+        elif (index == 0 and char == ".") or not (
+            byte < 0x80 and (char.isalnum() or char in ":_.")
+        ):
+            escaped.append(f"\\x{byte:02x}")
+        else:
+            escaped.append(char)
+    return f"app-{''.join(escaped)}@autostart.service"
+
+
+def validate_live_notifier_dropin(inventory: dict[str, str], dropin: str) -> str:
+    """KDE's update notifier is skipped on the live medium, and only there.
+
+    The drop-in must sit in the directory of the unit the image's own Discover
+    autostart entry generates, and carry nothing but the live-medium
+    conditions in [Unit]. Returns the unit name.
+    """
+    if DISCOVER_NOTIFIER_AUTOSTART not in inventory:
+        raise RuntimeError(
+            f"/{DISCOVER_NOTIFIER_AUTOSTART} is absent: KDE's update notifier moved "
+            "or was renamed, and the live-medium drop-in may match no unit"
+        )
+    unit = xdg_autostart_unit(DISCOVER_NOTIFIER_AUTOSTART)
+    if PurePosixPath(DISCOVER_NOTIFIER_DROPIN).parent.name != f"{unit}.d":
+        raise RuntimeError(
+            f"the live-medium drop-in /{DISCOVER_NOTIFIER_DROPIN} is not for {unit}, "
+            f"the unit /{DISCOVER_NOTIFIER_AUTOSTART} generates"
+        )
+    section = None
+    conditions: set[tuple[str, str]] = set()
+    for raw in dropin.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+            continue
+        key, separator, value = line.partition("=")
+        if section != "Unit" or not separator:
+            raise RuntimeError(
+                f"update-notifier drop-in has more than [Unit] conditions: {line!r}"
+            )
+        conditions.add((key.strip(), value.strip()))
+    if ("ConditionPathExists", "!/run/live/medium") not in conditions:
+        raise RuntimeError(
+            "update-notifier drop-in does not skip the live medium "
+            "(ConditionPathExists=!/run/live/medium)"
+        )
+    unexpected = sorted(conditions - LIVE_MEDIUM_CONDITIONS)
+    if unexpected:
+        raise RuntimeError(
+            "update-notifier drop-in could also stop the notifier on installed "
+            "systems: " + ", ".join(f"{key}={value}" for key, value in unexpected)
+        )
+    return unit
 
 
 def validate_partition_contract(partition: str) -> dict:
@@ -1226,6 +1318,10 @@ def identity_and_installer_gate(squashfs: Path, inventory: dict[str, str]) -> No
         raise RuntimeError("live-session SSH hardening is incomplete")
     if not inventory["etc/systemd/system/sysinit.target.wants/shadowfetch-live-nossh.service"].startswith("l"):
         raise RuntimeError("live-session SSH hardening service is not enabled")
+    notifier_dropin = squash_cat(squashfs, DISCOVER_NOTIFIER_DROPIN)
+    assert isinstance(notifier_dropin, str)
+    notifier_unit = validate_live_notifier_dropin(inventory, notifier_dropin)
+    print(f"PASS: {notifier_unit} (KDE's update notifier) is skipped on the live medium only")
     if not re.search(r"(?m)^ENABLED=yes$", ufw):
         raise RuntimeError("UFW is not enabled in the live image")
     if (

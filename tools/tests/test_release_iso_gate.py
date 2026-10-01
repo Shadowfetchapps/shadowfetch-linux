@@ -335,6 +335,94 @@ class LoginKeyringGateTests(unittest.TestCase):
         self.assertIn("validate_login_keyring_contract(", source)
 
 
+class LiveUpdateNotifierGateTests(unittest.TestCase):
+    """5.0.0 soak (ISO 2d8a72e0): the update notifier filled the live session's RAM.
+
+    DiscoverNotifier had PackageKit refresh the apt indexes 300s after login;
+    on the live medium ~350 MB of them went into the RAM-backed overlay.
+    shadowfetch-defaults ships a drop-in that skips the notifier there only.
+    """
+
+    PACKAGED = (ROOT / "packages/shadowfetch-defaults/data"
+                / iso_gate.DISCOVER_NOTIFIER_DROPIN).read_text()
+    INVENTORY = {iso_gate.DISCOVER_NOTIFIER_AUTOSTART: "-rw-r--r--"}
+    UNIT = "app-org.kde.discover.notifier@autostart.service"
+
+    def test_the_unit_is_the_one_the_autostart_entry_generates(self) -> None:
+        self.assertEqual(self.UNIT, iso_gate.xdg_autostart_unit(
+            iso_gate.DISCOVER_NOTIFIER_AUTOSTART))
+        self.assertTrue(iso_gate.DISCOVER_NOTIFIER_DROPIN.startswith(
+            f"usr/lib/systemd/user/{self.UNIT}.d/"))
+
+    def test_unit_names_are_escaped_as_systemd_escapes_them(self) -> None:
+        for entry, unit in (
+            ("org.kde.plasma-fallback-session-restore.desktop",
+             "app-org.kde.plasma\\x2dfallback\\x2dsession\\x2drestore@autostart.service"),
+            ("a b+c.desktop", "app-a\\x20b\\x2bc@autostart.service"),
+            (".hidden.desktop", "app-\\x2ehidden@autostart.service"),
+            ("x:y_z.desktop", "app-x:y_z@autostart.service"),
+        ):
+            self.assertEqual(unit, iso_gate.xdg_autostart_unit(entry))
+
+    def test_unit_names_match_the_hosts_own_generator(self) -> None:
+        generator = Path("/usr/lib/systemd/user-generators/systemd-xdg-autostart-generator")
+        if not os.access(generator, os.X_OK):
+            self.skipTest("no systemd-xdg-autostart-generator on this host")
+        import subprocess
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "xdg/autostart").mkdir(parents=True)
+            (root / "out").mkdir()
+            names = ("org.kde.discover.notifier", "org.kde.plasma-fallback-session-restore",
+                     "a b+c")
+            for name in names:
+                (root / "xdg/autostart" / f"{name}.desktop").write_text(
+                    "[Desktop Entry]\nType=Application\nName=x\nExec=/bin/true\n")
+            subprocess.run(
+                [str(generator), *(str(root / "out"),) * 3],
+                env={"PATH": "/usr/bin:/bin", "HOME": str(root),
+                     "XDG_CONFIG_HOME": str(root / "home"),
+                     "XDG_CONFIG_DIRS": str(root / "xdg")},
+                check=True, capture_output=True, timeout=30)
+            generated = {path.name for path in (root / "out").glob("*.service")}
+        self.assertEqual(
+            {iso_gate.xdg_autostart_unit(f"{name}.desktop") for name in names}, generated)
+
+    def test_accepts_the_packaged_drop_in(self) -> None:
+        self.assertEqual(self.UNIT, iso_gate.validate_live_notifier_dropin(
+            self.INVENTORY, self.PACKAGED))
+
+    def test_refuses_an_image_without_the_autostart_entry(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "moved or was renamed"):
+            iso_gate.validate_live_notifier_dropin({}, self.PACKAGED)
+
+    def test_refuses_a_drop_in_that_does_not_skip_the_live_medium(self) -> None:
+        for text in ("", "[Unit]\n", "[Unit]\nConditionPathExists=!/run/live/rootfs\n",
+                     "[Unit]\n#ConditionPathExists=!/run/live/medium\n"):
+            with self.assertRaisesRegex(RuntimeError, "does not skip the live medium"):
+                iso_gate.validate_live_notifier_dropin(self.INVENTORY, text)
+
+    def test_refuses_a_drop_in_that_would_also_stop_installed_systems(self) -> None:
+        live = "[Unit]\nConditionPathExists=!/run/live/medium\n"
+        for extra in ("ConditionPathExists=/run/live/medium", "ConditionPathExists=",
+                      "ConditionUser=root", "ConditionPathExists=|!/run/live/medium"):
+            with self.assertRaisesRegex(RuntimeError, "installed systems"):
+                iso_gate.validate_live_notifier_dropin(self.INVENTORY, live + extra + "\n")
+        for extra in ("[Service]\nExecStart=\n", "[Install]\nWantedBy=\n"):
+            with self.assertRaisesRegex(RuntimeError, r"more than \[Unit\] conditions"):
+                iso_gate.validate_live_notifier_dropin(self.INVENTORY, live + extra)
+
+    def test_both_files_are_required_and_the_drop_in_matches_its_package(self) -> None:
+        self.assertIn(iso_gate.DISCOVER_NOTIFIER_AUTOSTART, iso_gate.REQUIRED_ROOT_FILES)
+        self.assertIn(iso_gate.DISCOVER_NOTIFIER_DROPIN, iso_gate.REQUIRED_ROOT_FILES)
+        self.assertIn(iso_gate.DISCOVER_NOTIFIER_DROPIN,
+                      iso_gate.CRITICAL_PACKAGE_PAYLOADS["shadowfetch-defaults"])
+
+    def test_gate_runs_the_contract(self) -> None:
+        source = inspect.getsource(iso_gate.identity_and_installer_gate)
+        self.assertIn("validate_live_notifier_dropin(", source)
+
+
 class BuildLeakGateTests(unittest.TestCase):
     """5.0.0 release scan: build-generated secrets and build-host paths.
 
