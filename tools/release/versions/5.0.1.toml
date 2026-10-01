@@ -31,10 +31,10 @@
 # directories, shadowfetch-meta still builds exactly shadowfetch-desktop,
 # -creative-base and -nvidia, and the pinned artifacts are unchanged.
 #
-# ShadowCode stays at the 1.0.0 pin. ShadowCode 1.0.1 (the window-size fix)
-# reaches this release only through tools/bump_shadowcode.py, after its owner
-# publishes the signed 1.0.1 release; tools/release/shadowcode.toml names this
-# release in ships_in so the gates accept the declaration below.
+# ShadowCode is the signed upstream 1.0.1 (the window-size fix), pinned through
+# tools/bump_shadowcode.py after its owner published the signed release (7cfed12);
+# tools/release/shadowcode.toml names this release in ships_in so the gates
+# accept the declaration below.
 
 [release]
 version = "5.0.1"
