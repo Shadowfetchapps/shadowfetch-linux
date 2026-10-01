@@ -24,7 +24,7 @@ key_epoch = 1
 trust_commit = "e0ab26553cec4243dfb1aeabb66b206bbc6c0474"
 # Shadowfetch releases that preinstall this pin. A gate for a release named
 # here refuses to run unless that release's data file declares the package.
-ships_in = ["5.0.0"]
+ships_in = ["5.0.0", "5.0.1"]
 
 [shadowcode.deb]
 filename = "ShadowCode_1.0.0_amd64.deb"

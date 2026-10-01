@@ -1,3 +1,10 @@
+shadowfetch-phoenix (5.0.1-1) umbra; urgency=medium
+
+  * Rebuilt for Shadowfetch Linux 5.0.1: shadowfetch-desktop requires every
+    Shadowfetch package at the same version. No changes to this package.
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Wed, 30 Sep 2026 23:15:00 -0400
+
 shadowfetch-phoenix (5.0.0-1) umbra; urgency=medium
 
   * Rebuilt for Shadowfetch Linux 5.0.0. No change to this package.

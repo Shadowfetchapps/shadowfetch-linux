@@ -26,7 +26,7 @@ Nothing is connected until you sign in. Welcome's last step opens ShadowCode so 
 
 | Fact | Value |
 | --- | --- |
-| Version / codename | 5.0.0 / Umbra |
+| Version / codename | 5.0.1 / Umbra |
 | Edition | ShadowCode — "One Harness. All Models." |
 | Publication date / channel | 2026-09-30 / stable |
 | ISO | shadowfetch-5.0.0-amd64.iso |
@@ -123,7 +123,7 @@ make iso           # privileged image assembly, signature and ISO gate
 make qemu          # launch the resulting image for a smoke test
 ```
 
-`make iso` produces `shadowfetch-5.0.0-amd64.iso` in the repository root. `VERSION ?= 5.0.0` and `CODENAME ?= umbra` live in the Makefile. The ShadowCode version lives only in `tools/release/shadowcode.toml`, moved by `tools/bump_shadowcode.py`; see `vendor/shadowcode/README.md`. Signing and publishing require the maintainer's private key and authorized publisher credentials, which are not in this repository. Consult `make help`, the [release notes](RELEASE-5.0.0.md) and `FINAL_OPERATIONS_CHECKLIST.md` before release operations; `.github/CI-SECRETS.md` records that the CI pipeline holds no secrets and why.
+`make iso` produces `shadowfetch-5.0.1-amd64.iso` in the repository root. `VERSION ?= 5.0.1` and `CODENAME ?= umbra` live in the Makefile. The ShadowCode version lives only in `tools/release/shadowcode.toml`, moved by `tools/bump_shadowcode.py`; see `vendor/shadowcode/README.md`. Signing and publishing require the maintainer's private key and authorized publisher credentials, which are not in this repository. Consult `make help`, the [release notes](RELEASE-5.0.0.md) and `FINAL_OPERATIONS_CHECKLIST.md` before release operations; `.github/CI-SECRETS.md` records that the CI pipeline holds no secrets and why.
 
 Source map: `packages/shadowfetch-missions/` contains the queue and execution engine; `packages/shadowfetch-control-center/` contains the native Qt UI; `packages/shadowfetch-welcome/` contains first boot; `packages/shadowfetch-defaults/` supplies integration helpers (agent network, Hermes and OpenClaw installers, doctor); `packages/shadowfetch-meta/` declares the desktop, including its ShadowCode dependency; `packages/shadowfetch-drkonqi-pickup/` contains the pinned KDE pickup source, correction and behavior checks. `vendor/shadowcode/` holds ShadowCode's vendored trust policy and signed release metadata. `live-build/` assembles the desktop, `tools/` holds gates and release tooling, and `qa/5.0.0/` indexes acceptance evidence.
 

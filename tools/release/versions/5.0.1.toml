@@ -1,48 +1,59 @@
-# Shadowfetch Linux 5.0.0 -- release gate DATA.
+# Shadowfetch Linux 5.0.1 -- release gate DATA.
 #
 # Stage Q: this file is the whole per-release input to the gates. Cutting a
 # release means adding one of these, not copying source_gate/package_gate/
 # iso_gate/verify_acceptance and editing version strings inside each copy.
 #
-# WHY THE MAJOR DIGIT MOVED. 5.0.0 changes what a working 4.1.0 setup sees and
-# depends on:
-#   * The distro is rebuilt around ShadowCode, preinstalled from its signed
-#     upstream package: the desktop's coding agent, reaching the models of the
-#     subscriptions, API keys and local runtime the person already has.
-#   * Fire and Ice are gone. There is one look, ShadowCode (gold and steel on
-#     black). The Ice colour scheme, Glacier Konsole scheme, org.shadowfetch.ice
-#     look-and-feel and the Fire/Ice wallpapers are removed; a one-time login
-#     migration moves a desktop that pointed at them.
-#   * The Fire/Ice switch's security half survives as a separate setting,
-#     shadowfetch-agent-network online|offline. shadowfetch-element is removed;
-#     an upgraded Ice machine reads as offline, so no sandbox gains network.
-#   * First-run Welcome offers exactly three optional agents -- Grok Bot,
-#     Hermes and OpenClaw -- and then hands the person to ShadowCode to connect
-#     their services. The Codex/Claude Code/Grok Build/Cursor CLI installers
-#     are no longer offered there.
-#   * Buzz is gone completely, including the 4.x retirement helper.
-# The comments beneath [packages] and after it were inherited from 4.1.0;
-# re-check each before 5.0.0 is gated.
+# WHY ONLY THE PATCH DIGIT MOVED. 5.0.1 is the point release that fixes what
+# 5.0.0 (ISO 2d8a72e0) shipped with as known issues. It changes nothing a
+# working 5.0.0 setup depends on: no command, setting, package or file format
+# is removed or renamed, and no package is added or retired.
+#   * shadowfetch-missions: a read no longer waits on a writer (the WAL is
+#     not checkpointed on close), so `show`/`list` stop answering "database is
+#     busy" under disk load; a Stop is saved when the database is busy and
+#     recorded by the worker; same-second missions run in creation order; a
+#     queued mission held by the review gate says why. Depends now asks for
+#     python3 (>= 3.12), which the 5.0.0 image already exceeds.
+#   * shadowfetch-control-center: Mission Control shows the hold reason and a
+#     Stop that is saved but not yet recorded.
+#   * shadowfetch-defaults: KDE's update notifier does not start on the live
+#     medium (a user-unit drop-in); installed systems keep it.
+#   * Every other first-party package is rebuilt at 5.0.1-1 only because
+#     shadowfetch-desktop pins its siblings at (= ${binary:Version}).
+# Edition, subtitle, codename, signing key and every list below are 5.0.0's,
+# re-checked rather than copied: packages/ holds the same 16 source
+# directories, shadowfetch-meta still builds exactly shadowfetch-desktop,
+# -creative-base and -nvidia, and the pinned artifacts are unchanged.
+#
+# ShadowCode stays at the 1.0.0 pin. ShadowCode 1.0.1 (the window-size fix)
+# reaches this release only through tools/bump_shadowcode.py, after its owner
+# publishes the signed 1.0.1 release; tools/release/shadowcode.toml names this
+# release in ships_in so the gates accept the declaration below.
 
 [release]
-version = "5.0.0"
+version = "5.0.1"
 edition = "ShadowCode"
 # The ShadowCode tagline. tools/drift_gate.py compares it against
-# qa/5.0.0/acceptance.json, so the two are settled together.
+# qa/5.0.1/acceptance.json, so the two are settled together.
 subtitle = "One Harness. All Models."
 # APT suite name, lower case. Appears in dists/<codename>/ and sources.list.
-# PROVISIONAL: umbra was "permanent for this line" -- the 4.x line. Keeping it
-# means 4.1 systems receive 5.0 from the suite they already track; a new
-# suite means every installed sources.list must be migrated. Decide before
-# the first 5.0 package is published.
+# Settled when 5.0.0 was published to umbra on 2026-09-30: 4.1 and 5.0
+# systems receive 5.0.1 from the suite they already track.
 codename = "umbra"
 # Codename as written in os-release PRETTY_NAME and the acceptance manifest.
 display_codename = "Umbra"
 package_revision = "1"
 signing_fingerprint = "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1"
-# Set true once a newer release ships. versions/4.1.0.toml flipped to
-# historical = true in the same change that added this file.
-historical = true
+# Set true once a newer release ships. A historical file may still be loaded
+# with --version, but see ReleaseData.historical: re-running today's gate over
+# old data re-gates that release with today's logic, it does not reproduce the
+# gate that shipped it.
+#
+# versions/5.0.0.toml flipped to historical = true in the same change that
+# added this file: two non-historical files is an ambiguity that both
+# gate.load_release(None) and tools/drift_gate.py's load_truth() REFUSE rather
+# than guess.
+historical = false
 
 [packages]
 # Every Shadowfetch binary package the release publishes. Versions are derived
@@ -245,7 +256,7 @@ mcp_server = ['SERVER_VERSION = "{version}"']
 # Every literal below except the version line is present in
 # live-build/config/includes.chroot/etc/calamares/branding/debian/show.qml as
 # it stands today. The version line follows {version}, so the slideshow has to
-# be restamped to 4.1.0 with the rest of the tree -- tools/stamp_version.py
+# be restamped to 5.0.1 with the rest of the tree -- tools/stamp_version.py
 # does NOT touch show.qml, it is one of the hand-maintained sites.
 installer_slideshow = [
     "Shadowfetch Linux {version}",

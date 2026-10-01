@@ -106,7 +106,7 @@ if __name__ == "__main__":
             "either way this process must not decide containment.\n")
         raise SystemExit(70)
 
-VERSION = "5.0.0"
+VERSION = "5.0.1"
 CREDENTIALS = {"OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN", "HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "CLOUDFLARE_API_TOKEN", "CF_API_TOKEN", "DIGITALOCEAN_TOKEN", "NPM_TOKEN", "PYPI_TOKEN", "DOCKER_PASSWORD", "SSH_AUTH_SOCK"}
 PUBLIC_ETC = ("ld.so.cache", "ld.so.conf", "ld.so.conf.d", "alternatives", "ssl/certs", "ca-certificates", "resolv.conf", "hosts", "nsswitch.conf", "passwd", "group", "localtime", "timezone", "mime.types", "fonts")
 

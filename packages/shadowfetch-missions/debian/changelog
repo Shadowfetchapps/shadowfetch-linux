@@ -1,3 +1,38 @@
+shadowfetch-missions (5.0.1-1) umbra; urgency=medium
+
+  * "database is busy" under heavy disk load (5.0.0 STRESS-01): no Store
+    connection checkpoints the WAL on close any more
+    (SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE). The last close used to copy the WAL
+    back into the database under an exclusive lock held across two fsyncs,
+    so `show`, `list` and the desktop's reads ran out of their 10 s budget
+    while the worker finished a step. SQLite's passive auto-checkpoint after
+    a commit keeps the WAL bounded and blocks no one; short CLI commands
+    also turn auto-checkpoint off, so no fsync lands on them after they
+    commit. Durability is unchanged.
+  * `cancel` saves the stop request as a small file in the private state
+    directory first and waits at most 2 s for the database. When it is busy,
+    cancel answers exit 0 with cancel_pending and a notice, and the worker
+    records the ordinary hash-chained cancel from its next check. Once the
+    request is saved, cancel's own commit does not wait on the disk
+    (synchronous=NORMAL), and the worker deletes the request only after
+    syncing the WAL. A stop that arrives after the run's last check is
+    recorded with the outcome, or as the new event cancel-arrived-late, and
+    is never dropped; a queued mission whose stop is not yet recorded is not
+    started. If the request cannot be written, cancel writes directly as
+    5.0.0 did. Only a regular file is read as a request.
+  * Missions created in the same second run, and list, in the order they
+    were created (created_at, then insertion order). 5.0.0 broke the tie on
+    the random mission id.
+  * `show` and `list` report a derived `hold` for a queued mission the review
+    gate is holding: the blocking mission's id and title and a message. The
+    worker gates on the same hold, so the reason shown and the rule enforced
+    cannot disagree. Nothing new is written to the database.
+  * Depends: python3 (>= 3.12), for Connection.setconfig; the image ships a
+    newer Python. The shadowfetch-fireline floor moves to 5.0.1.
+  * Reports version 5.0.1.
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Wed, 30 Sep 2026 23:15:00 -0400
+
 shadowfetch-missions (5.0.0-1) umbra; urgency=medium
 
   * Retry read-only queries (mission get, list and events) on a transient

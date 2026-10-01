@@ -1,9 +1,9 @@
 NAME="Shadowfetch Linux"
-PRETTY_NAME="Shadowfetch Linux 5.0.0 (Umbra)"
+PRETTY_NAME="Shadowfetch Linux 5.0.1 (Umbra)"
 ID=shadowfetch
 ID_LIKE=debian
-VERSION="5.0.0 (Umbra)"
-VERSION_ID="5.0.0"
+VERSION="5.0.1 (Umbra)"
+VERSION_ID="5.0.1"
 VERSION_CODENAME=umbra
 HOME_URL="https://www.shadowfetchlinux.org/"
 SUPPORT_URL="https://www.shadowfetchlinux.org/known-issues"

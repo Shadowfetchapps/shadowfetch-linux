@@ -53,7 +53,7 @@ import uuid
 from pathlib import Path
 
 PROTOCOL_VERSION = "2025-06-18"
-SERVER_VERSION = "5.0.0"
+SERVER_VERSION = "5.0.1"
 
 
 # --------------------------------------------------------------------------- #

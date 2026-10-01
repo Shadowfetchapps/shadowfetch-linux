@@ -1,3 +1,17 @@
+shadowfetch-control-center (5.0.1-1) umbra; urgency=medium
+
+  * Mission Control says why a queued mission is waiting: when the review
+    gate holds it, the queue row adds the engine's hold summary (its tooltip
+    carries the full message) and the Overview shows it under "Waiting".
+    5.0.0 showed "Queued" with nothing running and no reason.
+  * Mission Control shows a Stop the engine saved but has not recorded yet
+    (database busy): it quotes the engine's notice and shows "Stop
+    requested: saved, waiting to be recorded" until a listing no longer
+    reports the stop pending. 5.0.0 dropped both and read "Stop requested:
+    no".
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Wed, 30 Sep 2026 23:15:00 -0400
+
 shadowfetch-control-center (5.0.0-1) umbra; urgency=medium
 
   * New "Hermes & OpenClaw" page (optional_agents_page.py; search terms

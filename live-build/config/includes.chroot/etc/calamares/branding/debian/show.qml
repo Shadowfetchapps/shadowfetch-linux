@@ -68,7 +68,7 @@ Presentation
             anchors.margins: 24; height: 82
             color: "#FFFFFF"; wrapMode: Text.WordWrap; textFormat: Text.RichText
             font.pixelSize: 17; horizontalAlignment: Text.AlignLeft
-            text: qsTr("<b>Shadowfetch Linux 5.0.0</b> &mdash; <font color=\"#F2B33D\">One harness. All models.</font><br/>ShadowCode is the desktop's coding agent. Pick a model from a subscription you already have, an API key, or one that runs on this computer.")
+            text: qsTr("<b>Shadowfetch Linux 5.0.1</b> &mdash; <font color=\"#F2B33D\">One harness. All models.</font><br/>ShadowCode is the desktop's coding agent. Pick a model from a subscription you already have, an API key, or one that runs on this computer.")
         }
     }
 

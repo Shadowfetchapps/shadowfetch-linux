@@ -1,3 +1,18 @@
+shadowfetch-defaults (5.0.1-1) umbra; urgency=medium
+
+  * New user-unit drop-in app-org.kde.discover.notifier@autostart.service.d/
+    10-shadowfetch-live-medium.conf: KDE's update notifier does not start on
+    the live medium (ConditionPathExists=!/run/live/medium and
+    !/run/live/rootfs), where its PackageKit refresh about five minutes after
+    login wrote about 350 MB of apt lists into RAM. Installed and upgraded
+    systems keep update notifications.
+  * shadowfetch-agent-network and the shadowfetch-grok-bot --version string
+    report 5.0.1; the unattended-upgrades conffile removal trigger in
+    debian/shadowfetch-defaults.maintscript moves to 5.0.1-1~ with the
+    release.
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Wed, 30 Sep 2026 23:15:00 -0400
+
 shadowfetch-defaults (5.0.0-1) umbra; urgency=medium
 
   * BREAKING: Fire/Ice is retired. shadowfetch-element, element-boot.sh,

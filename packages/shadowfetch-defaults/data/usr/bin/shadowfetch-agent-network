@@ -10,7 +10,7 @@
 # stays offline. shadowfetch-firebreak, Grok Bot, Hermes, OpenClaw, Welcome and
 # the Control Center all read the same setting.
 set -uo pipefail
-VERSION="5.0.0"
+VERSION="5.0.1"
 
 home_dir="${HOME:-}"
 if [ -z "$home_dir" ]; then

@@ -12,7 +12,7 @@ PACKAGE = "shadowfetch-drkonqi-pickup"
 # cycle. Two independently-maintained copies that a gate compares is the
 # point; two that nothing compares is how this one reached 4.1.0 saying
 # 4.0.0-1.
-VERSION = "5.0.0-1"
+VERSION = "5.0.1-1"
 # The Debian drkonqi the image installs (package list pins it to this exact
 # version). 5.0.0 moved from 6.6.5-3 to 6.7.4-1 with the 20260929 snapshot.
 # The helper still compiles the vendored 6.6.5 source: checked 2026-09-29, the

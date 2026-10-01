@@ -1,3 +1,9 @@
+shadowfetch-fireline (5.0.1-1) umbra; urgency=medium
+
+  * Firebreak and the MCP server report version 5.0.1. No functional change.
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Wed, 30 Sep 2026 23:15:00 -0400
+
 shadowfetch-fireline (5.0.0-1) umbra; urgency=medium
 
   * shadowfetch-firebreak: the default sandbox network follows the agent

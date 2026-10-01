@@ -1,3 +1,11 @@
+shadowfetch-meta (5.0.1-1) umbra; urgency=medium
+
+  * Rebuilt for Shadowfetch Linux 5.0.1. shadowfetch-desktop still requires
+    shadow-code (>= 1.0.0): the floor follows the ShadowCode pin, which moves
+    to 1.0.1 only after its owner publishes the signed 1.0.1 release.
+
+ -- Shadowfetch Project <signing@shadowfetch.com>  Wed, 30 Sep 2026 23:15:00 -0400
+
 shadowfetch-meta (5.0.0-1) umbra; urgency=medium
 
   * shadowfetch-desktop now Depends on shadow-code (>= 1.0.0): ShadowCode,
