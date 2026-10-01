@@ -64,7 +64,13 @@ In the TOML, and a gate reads every one of these: `[release]` (`version`,
 `signing_fingerprint`, `historical`), `[packages]` (`shadowfetch_binaries`,
 `sources`, `smoke_install`, `image_excluded`), `[packages.third_party]`,
 `[packages.container_smoke]` (`present`, `absent`), `[stamps]`, `[identity]`,
-`[workbench]` and `[pinned_artifacts]`. Nothing else is read. A key with no
+`[workbench]` and `[pinned_artifacts]`. The publisher
+(`tools/publish_release_4_0_0.py`) also reads `[release].delivery`, which is
+`"iso"` (the default) or `"apt-only"` for a point update that ships no image,
+and the optional `[apt_only]` table: `base_release` names the image the update
+applies to, and `acceptance` lists cases required on top of the packages-only
+floor (`SRC-01`, `PKG-01`, `UPGRADE-01`). See *Packages-only point update* in
+`FINAL_OPERATIONS_CHECKLIST.md`. Nothing else is read. A key with no
 consumer is decoration that the next reader will believe; a consumer with no key
 is a `KeyError` in the middle of a gate run.
 

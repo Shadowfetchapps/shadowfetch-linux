@@ -193,6 +193,99 @@ ISO's bytes are then streamed back and compared, and only after that is
 the thing it directs them to is present and proven. `--published` defaults to
 the ISO's mtime so re-running rewrites nothing.
 
+## Packages-only point update (`--apt-only`)
+
+A point release that ships no ISO (5.0.1 is the first). Installed systems take
+it with `sudo apt update; fireproof update`; the previous ISO stays the
+download, and the website keeps naming it. The publisher has a mode for exactly
+that and nothing more.
+
+**Selecting it.** Either `delivery = "apt-only"` under `[release]` in
+`tools/release/versions/<v>.toml` (the reviewed way: the decision is recorded
+with the release), or `--apt-only` on the command line. It is never inferred
+from the tree: an ISO release whose image is missing is refused, not quietly
+published as packages only. Any `delivery` other than `iso` or `apt-only` is
+refused, flag or no flag.
+
+```toml
+[release]
+delivery = "apt-only"
+
+[apt_only]
+# Optional. The release whose ISO this update is applied on top of. Default:
+# the newest earlier release whose data does not say apt-only (for 5.0.1, 5.0.0).
+base_release = "5.0.0"
+# Optional. Cases required IN ADDITION to SRC-01, PKG-01 and UPGRADE-01.
+acceptance = ["DURABLE-01"]
+```
+
+**What it writes, in order:** the repository key (`shadowfetch.gpg.asc`,
+immutable: byte-identical to what is published or the run refuses), every file
+in `repo/pool/`, the index files under `apt/dists/<codename>/`, and then
+`Release.gpg`, `Release` and `InRelease` last. Each object, uploaded now or
+already present, is streamed back and hashed before the next one is written,
+so no index names a package, and `InRelease` names no index, that the bucket
+was not shown to hold. **Never written:** the ISO, its `.asc` and `.sha256`,
+the evidence files, `releases/CURRENT.json`. Nothing is deleted. The index
+files under `apt/dists/` are the only objects it may replace; a different
+immutable object anywhere in the plan refuses the whole run before the first
+upload.
+
+**Preconditions, each a refusal:**
+
+1. **Acceptance subset** of `qa/<v>/acceptance.json`. `SRC-01`, `PKG-01` and
+   `UPGRADE-01`, plus any `[apt_only].acceptance`, are present, still
+   `required`, `prepublish`, and `pass` with evidence or `waived` with an
+   approver and a reason. Image cases (`ISO-01`, `INSTALL-01`, `VISUAL-01`,
+   `EVIDENCE-01`, ...) may stay `pending`. No case may be recorded `fail`. The
+   manifest's `artifact` block says what the subset was run against:
+   * `iso_path` / `iso_sha256` name the **base image**, which for 5.0.1 is
+     5.0.0's `2d8a72e0...` exactly as `qa/5.0.0/acceptance.json` records it.
+     It is the image `UPGRADE-01` starts from. Evidence must be bound to it,
+     and `acceptance.py record` stamps whatever `iso_sha256` says, so set it
+     before recording anything.
+   * `apt_packages_sha256` / `apt_sources_sha256` are the SHA-256 of
+     `repo/dists/<codename>/main/binary-amd64/Packages` and
+     `main/source/Sources`, which pin every `.deb` and source file. A rebuilt
+     repository changes them, and the publisher refuses until the subset is
+     re-run against it and these two are updated.
+
+   `make acceptance-gate` still refuses such a manifest, and that is correct.
+   It is the gate for an ISO release and is unchanged.
+2. `tools/pre_release_check.sh` passes, with a 7-day minimum on `Valid-Until`
+   and complete corresponding source, including `pool/third-party-source/`.
+3. `repo/shadowfetch.gpg.asc` is the release key. Both `InRelease` and
+   `Release.gpg` verify under it, the signed text lists every index file
+   exactly with matching bytes, and `Release` is that same text.
+4. The binary index names exactly the release data's packages at exactly its
+   versions, and the source index names exactly its sources. Every pool file is
+   one the indices name, with those bytes (`third-party-source/` excepted, see
+   2), and every `.deb` in the pool is byte-identical to the one in `build/`.
+
+**Running it:**
+
+```sh
+make repo                                                     # after make packages
+python3 tools/publish_release_4_0_0.py --apt-only             # plan: every check, then the object list
+python3 tools/publish_release_4_0_0.py --apt-only --apply     # uploads
+```
+
+Do not run `make publish` for this, because that target depends on `iso-gate`.
+The publisher runs `pre_release_check.sh` itself. `--published` is refused,
+because there is no pointer to date. `--apply` has the same guard and the same
+credential handling as an ISO release: it runs only from the authorized tree,
+on Linux, as a non-root user, with `SHADOWFETCH_R2_ENDPOINT`,
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` taken from the process
+environment and never written down. A worktree anywhere else can plan but
+cannot apply. Bring the release branch, `build/`, `repo/` and the QA evidence
+to the authorized tree first.
+
+**Afterwards:** check that the public `/linux/apt/dists/<codename>/InRelease`
+is byte-identical to `repo/dists/<codename>/InRelease`, and that
+`/linux/releases.json` still names the previous ISO. Then, on an installed
+system of the base release, confirm that `sudo apt update; fireproof update`
+takes the update, and record `PUB-01` against what is public.
+
 ## The compliance trap, which is not this project's but shares a machine
 
 `shadowfetch-ios-apps.pages.dev` hosts the App Store privacy and support URLs
