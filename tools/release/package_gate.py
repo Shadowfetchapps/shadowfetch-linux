@@ -579,6 +579,69 @@ def payload_gate(package_paths: dict[str, Path], extracted: Path) -> None:
     )
 
 
+# Fireproof upgrading itself (QA 5.0.1). dpkg runs as fireproofd's child, inside
+# fireproofd.service's cgroup, so a maintainer script of shadowfetch-fireproof
+# that stops or restarts fireproofd stops the transaction it is part of. The
+# 2.1.4..5.0.0 preinst did exactly that and dpkg died mid-upgrade. The package's
+# own tests read debian/rules and the source scripts; this reads the BUILT .deb,
+# which is what a machine runs.
+FIREPROOF_PACKAGE = "shadowfetch-fireproof"
+FIREPROOF_NEEDRESTART = "etc/needrestart/conf.d/50-shadowfetch-fireproof.conf"
+FIREPROOF_UNIT = "usr/lib/systemd/system/fireproofd.service"
+FIREPROOF_RESTART_HELPER = "usr/libexec/fireproof-restart-after-upgrade"
+FIREPROOF_STOP = re.compile(r"(deb-systemd-invoke|systemctl)\b[^\n]*fireproofd\.service")
+
+
+def fireproof_self_upgrade_errors(
+    scripts: dict[str, str], conffiles: str, unit: str | None,
+    needrestart: str | None, helper_present: bool,
+) -> list[str]:
+    """What stops a Fireproof self-upgrade from killing its own dpkg."""
+    errors = []
+    for name in ("preinst", "prerm", "postrm", "postinst"):
+        for line in scripts.get(name, "").splitlines():
+            if FIREPROOF_STOP.search(line):
+                errors.append(f"{name} stops or restarts fireproofd from inside the transaction: {line.strip()}")
+    if f"/{FIREPROOF_RESTART_HELPER} schedule" not in scripts.get("postinst", ""):
+        errors.append("postinst does not hand the post-upgrade restart to " + FIREPROOF_RESTART_HELPER)
+    if not helper_present:
+        errors.append(f"{FIREPROOF_RESTART_HELPER} is not in the payload")
+    if f"/{FIREPROOF_NEEDRESTART}" not in conffiles.split():
+        errors.append(f"/{FIREPROOF_NEEDRESTART} is not a conffile")
+    if needrestart is None or r"$nrconf{override_rc}{qr(^fireproofd\.service$)} = 0;" not in needrestart:
+        errors.append("needrestart is not told to leave fireproofd alone")
+    kill_modes = [line.split("=", 1)[1].strip() for line in (unit or "").splitlines()
+                  if line.strip().startswith("KillMode=")]
+    if kill_modes != ["mixed"]:
+        errors.append(f"fireproofd.service KillMode is {kill_modes or 'the default (control-group)'}, not mixed")
+    return errors
+
+
+def fireproof_self_upgrade_gate(package_paths: dict[str, Path], extracted: Path) -> None:
+    deb = package_paths[FIREPROOF_PACKAGE]
+    with tempfile.TemporaryDirectory(prefix="shadowfetch-fireproof-control-") as control:
+        subprocess.run(program("dpkg-deb").argv("-e", str(deb), control), check=True)
+        scripts = {}
+        for name in ("preinst", "prerm", "postrm", "postinst"):
+            path = Path(control) / name
+            if path.is_file():
+                scripts[name] = path.read_text(encoding="utf-8", errors="replace")
+        conffiles_path = Path(control) / "conffiles"
+        conffiles = conffiles_path.read_text(encoding="utf-8") if conffiles_path.is_file() else ""
+
+    def text(relative: str) -> str | None:
+        path = extracted / relative
+        return path.read_text(encoding="utf-8") if path.is_file() and not path.is_symlink() else None
+
+    errors = fireproof_self_upgrade_errors(
+        scripts, conffiles, text(FIREPROOF_UNIT), text(FIREPROOF_NEEDRESTART),
+        (extracted / FIREPROOF_RESTART_HELPER).is_file())
+    if errors:
+        raise RuntimeError("shadowfetch-fireproof cannot upgrade itself safely: " + "; ".join(errors))
+    print("PASS: shadowfetch-fireproof never stops fireproofd from inside its own upgrade "
+          "(no maintainer-script stop, KillMode=mixed, needrestart excluded, restart deferred)")
+
+
 def repository_gate() -> list[Path]:
     codename = RELEASE.codename
     expected_binaries = RELEASE.binary_versions
@@ -774,6 +837,7 @@ def main(argv: list[str] | None = None) -> int:
         shadowcode_prebuilt_gate(package_paths)
     with tempfile.TemporaryDirectory(prefix="shadowfetch-packages-") as temporary:
         payload_gate(package_paths, Path(temporary))
+        fireproof_self_upgrade_gate(package_paths, Path(temporary))
     # Lintian judges packages this tree builds. A prebuilt package's bytes are
     # fixed by its upstream signature, so its errors are fixed upstream; here
     # each one must be listed, as a reviewed exception, in

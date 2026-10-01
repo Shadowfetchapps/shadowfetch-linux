@@ -52,6 +52,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 if any(a in ("-h", "--help") for a in sys.argv[1:]):
     print(__doc__)
@@ -126,6 +127,28 @@ GRAPHICS_BINARIES = (
     "/usr/bin/sddm", "/usr/bin/kwin_wayland", "/usr/bin/plasmashell",
     "/usr/bin/Xwayland",
 )
+
+# An interrupted dpkg run (a killed upgrade, a power cut, a failed maintainer
+# script) leaves packages unpacked but not configured. Fireproof's change set
+# is computed against what dpkg says is installed, so on such a system it is
+# not the update the user would get: apt has to finish dpkg's work first, and
+# a normal update on top is how QA 5.0.1 watched a retry die on the same
+# package. Analyze reports the state and this command instead of an update,
+# and the commit refuses it under the lock.
+REPAIR_COMMAND = "sudo dpkg --configure -a && sudo apt -f install"
+# libapt's pkgCache::State::PkgCurrentState and PkgInstState. python3-apt does
+# not export the trigger states, so the numbers are spelled out here.
+_CURSTATE_LABELS = {
+    getattr(apt_pkg, "CURSTATE_UNPACKED", 1): "unpacked, not configured",
+    getattr(apt_pkg, "CURSTATE_HALF_CONFIGURED", 2): "half-configured",
+    getattr(apt_pkg, "CURSTATE_HALF_INSTALLED", 4): "half-installed",
+    7: "awaiting trigger processing",
+    8: "trigger processing pending",
+}
+_REINSTREQ_STATES = {
+    getattr(apt_pkg, "INSTSTATE_REINSTREQ", 1),
+    getattr(apt_pkg, "INSTSTATE_HOLD_REINSTREQ", 3),
+}
 
 
 # --------------------------------------------------------------------------
@@ -247,6 +270,104 @@ def phoenix_available():
 
 
 # --------------------------------------------------------------------------
+# mirror hosts: a HOSTNAME, never host:port
+# --------------------------------------------------------------------------
+
+def uri_hostname(uri):
+    """The host apt fetched from, without port, credentials or brackets.
+
+    The verify battery asks `getent hosts` whether the mirror still resolves.
+    It used to be handed the URI's whole authority, so a mirror with a port
+    (http://10.0.2.2:8816/, http://mirror.lan:3142/ behind apt-cacher-ng)
+    was looked up as the NAME "10.0.2.2:8816" and reported as not resolving.
+    file:, cdrom: and copy: URIs have no host and give None.
+    """
+    try:
+        host = urlsplit(str(uri)).hostname
+    except ValueError:
+        return None
+    return host or None
+
+
+def mirror_hostname(value):
+    """Normalise a recorded mirror host. State written by an older daemon
+    can still hold "host:port"; a bare IPv6 address is left alone."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if "://" in value:
+        return uri_hostname(value)
+    if value.startswith("["):
+        return uri_hostname("//" + value)
+    if value.count(":") == 1:
+        host, _, port = value.partition(":")
+        if port.isdigit():
+            return host or None
+    return value
+
+
+# --------------------------------------------------------------------------
+# interrupted dpkg runs: report the repair, never offer an update on top
+# --------------------------------------------------------------------------
+
+def interrupted_packages(cache):
+    """Packages dpkg left mid-way, from the apt cache: [{name, state}]."""
+    found = []
+    for pkg in cache:
+        raw = getattr(pkg, "_pkg", None)
+        if raw is None:
+            continue
+        current = getattr(raw, "current_state", None)
+        inst = getattr(raw, "inst_state", None)
+        if inst in _REINSTREQ_STATES:
+            found.append({"name": pkg.name, "state": "reinstall required"})
+        elif current in _CURSTATE_LABELS:
+            found.append({"name": pkg.name,
+                          "state": _CURSTATE_LABELS[current]})
+    return sorted(found, key=lambda p: p["name"])
+
+
+def dpkg_audit():
+    """(text, established): what `dpkg --audit` reports, read-only.
+
+    Its output is the authority: it also covers what the cache scan cannot
+    see (a missing file list, a package dpkg itself cannot account for)."""
+    rc, out, err = run(["dpkg", "--audit"], timeout=60)
+    if untrusted(rc):
+        return "", False
+    if out.strip():
+        return out.strip()[:2000], True
+    if rc != 0:
+        return (err.strip() or "dpkg --audit exited %d" % rc)[:2000], True
+    return "", True
+
+
+def interrupted_report(cache, audit=None):
+    """None on a consistent system, else the refusal analyze and commit give."""
+    packages = interrupted_packages(cache)
+    audit_text, established = audit if audit is not None else dpkg_audit()
+    if not packages and not audit_text:
+        return None
+    count = len(packages)
+    if count:
+        what = ("%d package%s %s not finished installing"
+                % (count, "" if count == 1 else "s",
+                   "is" if count == 1 else "are"))
+    else:
+        what = "dpkg reports an unfinished package operation"
+    return {
+        "packages": packages,
+        "audit": audit_text,
+        "audit_established": established,
+        "repair_command": REPAIR_COMMAND,
+        "message": ("A previous update was interrupted: %s. Fireproof will "
+                    "not start a new update on top of it. Finish the "
+                    "interrupted one first by running:\n    %s\nthen check "
+                    "for updates again." % (what, REPAIR_COMMAND)),
+    }
+
+
+# --------------------------------------------------------------------------
 # analysis (pure read: no lock, no download, no cache mutation on disk)
 # --------------------------------------------------------------------------
 
@@ -332,9 +453,16 @@ def change_set_hash(changes):
     return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
 
 
-def build_analysis(state):
-    """Simulate the pending upgrade read-only and describe it honestly."""
-    cache = apt.Cache(apt.progress.base.OpProgress())
+def build_analysis(state, cache=None, audit=None):
+    """Simulate the pending upgrade read-only and describe it honestly.
+
+    On a system an earlier dpkg run left half-configured, there is no honest
+    change set to offer: the analysis carries `interrupted` (the packages,
+    dpkg --audit's words and the repair command) and an empty change set,
+    so neither the CLI nor the page can present it as a normal update."""
+    if cache is None:
+        cache = apt.Cache(apt.progress.base.OpProgress())
+    interrupted = interrupted_report(cache, audit)
 
     holds = []
     upgradable = 0
@@ -350,6 +478,9 @@ def build_analysis(state):
                 "candidate": pkg.candidate.version if pkg.candidate else None,
                 "note": "pinned, will not update",
             })
+
+    if interrupted is not None:
+        return interrupted_analysis(interrupted, holds, upgradable)
 
     # Safe path first (upgrade without removals), for the kept-back story.
     cache.upgrade(dist_upgrade=False)
@@ -447,9 +578,45 @@ def build_analysis(state):
         },
         "update_count": upgradable,
         "notify_suppressed": bool(same_set),
+        "interrupted": None,
     }
     cache.clear()
     return analysis
+
+
+def interrupted_analysis(interrupted, holds, upgradable):
+    """The analysis of a half-configured system: no change set, the repair.
+
+    Same schema as a normal analysis so every existing reader still parses
+    it, with nothing in it that could be approved: zero counts, no package
+    lists, and the hash of an empty change set (which a commit would refuse
+    under the lock anyway)."""
+    return {
+        "schema": 1,
+        "generated_at": now_iso(),
+        "change_set_hash": change_set_hash([]),
+        "counts": {"install": 0, "upgrade": 0, "remove": 0, "rename": 0,
+                   "total": 0, "download_bytes": 0, "space_bytes": 0},
+        "installs": [],
+        "upgrades": [],
+        "removals": [],
+        "library_renames": [],
+        "holds": holds,
+        "kept_back": {"story": "not computed: a previous update was "
+                               "interrupted", "packages": []},
+        "banners": {
+            "major_transition": False,
+            "kernel": None,
+            "nvidia": None,
+            "same_set_rollback": None,
+            "phoenix_available": phoenix_available(),
+            "default_dont_proceed": True,
+            "interrupted": interrupted["message"],
+        },
+        "update_count": upgradable,
+        "notify_suppressed": False,
+        "interrupted": interrupted,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -465,8 +632,7 @@ class SignalAcquireProgress(apt.progress.base.AcquireProgress):
 
     def fetch(self, item):
         try:
-            uri = item.uri
-            host = uri.split("://", 1)[-1].split("/", 1)[0]
+            host = uri_hostname(item.uri)
             if host:
                 self._hosts.add(host)
         except Exception:
@@ -720,7 +886,8 @@ def run_verify(txn):
         add("route", "Default route present", "pass", out.strip().splitlines()[0])
     else:
         add("route", "Default route present", "warn", "no default route")
-    mirror = next(iter(txn.get("mirror_hosts", [])), None)
+    mirror = next((h for h in (mirror_hostname(v) for v in
+                               txn.get("mirror_hosts") or []) if h), None)
     if mirror:
         rc, out, err = run(["getent", "hosts", mirror], timeout=3)
         if untrusted(rc):
@@ -1007,6 +1174,8 @@ class Fireproof(dbus.service.Object):
 
     def _commit_worker(self, expected_hash):
         lock_fd = -1
+        committed = False
+        commit_ok = False
         result = {"ok": False, "stage": "start", "message": ""}
         txn = {
             "txn": str(uuid.uuid4()),
@@ -1033,6 +1202,17 @@ class Fireproof(dbus.service.Object):
             # 2. re-validate under the lock: the archive may have moved
             self._set_phase("revalidating")
             cache = apt.Cache(apt.progress.base.OpProgress())
+            # ...and dpkg must not be mid-way through an earlier run. Analyze
+            # already refuses to offer an update then; this is the same rule
+            # where it cannot be raced or skipped by a client.
+            interrupted = interrupted_report(cache)
+            if interrupted is not None:
+                os.close(lock_fd)
+                lock_fd = -1
+                result = {"ok": False, "stage": "interrupted",
+                          "message": interrupted["message"],
+                          "repair_command": REPAIR_COMMAND}
+                return
             cache.upgrade(dist_upgrade=True)
             changes = cache.get_changes()
             live_hash = change_set_hash(changes)
@@ -1118,6 +1298,7 @@ class Fireproof(dbus.service.Object):
             #    80snapper + 79phoenix-space wrap the dpkg calls in Phoenix
             #    Points automatically - Fireproof adds ZERO snapshots.
             self._set_phase("committing")
+            committed = True
             os.environ["DEBIAN_FRONTEND"] = "noninteractive"
             apt_pkg.config.set("DPkg::Options::", "--force-confold")
             try:
@@ -1197,8 +1378,29 @@ class Fireproof(dbus.service.Object):
             GLib.idle_add(self.Finished, json.dumps(result))
             self._lock.release()
             if self._quit_requested:
-                log("deferred stop: commit finished cleanly, exiting now")
-                GLib.idle_add(self._loop.quit)
+                log("deferred stop: commit finished, exiting now")
+                GLib.idle_add(self._exit_after, "deferred stop")
+            elif committed and commit_ok:
+                # This process is still the code and libraries it started
+                # with; dpkg may just have replaced them (this package, python3,
+                # python3-apt). Nothing restarts fireproofd from inside its own
+                # transaction any more -- not this package's scripts, not
+                # needrestart -- so it leaves now, after Finished, and the next
+                # D-Bus call activates whatever is on disk. A failed commit
+                # keeps the daemon up: on a half-configured system the running
+                # process is what can still tell the user how to repair it.
+                log("update committed: exiting so the next activation runs "
+                    "the code now on disk")
+                GLib.idle_add(self._exit_after, "post-commit")
+
+    def _exit_after(self, why):
+        """Quit the main loop once queued signals have left the process."""
+        try:
+            self._bus.flush()
+        except Exception as e:  # never let a flush failure keep us running
+            log("%s: bus flush failed: %s" % (why, e))
+        self._loop.quit()
+        return False
 
     def _record_failed_set(self, cs_hash, reason):
         sfstate.record_failed_set(self._state, cs_hash, reason)

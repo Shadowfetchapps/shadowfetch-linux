@@ -24,4 +24,19 @@ esac
 
 #DEBHELPER#
 
+# Restart fireproofd AFTER this upgrade, never from inside it. debian/rules
+# gives fireproofd --no-stop-on-upgrade, so debhelper added nothing above that
+# stops, starts or restarts it: when Fireproof upgrades itself, this script
+# runs inside fireproofd.service's cgroup, and the stop this package's preinst
+# used to issue there killed dpkg (2.1.4 to 5.0.0; QA 5.0.1). The helper first
+# reloads systemd, so the unit the daemon is later stopped under is this
+# version's (KillMode=mixed: only the daemon gets SIGTERM, never dpkg). It
+# then restarts an idle daemon without waiting or, when this very daemon runs
+# the upgrade, queues the restart in a transient unit outside its cgroup that
+# waits for the update to finish. It always exits 0.
+if [ "$1" = configure ] && [ -n "$2" ] && [ -z "${DPKG_ROOT:-}" ] \
+        && [ -d /run/systemd/system ]; then
+    /usr/libexec/fireproof-restart-after-upgrade schedule || true
+fi
+
 exit 0

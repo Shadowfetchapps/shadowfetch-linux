@@ -115,5 +115,60 @@ class ReleaseConsistencyTests(unittest.TestCase):
         self.assertEqual(len(smoke), len(set(smoke)))
 
 
+class FireproofSelfUpgradeTests(unittest.TestCase):
+    """The built shadowfetch-fireproof must not stop its own transaction.
+
+    The 5.0.0 preinst below is the one QA 5.0.1 watched kill dpkg when
+    `fireproof update` upgraded shadowfetch-fireproof.
+    """
+
+    PREINST_5_0_0 = (
+        "#!/bin/sh\nset -e\n"
+        "if [ -z \"${DPKG_ROOT:-}\" ] && [ \"$1\" = upgrade ] && [ -d /run/systemd/system ] ; then\n"
+        "\tdeb-systemd-invoke stop 'fireproof-postboot.service' 'fireproof-postboot.timer' "
+        "'fireproofd.service' >/dev/null || true\nfi\n")
+    PREINST_FIXED = PREINST_5_0_0.replace(" 'fireproofd.service'", "")
+    POSTINST = ("#!/bin/sh\nset -e\n"
+                "    /usr/libexec/fireproof-restart-after-upgrade schedule || true\n")
+    CONFFILES = ("/etc/apt/apt.conf.d/85fireproof\n"
+                 "/etc/needrestart/conf.d/50-shadowfetch-fireproof.conf\n")
+    UNIT = "[Service]\nType=dbus\nTimeoutStopSec=3600\nKillMode=mixed\n"
+    NEEDRESTART = "$nrconf{override_rc}{qr(^fireproofd\\.service$)} = 0;\n"
+
+    def errors(self, **override):
+        args = dict(scripts={"preinst": self.PREINST_FIXED, "postinst": self.POSTINST},
+                    conffiles=self.CONFFILES, unit=self.UNIT,
+                    needrestart=self.NEEDRESTART, helper_present=True)
+        args.update(override)
+        return package_gate.fireproof_self_upgrade_errors(**args)
+
+    def test_the_fixed_package_passes(self) -> None:
+        self.assertEqual([], self.errors())
+
+    def test_the_5_0_0_preinst_is_refused(self) -> None:
+        errors = self.errors(scripts={"preinst": self.PREINST_5_0_0, "postinst": self.POSTINST})
+        self.assertEqual(1, len(errors))
+        self.assertIn("preinst stops or restarts fireproofd", errors[0])
+
+    def test_a_synchronous_restart_in_any_script_is_refused(self) -> None:
+        for name in ("prerm", "postrm", "postinst"):
+            with self.subTest(script=name):
+                scripts = {"preinst": self.PREINST_FIXED, "postinst": self.POSTINST}
+                scripts[name] = scripts.get(name, "") + "systemctl restart fireproofd.service\n"
+                self.assertTrue(any(e.startswith(name) for e in self.errors(scripts=scripts)))
+
+    def test_default_kill_mode_is_refused(self) -> None:
+        errors = self.errors(unit=self.UNIT.replace("KillMode=mixed\n", ""))
+        self.assertEqual(1, len(errors))
+        self.assertIn("control-group", errors[0])
+
+    def test_missing_needrestart_exclusion_or_helper_is_refused(self) -> None:
+        self.assertEqual(1, len(self.errors(needrestart=None)))
+        self.assertEqual(1, len(self.errors(conffiles="/etc/apt/apt.conf.d/85fireproof\n")))
+        self.assertEqual(1, len(self.errors(helper_present=False)))
+        self.assertEqual(1, len(self.errors(scripts={"preinst": self.PREINST_FIXED,
+                                                     "postinst": "#!/bin/sh\n"})))
+
+
 if __name__ == "__main__":
     unittest.main()

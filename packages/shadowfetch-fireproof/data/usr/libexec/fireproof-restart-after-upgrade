@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""fireproof-restart-after-upgrade - restart fireproofd AFTER an upgrade, never during it.
+
+USAGE
+  fireproof-restart-after-upgrade schedule
+      Run by shadowfetch-fireproof's postinst when the package is upgraded.
+  fireproof-restart-after-upgrade wait MAINPID
+      Run by `schedule` as a transient systemd unit; not for direct use.
+
+WHY THIS EXISTS
+  fireproofd runs apt and dpkg as its own children, inside
+  fireproofd.service's cgroup. When Fireproof upgrades shadowfetch-fireproof,
+  this package's maintainer scripts therefore run inside the very service
+  they would restart. Stopping it there killed dpkg (KillMode=control-group,
+  every release up to 5.0.0) or, with the stop deferred by the daemon, waits
+  on a transaction that is waiting on the stop. So the package never stops
+  fireproofd from a maintainer script (debian/rules: --no-stop-on-upgrade),
+  and this helper decides when the new code may take over:
+
+  First, `systemctl daemon-reload`, so this version's unit (KillMode=mixed)
+  is the one any later stop of the running daemon goes through. Then:
+
+  * fireproofd not running: nothing to do. It is D-Bus activated, so the
+    next client starts the new version.
+  * running, and this upgrade is NOT inside its cgroup (apt, Discover, a
+    terminal): the dpkg lock is held by someone else, so fireproofd is not
+    committing anything. Queue `systemctl try-restart` without waiting.
+  * running, and this upgrade IS inside its cgroup (Fireproof is upgrading
+    itself): hand the restart to a transient unit OUTSIDE that cgroup, which
+    waits until the daemon has no children left (dpkg, apt, hooks, verify
+    probes) and reports Busy=false, holds that for QUIET_SECONDS so the
+    Finished signal has gone out to the client, and then restarts it. If the
+    daemon exits or is replaced first, there is nothing left to do.
+
+  Every outcome exits 0: a restart that cannot be arranged is reported, and
+  the previous daemon runs until it exits or the machine reboots. Failing
+  the postinst would leave the package half-configured, which is the problem
+  this exists to prevent.
+
+Part of Shadowfetch Linux. https://www.shadowfetchlinux.org/
+"""
+
+import os
+import subprocess
+import sys
+import time
+
+UNIT = "fireproofd.service"
+WAITER_UNIT = "fireproofd-restart-after-upgrade"
+SELF = "/usr/libexec/fireproof-restart-after-upgrade"
+BUS_NAME = "org.shadowfetch.Fireproof1"
+OBJ_PATH = "/org/shadowfetch/Fireproof1"
+
+# Absolute paths, and a fixed child environment: this runs as root from a
+# maintainer script, under whatever PATH dpkg's caller had.
+SYSTEMCTL = "/usr/bin/systemctl"
+SYSTEMD_RUN = "/usr/bin/systemd-run"
+BUSCTL = "/usr/bin/busctl"
+POLICY_RC_D = "/usr/sbin/policy-rc.d"
+SYSTEMD_RUNTIME = "/run/systemd/system"
+CGROUP_ROOT = "/sys/fs/cgroup"
+SELF_CGROUP = "/proc/self/cgroup"
+CHILD_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"}
+
+POLL_SECONDS = 2
+# The daemon marks itself idle, then refreshes its analysis (seconds), then
+# emits Finished. Restarting inside that window would cost the client its
+# result, so idle has to hold well past it.
+QUIET_SECONDS = 30
+# A long transaction (a kernel, dkms, a desktop transition) can take a while;
+# after this the waiter gives up and the next boot runs the new daemon.
+WAIT_LIMIT_SECONDS = 6 * 3600
+
+# Probe results.
+GONE, BUSY, IDLE = "gone", "busy", "idle"
+
+
+def log(msg):
+    print("fireproof-restart-after-upgrade: %s" % msg, file=sys.stderr,
+          flush=True)
+
+
+def capture(argv, timeout=30):
+    """Run a program; never raise. Returns (rc, stdout, stderr)."""
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              timeout=timeout, env=CHILD_ENV, check=False)
+    except (OSError, subprocess.SubprocessError) as e:
+        return 127, "", str(e)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def unified_cgroup(text):
+    """The cgroup v2 path in /proc/<pid>/cgroup text ("0::/a/b"), or None."""
+    for line in (text or "").splitlines():
+        if line.startswith("0::"):
+            return line[3:].strip() or None
+    return None
+
+
+def cgroup_contains(unit_cgroup, cgroup):
+    """Is `cgroup` the unit's cgroup or below it? Path-component exact."""
+    if not unit_cgroup or not cgroup:
+        return False
+    unit_cgroup = unit_cgroup.rstrip("/")
+    if not unit_cgroup:
+        return False
+    return cgroup == unit_cgroup or cgroup.startswith(unit_cgroup + "/")
+
+
+def unit_property(name, run=capture):
+    rc, out, _ = run([SYSTEMCTL, "show", "--property", name, "--value", UNIT])
+    return out.strip() if rc == 0 else ""
+
+
+def unit_active(run=capture):
+    rc, _, _ = run([SYSTEMCTL, "is-active", "--quiet", UNIT])
+    return rc == 0
+
+
+def policy_allows(action, run=capture, policy=None):
+    """policy-rc.d, the way deb-systemd-invoke reads it: 101 means do not."""
+    policy = policy or POLICY_RC_D
+    if not os.access(policy, os.X_OK):
+        return True
+    rc, _, _ = run([policy, UNIT, action])
+    return rc != 101
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def schedule(run=capture, self_cgroup_text=None, systemd_running=None):
+    """The postinst half. Returns 0 whatever happens (see the module doc)."""
+    if systemd_running is None:
+        systemd_running = os.path.isdir(SYSTEMD_RUNTIME)
+    if not systemd_running:
+        return 0            # chroot, image build, container: nothing runs
+    # Load this version's unit first: KillMode=mixed is what keeps any later
+    # stop of the running daemon from signalling dpkg. A reload stops nothing.
+    rc, _, err = run([SYSTEMCTL, "--system", "daemon-reload"], timeout=120)
+    if rc != 0:
+        log("systemctl daemon-reload failed (%s); continuing"
+            % (err.strip() or "exit %d" % rc))
+    if not unit_active(run):
+        log("fireproofd is not running; the next client starts the new "
+            "version through D-Bus activation")
+        return 0
+    if self_cgroup_text is None:
+        self_cgroup_text = read_text(SELF_CGROUP)
+    unit_cgroup = unit_property("ControlGroup", run)
+    main_pid = unit_property("MainPID", run)
+    if cgroup_contains(unit_cgroup, unified_cgroup(self_cgroup_text)):
+        # Fireproof is upgrading itself. A stop from here would land on the
+        # transaction we are part of, so the restart is queued OUTSIDE it.
+        rc, _, err = run([
+            SYSTEMD_RUN, "--no-block", "--collect", "--quiet",
+            "--unit", WAITER_UNIT,
+            "--description", "Restart fireproofd after the update it is running",
+            "--property", "RuntimeMaxSec=%d" % (WAIT_LIMIT_SECONDS + 600),
+            SELF, "wait", main_pid or "0",
+        ])
+        if rc == 0:
+            log("fireproofd is running this upgrade; it will be restarted "
+                "once that update has finished")
+        else:
+            log("could not queue the restart (%s); fireproofd keeps running "
+                "its previous version until it exits or the next boot"
+                % (err.strip() or "systemd-run exit %d" % rc))
+        return 0
+    if not policy_allows("try-restart", run):
+        log("policy-rc.d forbids restarting fireproofd; not restarted")
+        return 0
+    # Not inside fireproofd: whoever runs this upgrade holds the dpkg lock,
+    # so fireproofd is not committing. --no-block anyway: dpkg never waits
+    # on a daemon's stop.
+    rc, _, err = run([SYSTEMCTL, "--no-block", "try-restart", UNIT])
+    if rc != 0:
+        log("could not restart fireproofd (%s); it keeps running its "
+            "previous version until it exits or the next boot"
+            % (err.strip() or "systemctl exit %d" % rc))
+    return 0
+
+
+def busy_property(run=capture):
+    """fireproofd's own Busy property: True, False, or None if unreadable."""
+    rc, out, _ = run([BUSCTL, "--system", "--auto-start=no", "--timeout=5",
+                      "get-property", BUS_NAME, OBJ_PATH, BUS_NAME, "Busy"])
+    if rc != 0:
+        return None
+    value = out.strip()
+    if value == "b true":
+        return True
+    if value == "b false":
+        return False
+    return None
+
+
+def probe(main_pid, run=capture, read=read_text):
+    """One look at the daemon that ran the upgrade: GONE, BUSY or IDLE.
+
+    IDLE needs positive evidence. When neither the cgroup nor the Busy
+    property can be read, the answer is BUSY: never restart blind."""
+    if not unit_active(run):
+        return GONE
+    current = unit_property("MainPID", run)
+    if main_pid not in ("", "0") and current != main_pid:
+        return GONE         # replaced since: the new daemon already runs
+    known = False
+    unit_cgroup = unit_property("ControlGroup", run)
+    procs = None
+    if unit_cgroup:
+        procs = read(os.path.join(CGROUP_ROOT, unit_cgroup.lstrip("/"),
+                                  "cgroup.procs"))
+    if procs is not None:
+        known = True
+        others = {p.strip() for p in procs.splitlines() if p.strip()} - {current}
+        if others:
+            return BUSY     # dpkg, apt, a hook or a verify probe still runs
+    busy = busy_property(run)
+    if busy is True:
+        return BUSY
+    if busy is False:
+        known = True
+    return IDLE if known else BUSY
+
+
+def restart(run=capture):
+    rc, _, err = run([SYSTEMCTL, "try-restart", UNIT], timeout=120)
+    if rc == 0:
+        log("fireproofd restarted after the update; the new version runs")
+    else:
+        log("restart failed (%s); the next boot runs the new version"
+            % (err.strip() or "systemctl exit %d" % rc))
+
+
+def wait(main_pid, look=None, do_restart=None, clock=time.monotonic,
+         sleep=time.sleep):
+    """The transient-unit half: restart once the daemon has been idle for
+    QUIET_SECONDS without interruption, or stop caring when it is gone."""
+    look = look or (lambda: probe(main_pid))
+    do_restart = do_restart or restart
+    deadline = clock() + WAIT_LIMIT_SECONDS
+    quiet_since = None
+    while clock() < deadline:
+        state = look()
+        if state == GONE:
+            log("fireproofd exited or was replaced after the update; the "
+                "next client starts the new version")
+            return 0
+        if state == IDLE:
+            if quiet_since is None:
+                quiet_since = clock()
+            elif clock() - quiet_since >= QUIET_SECONDS:
+                do_restart()
+                return 0
+        else:
+            quiet_since = None
+        sleep(POLL_SECONDS)
+    log("fireproofd stayed busy for %d hours; not restarted, the next boot "
+        "runs the new version" % (WAIT_LIMIT_SECONDS // 3600))
+    return 0
+
+
+def main(argv):
+    if len(argv) >= 2 and argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    if len(argv) == 2 and argv[1] == "schedule":
+        return schedule()
+    if len(argv) == 3 and argv[1] == "wait" and argv[2].isdigit():
+        return wait(argv[2])
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

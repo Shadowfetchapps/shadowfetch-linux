@@ -4,10 +4,37 @@
 
 # fireproofd is D-Bus activated (Type=dbus, no [Install] section) and the
 # postboot service/timer only matter on the boot after an update: none of
-# them should be force-started at package install time. --no-start keeps
-# dh_installsystemd's enable + stop-on-remove handling without the start.
+# them should be force-started at package install time.
+#
+# fireproofd is ALSO the process that runs apt and dpkg when the user updates
+# with `fireproof update` or the Fireproof page, so every maintainer script of
+# this package runs inside fireproofd.service's own cgroup whenever Fireproof
+# upgrades itself. Plain `--no-start` makes dh_installsystemd emit a PREINST
+# that runs `deb-systemd-invoke stop fireproofd.service` on upgrade (it did
+# from 2.1.4 to 5.0.0): that stop is the daemon's own transaction stopping the
+# daemon, systemd signalled the whole cgroup, and dpkg died mid-upgrade (QA,
+# 5.0.0 -> 5.0.1, every attempt). So fireproofd gets --no-stop-on-upgrade: no
+# preinst stop, no prerm stop, and no postinst (re)start either. The restart
+# happens AFTER the transaction instead -- debian/postinst hands it to
+# /usr/libexec/fireproof-restart-after-upgrade, which restarts an idle daemon
+# directly, or, when this very daemon is running the upgrade, defers the
+# restart to a transient unit outside its cgroup that waits for it to finish.
+# fireproofd also exits by itself after every successful commit, so the next
+# D-Bus activation runs whatever code is on disk.
+#
+# Neither flag set emits a prerm: on REMOVE nothing stops fireproofd. That was
+# already true of `--no-start` alone (the comment here used to claim a
+# stop-on-remove that debhelper never generated with --no-start); a removed
+# daemon keeps running until it exits or the machine reboots, and it cannot be
+# re-activated once its D-Bus service file is gone.
+#
+# The postboot units keep plain --no-start and its preinst stop on upgrade,
+# unchanged: they are their own units, never the cgroup dpkg runs in.
+# tests/test_self_upgrade.py reads this recipe; the package gate reads the
+# built .deb's maintainer scripts.
 override_dh_installsystemd:
-	dh_installsystemd --no-start
+	dh_installsystemd --no-start --no-stop-on-upgrade fireproofd.service
+	dh_installsystemd --no-start fireproof-postboot.service fireproof-postboot.timer
 
 # Offline unit tests: analyzer diff logic, epoch-encoded cache filename
 # derivation, postboot pre_point parsing. Plain unittest, no network,

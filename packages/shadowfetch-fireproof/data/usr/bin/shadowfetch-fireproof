@@ -182,6 +182,9 @@ class FireproofPage(QWidget):
         self.summary_label = QLabel("Analyzing… (no lock is taken and "
                                     "nothing is downloaded)")
         self.summary_label.setWordWrap(True)
+        # Selectable: on an interrupted system it carries the repair command.
+        self.summary_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
         self.banner_label = QLabel("")
         self.banner_label.setObjectName("bad")
         self.banner_label.setWordWrap(True)
@@ -320,7 +323,13 @@ class FireproofPage(QWidget):
         self.analysis = a
         c = a["counts"]
         b = a["banners"]
-        if c["total"] == 0:
+        interrupted = a.get("interrupted")
+        if interrupted:
+            # fireproofd offers no change set on a half-configured system;
+            # the page says why and gives the repair, and Update stays off.
+            self.summary_label.setText(interrupted["message"])
+            self.update_button.setEnabled(False)
+        elif c["total"] == 0:
             self.summary_label.setText(
                 "Your system is up to date against the current package "
                 "lists. Nothing is pending.")
@@ -393,7 +402,7 @@ class FireproofPage(QWidget):
     # ---- update ----------------------------------------------------------
 
     def confirm_update(self):
-        if not self.analysis or self.busy:
+        if not self.analysis or self.busy or self.analysis.get("interrupted"):
             return
         b = self.analysis["banners"]
         box = QMessageBox(self)

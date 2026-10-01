@@ -1,9 +1,38 @@
 shadowfetch-fireproof (5.0.1-1) umbra; urgency=medium
 
-  * Rebuilt for Shadowfetch Linux 5.0.1: shadowfetch-desktop requires every
-    Shadowfetch package at the same version. No changes to this package.
+  * `fireproof update` can upgrade Fireproof itself. dpkg runs as
+    fireproofd's child, inside fireproofd.service's cgroup, and every
+    package since 2.1.4 shipped a preinst (dh_installsystemd --no-start)
+    that stopped fireproofd on upgrade: systemd signalled the whole cgroup,
+    dpkg was killed mid-upgrade, and needrestart then restarted fireproofd
+    from inside its own transaction and hung until the one-hour stop
+    timeout, holding the dpkg lock and blocking reboot.
+    - debian/rules: fireproofd.service gets --no-stop-on-upgrade; no
+      maintainer script stops, starts or restarts it any more.
+    - fireproofd.service: KillMode=mixed. A stop sends SIGTERM to the daemon
+      only, which already defers it until dpkg has finished; dpkg, apt and
+      maintainer scripts are no longer signalled with it.
+    - New conffile /etc/needrestart/conf.d/50-shadowfetch-fireproof.conf:
+      needrestart never restarts fireproofd.
+    - The new daemon still takes over after the transaction: the postinst
+      restarts an idle fireproofd without waiting, or, when fireproofd is
+      the one running the upgrade, queues the restart in a transient unit
+      outside its cgroup that waits for the update to finish
+      (/usr/libexec/fireproof-restart-after-upgrade). fireproofd also exits
+      after every successful commit, so the next D-Bus activation runs the
+      code and libraries now on disk.
+  * Analyze refuses to offer an update on a system an earlier dpkg run left
+    half-configured (packages unpacked but not configured, reinstall
+    required, or anything `dpkg --audit` reports). `fireproof check` and
+    `fireproof update` print the packages and the repair command,
+    `sudo dpkg --configure -a && sudo apt -f install`, and exit 3; the page
+    shows the same and keeps Update disabled; the commit refuses it under
+    the lock as well.
+  * The verify battery's "Mirror still resolves" check looks up the mirror's
+    host name, not host:port: a mirror with a port was reported as not
+    resolving.
 
- -- Shadowfetch Project <signing@shadowfetch.com>  Wed, 30 Sep 2026 23:15:00 -0400
+ -- Shadowfetch Project <signing@shadowfetch.com>  Thu, 01 Oct 2026 06:20:00 -0400
 
 shadowfetch-fireproof (5.0.0-1) umbra; urgency=medium
 

@@ -16,3 +16,5 @@ data/etc/apt/apt.conf.d/85fireproof                                  etc/apt/apt
 data/etc/apt/listchanges.conf.d/shadowfetch-fireproof.conf           etc/apt/listchanges.conf.d/
 data/etc/xdg/autostart/shadowfetch-fireproof-check.desktop           etc/xdg/autostart/
 data/usr/share/shadowfetch/control-center/sfcc/fireproof_page.py     usr/share/shadowfetch/control-center/sfcc/
+data/usr/libexec/fireproof-restart-after-upgrade                     usr/libexec/
+data/etc/needrestart/conf.d/50-shadowfetch-fireproof.conf            etc/needrestart/conf.d/

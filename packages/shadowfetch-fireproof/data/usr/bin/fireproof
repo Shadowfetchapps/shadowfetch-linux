@@ -28,6 +28,12 @@ WHAT IT DOES
   Updates warn before removing anything, wrap themselves in a Phoenix
   Point, and verify the system afterward.
 
+  If an earlier update was interrupted (packages unpacked but not
+  configured, or anything `dpkg --audit` reports), check and update offer
+  no update: they print the command that finishes the interrupted one,
+      sudo dpkg --configure -a && sudo apt -f install
+  and exit with status 3.
+
 Part of Shadowfetch Linux. https://www.shadowfetchlinux.org/"""
 
 if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
@@ -117,6 +123,37 @@ def print_analysis(a):
     print("  Change-set hash: %s" % a["change_set_hash"])
 
 
+# Exit status of check/update when an earlier dpkg run must be finished first.
+EXIT_INTERRUPTED = 3
+
+
+def print_interrupted(a):
+    """The refusal: what is unfinished, and the one command that repairs it.
+
+    Returns True when the analysis describes an interrupted dpkg run, in which
+    case nothing else of the analysis is worth printing: it holds no update."""
+    info = a.get("interrupted")
+    if not info:
+        return False
+    say("Fireproof analyze - a previous update was interrupted")
+    packages = info.get("packages") or []
+    if packages:
+        print("  These packages were not finished installing:")
+        for p in packages[:20]:
+            print("    %s  (%s)" % (p["name"], p["state"]))
+        if len(packages) > 20:
+            print("    ... and %d more" % (len(packages) - 20))
+    if info.get("audit"):
+        print("\n  dpkg --audit reports:")
+        for line in info["audit"].splitlines()[:12]:
+            print("    %s" % line)
+    print("\n  %s!!%s No update is offered until the interrupted one is "
+          "finished. Run:" % (RED, OFF))
+    print("\n      %s%s%s\n" % (BOLD, info["repair_command"], OFF))
+    print("  then run `fireproof check` again.")
+    return True
+
+
 def print_verify(v):
     say("Verify battery")
     marks = {"pass": GREEN + "OK " + OFF, "warn": GOLD + "?? " + OFF,
@@ -137,7 +174,10 @@ def print_verify(v):
 
 
 def cmd_check():
-    print_analysis(json.loads(iface().Analyze(timeout=300)))
+    analysis = json.loads(iface().Analyze(timeout=300))
+    if print_interrupted(analysis):
+        return EXIT_INTERRUPTED
+    print_analysis(analysis)
     return 0
 
 
@@ -145,6 +185,8 @@ def cmd_update(assume_yes):
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     fp = iface()
     analysis = json.loads(fp.Analyze(timeout=300))
+    if print_interrupted(analysis):
+        return EXIT_INTERRUPTED
     print_analysis(analysis)
     if analysis["counts"]["total"] == 0:
         print("\nNothing to update.")
@@ -211,7 +253,10 @@ def cmd_update(assume_yes):
             print_verify(result["verify"])
         if result.get("message"):
             print("\n  %s" % result["message"])
-        exit_code[0] = 0 if result.get("ok") else 1
+        if result.get("stage") == "interrupted":
+            exit_code[0] = EXIT_INTERRUPTED
+        else:
+            exit_code[0] = 0 if result.get("ok") else 1
         loop.quit()
 
     bus = dbus.SystemBus()

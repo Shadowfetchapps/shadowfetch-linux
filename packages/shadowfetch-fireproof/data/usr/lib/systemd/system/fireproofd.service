@@ -15,6 +15,24 @@ RestartSec=5
 # finishes (a SIGTERM must never abort a dpkg transaction). Give that
 # window a full hour before systemd escalates to SIGKILL.
 TimeoutStopSec=3600
+# ...and send that SIGTERM to the daemon ONLY. dpkg, apt's methods and every
+# maintainer script run as fireproofd's children, inside this unit's cgroup.
+# Under the default KillMode=control-group a stop SIGTERMs all of them at
+# once, so the deferral above never protected anything: dpkg died the moment
+# a stop arrived, which is exactly how `fireproof update` killed its own
+# upgrade (QA 5.0.1). With mixed, the main process alone gets SIGTERM and
+# defers; it exits only after the commit worker has finished, so by the time
+# systemd sends SIGKILL to what is left of the cgroup, dpkg is done. A stop
+# outside the commit phase still quits at once and its leftovers (a download
+# method, a verify probe) are killed, which is harmless: nothing is installed
+# there, and partial downloads resume.
+# What mixed cannot fix is a stop issued from INSIDE the transaction and
+# waited for there (a maintainer script or needrestart running a synchronous
+# `systemctl stop|restart fireproofd`): that waits on the deferral, which waits
+# on the transaction. Nothing may do that, so this package's own scripts do
+# not (debian/rules: --no-stop-on-upgrade) and needrestart is told not to
+# (/etc/needrestart/conf.d/50-shadowfetch-fireproof.conf).
+KillMode=mixed
 
 # Hardening: the firewatchd pattern minus apt's write paths. ProtectSystem/
 # ProtectHome/ProtectKernelTunables stay OFF because the commit phase runs
