@@ -2981,13 +2981,194 @@ def _quiesce_update_notifier(
     return record
 
 
+# Timers the 5.0.0 image arms on the live medium, by name, so that a listing
+# that misses one cannot leave it armed. Every other timer the listing finds
+# active is stopped too. The one that mattered: apt-listchanges.timer is
+# OnCalendar=hourly with no random delay, and its service (python3 -m
+# apt_listchanges.populate_database, ~2 min and a 145 MB peak on the installed
+# proof boot) runs at the first full hour of every boot until it disables
+# itself. The 2d8a72e0 soak crossed 21:00 UTC: closes 14 (21:00:36) and 15
+# (21:01:53) read -68 and -87 MiB against the fit of the other closes and
+# recovered at close 16, the dips the first noise model took for after-close
+# noise. fwupd-refresh is *:00:00 with up to 1h of random delay, and
+# systemd-tmpfiles-clean fires 15 min after boot, inside every soak.
+SOAK_SYSTEM_TIMERS = (
+    "apt-listchanges.timer", "fwupd-refresh.timer", "apt-daily.timer",
+    "apt-daily-upgrade.timer", "man-db.timer", "dpkg-db-backup.timer",
+    "logrotate.timer", "flatpak-system-update.timer", "systemd-tmpfiles-clean.timer",
+    "snapper-timeline.timer", "snapper-cleanup.timer", "e2scrub_all.timer",
+    "fstrim.timer",
+)
+# The live user's own: tmpfiles cleanup 5 min after the user manager starts,
+# and DrKonqi's hourly crash-report submitter.
+SOAK_USER_TIMERS = ("systemd-tmpfiles-clean.timer", "drkonqi-sentry-postman.timer")
+UNIT_DOWN = ("inactive", "failed")
+
+
+def _unit_properties(run: Callable[[str], dict], ctl: str,
+                     units: list[str]) -> dict[str, dict[str, str]]:
+    """`systemctl show` for several units at once, keyed by unit Id."""
+    if not units:
+        return {}
+    result = run(f"{ctl} show -p Id -p LoadState -p ActiveState -p SubState -p Triggers "
+                 + " ".join(shlex.quote(unit) for unit in units) + " 2>/dev/null")
+    found: dict[str, dict[str, str]] = {}
+    for block in result["stdout"].split("\n\n"):
+        fields = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        if fields.get("Id"):
+            found[fields["Id"]] = fields
+    return found
+
+
+def _stop_timers(run: Callable[[str], dict], ctl: str,
+                 named: tuple[str, ...]) -> dict[str, Any]:
+    """Stop every active timer of one manager, and any job one is running.
+
+    Stopping a timer does not stop the service it already started, so a
+    triggered service still running afterwards is stopped too. A unit missing
+    from `systemctl show` counts as still armed: it was not seen stopped.
+    """
+    listing = run(f"{ctl} list-units --type=timer --state=active --no-legend "
+                  "--plain --no-pager 2>&1")
+    listed: list[str] | None = None
+    if listing["exitcode"] == 0:
+        listed = sorted({
+            line.split()[0] for line in listing["stdout"].splitlines()
+            if line.split() and line.split()[0].endswith(".timer")
+        })
+    candidates = sorted(set(listed or ()) | set(named))
+    before = _unit_properties(run, ctl, candidates)
+    armed = [unit for unit in candidates
+             if before.get(unit, {}).get("ActiveState") not in UNIT_DOWN]
+    stop = None
+    if armed:
+        result = run(f"{ctl} stop " + " ".join(shlex.quote(unit) for unit in armed) + " 2>&1")
+        stop = {"exit": result["exitcode"],
+                "output": (result["stdout"] + result["stderr"]).strip()[:400]}
+    triggered = sorted({
+        service for unit in armed
+        for service in before.get(unit, {}).get("Triggers", "").split()
+    })
+    after = _unit_properties(run, ctl, candidates + triggered)
+    running = [service for service in triggered
+               if after.get(service, {}).get("ActiveState") not in UNIT_DOWN]
+    jobs_stop = None
+    if running:
+        result = run(f"{ctl} stop " + " ".join(shlex.quote(s) for s in running) + " 2>&1")
+        jobs_stop = {"jobs": running, "exit": result["exitcode"],
+                     "output": (result["stdout"] + result["stderr"]).strip()[:400]}
+        after = _unit_properties(run, ctl, candidates + triggered)
+    return {
+        "listing_ok": listed is not None,
+        "listing": listing["stdout"].strip()[:2000],
+        "listed_active": listed,
+        "stopped": armed,
+        "stop": stop,
+        "jobs_stopped": jobs_stop,
+        "still_armed": [unit for unit in candidates
+                        if after.get(unit, {}).get("ActiveState") not in UNIT_DOWN],
+        "still_running": [service for service in triggered
+                          if after.get(service, {}).get("ActiveState") not in UNIT_DOWN],
+        "after": {unit: after.get(unit, {}).get("ActiveState") for unit in candidates + triggered},
+    }
+
+
+def _quiesce_timers(
+    ctx: Context, machine: Guest, session: dict[str, str]
+) -> dict[str, Any]:
+    """Stop the system's and the live user's timers before the baseline.
+
+    A soak is 30 minutes of after-close readings; a timer that fires inside it
+    puts a system job's memory into one or two of them. The hourly
+    apt-listchanges run did exactly that to the 2d8a72e0 soak (closes 14 and
+    15; SOAK_SYSTEM_TIMERS), and where such a pair lands decides what a
+    least-squares slope makes of it: near the start of an 18-close soak it
+    hid a 10 MiB/cycle leak in about half of simulated soaks. The guest is
+    throwaway, so every active timer is stopped, not just the ones named, and
+    a job one is already running is stopped with it. Recorded in
+    `soak_quiesce` (`timers`) and shadowcode-soak-timers.log. A listing that
+    fails, a timer still armed or a job still running is BLOCKED.
+    """
+    def as_user(command: str) -> dict:
+        return _as_session(machine, session, command, timeout=120)
+
+    def as_root(command: str) -> dict:
+        return machine.run(command, timeout=120)
+
+    record = {
+        "system": _stop_timers(as_root, "/usr/bin/systemctl", SOAK_SYSTEM_TIMERS),
+        "user": _stop_timers(as_user, "/usr/bin/systemctl --user", SOAK_USER_TIMERS),
+    }
+    ctx.evidence.write_text("shadowcode-soak-timers.log", "".join(
+        f"== {scope} manager\n$ systemctl list-units --type=timer --state=active\n"
+        f"{part['listing'] or '(none)'}\nstopped: {part['stopped']}\nstop: {part['stop']}\n"
+        f"jobs a timer was running, stopped: {part['jobs_stopped']}\n"
+        f"after: {part['after']}\n\n"
+        for scope, part in record.items()
+    ))
+    problems = []
+    for scope, part in record.items():
+        if not part["listing_ok"]:
+            problems.append(f"the {scope} manager's active timers could not be listed")
+        if part["still_armed"]:
+            problems.append(f"{scope} timers still armed after being stopped: "
+                            + ", ".join(part["still_armed"]))
+        if part["still_running"]:
+            problems.append(f"{scope} jobs a timer started still running: "
+                            + ", ".join(part["still_running"]))
+    record["quiet"] = not problems
+    if problems:
+        ctx.observe("soak_quiesce_timers", record)
+        ctx.blocked(
+            "; ".join(problems) + " -- a timer that fires inside the soak puts a "
+            "system job's memory into the after-close readings, charged to ShadowCode"
+        )
+    return record
+
+
+def _units_started(
+    machine: Guest, session: dict[str, str], since: str,
+    closes_epoch: list[float],
+) -> tuple[list[dict[str, Any]], str]:
+    """Units the system and the live user's manager started since the baseline.
+
+    From PID 1's (and user@UID's) own "Starting"/"Started" journal lines, each
+    tied to the first close whose after-close reading could include it, so a
+    dip in the evidence can be matched to a job without guessing.
+    `closes_epoch` is the guest time of each close's reading.
+    """
+    queries = {
+        "system": "_PID=1",
+        "user": f"_SYSTEMD_UNIT=user@{session['uid']}.service _COMM=systemd",
+    }
+    raw = []
+    found: list[dict[str, Any]] = []
+    for manager, match in queries.items():
+        text = machine.out(
+            f"/usr/bin/journalctl --no-pager -q -o short-unix --since=@{since} {match} "
+            "2>&1 | /usr/bin/grep -E ': Start(ing|ed) ' || true",
+            timeout=120,
+        )
+        raw.append(f"== {manager} manager since @{since}\n{text or '(none)'}\n")
+        for line in text.splitlines():
+            parsed = re.match(r"(\d+(?:\.\d+)?) \S+ [^:]+: Start(?:ing|ed) (\S+)", line)
+            if not parsed:
+                continue
+            epoch, unit = float(parsed.group(1)), parsed.group(2).rstrip(".")
+            close = next((index for index, at in enumerate(closes_epoch, start=1)
+                          if at >= epoch), None)
+            found.append({"manager": manager, "unit": unit, "epoch": epoch,
+                          "before_close": close})
+    return found, "\n".join(raw)
+
+
 # How many closes at each end the drift medians are taken over. The first 5.0.0
 # check compared ONE reading (the first close) with ONE other (the lowest
 # later close), so a single warm-up close or a single late dip decided the
-# verdict -- the 2d8a72e0 run's 680 MiB "drift" included a one-cycle dip at
-# cycle 15 that recovered 89 MiB at cycle 16. The median of three ignores any
-# one bad reading at either end and still leaves the ends 18+ cycles apart in
-# a default 24-cycle soak.
+# verdict -- the 2d8a72e0 run's 680 MiB "drift" included the hourly
+# apt-listchanges run (SOAK_SYSTEM_TIMERS) at closes 14 and 15, recovered at
+# close 16. The median of three ignores any one bad reading at either end and
+# still leaves the ends 18+ cycles apart in a default 24-cycle soak.
 SOAK_DRIFT_WINDOW = 3
 # The first close the per-cycle slope is fitted from. Closes 1 and 2 sit above
 # the rest in every 5.0.0 soak -- 2d8a72e0 +87 and +63 MiB over close 3,
@@ -2998,15 +3179,22 @@ SOAK_DRIFT_WINDOW = 3
 # read as a per-launch loss, -3.7 instead of -2.0 MiB a cycle on the 2d8a72e0
 # closes, and decided short soaks on its own.
 SOAK_SLOPE_FROM_CLOSE = 3
-# The fewest closes a soak is judged on. An after-close reading is noisy by
-# about +-20 MiB with one-close dips of 60-120 MiB (2d8a72e0: residual sd 26
-# MiB, dips of -61 and -79), and a slope's variance falls with the cube of the
-# number of closes. Simulated on that noise with the warm-up and a background
-# drift of 0 to -2.5 MiB a cycle, 18 closes (16 in the slope) fail a healthy
-# app in 0-0.4% of soaks (1.2% with +-90 MiB at EVERY close) and catch a 15
-# MiB/cycle leak in 99.8-100%; at 24 closes, 0% and 100%. A slope over every
-# close of a 6-close soak failed a healthy app 63-76% of the time. A default
-# 30-minute soak runs 24 closes.
+# The fewest closes the per-cycle SLOPE is judged on; every other check is
+# made at any length. On a quiet system an after-close reading is noisy by
+# about +-13 MiB (2d8a72e0 closes 4-24 without 14 and 15, which were the
+# hourly apt-listchanges run, not noise: residual sd 13.2 MiB, -27..+24), and
+# a slope's variance falls with the cube of the number of closes. Simulated
+# on that noise with first-launch warm-up and a background drift of 0 to -2.5
+# MiB a cycle (mc4, 3000 soaks each), a healthy app fails 0% of soaks from 10
+# closes on, and a 10 MiB/cycle leak is caught in 98% at 12 closes, 99.5% at
+# 14 and 100% at 18. The floor is kept at 18 for noise this one soak did not
+# show: with a 90-120 MiB dip at 10% of closes, sd 45 MiB, or +-90 MiB at
+# every close, 14 closes fail a healthy app in 2.0, 3.3 and 6.5% of soaks; 18
+# in 0.1, 0.4 and 1.2%, while still catching 15 MiB/cycle in 99.8-100%. A
+# system job still landing in the soak is what quiescing is for: placed at
+# random in an 18-close soak, the -68/-87 pair let a 10 MiB/cycle leak pass
+# 8% of the time (0% without it). A default 30-minute soak runs 24 closes,
+# and a slower one runs on past --soak-minutes until it has 18.
 SOAK_MIN_CLOSES = 18
 
 
@@ -3076,31 +3264,50 @@ def _after_close_drift(
 # identifier in its tauri.conf.json). The plugin writes it at every exit of a
 # run without --profile, which is how the soak launches it.
 SHADOWCODE_WINDOW_STATE = ".config/com.shadowfetch.shadowcode/.window-state.json"
-# Consecutive closes at which the saved window grew that fail the soak.
+# Consecutive launches at which the window grew that fail the soak.
 SOAK_WINDOW_GROWTH_RUN = 2
 
 
+def _positive_size(width: Any, height: Any) -> list[int] | None:
+    """[width, height] when both are numbers above zero; None otherwise."""
+    if isinstance(width, bool) or isinstance(height, bool):
+        return None
+    if not isinstance(width, (int, float)) or not isinstance(height, (int, float)):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return [round(width), round(height)]
+
+
 def _parse_window_state(text: str) -> dict[str, list[int]] | None:
-    """{window label: [width, height]} from the plugin's JSON; None if unreadable."""
+    """{window label: [width, height]} from the plugin's JSON.
+
+    None when the file is unreadable or saves no size. A width or height of 0
+    or less is no size: ShadowCode 1.0.1 leaves SIZE out of the plugin's
+    flags, and the plugin then keeps a fresh entry at 0x0 forever. Read as a
+    size, that compared equal at every close and "passed" a growth check that
+    had measured nothing.
+    """
     try:
         document = json.loads(text)
     except ValueError:
         return None
     if not isinstance(document, dict):
         return None
-    sizes = {
-        str(label): [state["width"], state["height"]]
-        for label, state in document.items()
-        if isinstance(state, dict)
-        and isinstance(state.get("width"), int) and isinstance(state.get("height"), int)
-    }
+    sizes = {}
+    for label, state in document.items():
+        if isinstance(state, dict) and isinstance(state.get("width"), int) \
+                and isinstance(state.get("height"), int):
+            size = _positive_size(state["width"], state["height"])
+            if size is not None:
+                sizes[str(label)] = size
     return sizes or None
 
 
 def _window_state(
     machine: Guest, session: dict[str, str]
 ) -> tuple[dict[str, list[int]] | None, str]:
-    """The saved window sizes after a close, and the raw text when unreadable."""
+    """The saved window sizes after a close, and the raw text when it held none."""
     path = f"{session['home']}/{SHADOWCODE_WINDOW_STATE}"
     text = machine.out(f"/usr/bin/cat {shlex.quote(path)} 2>/dev/null || true")
     if not text:
@@ -3109,8 +3316,81 @@ def _window_state(
     return sizes, "" if sizes is not None else text[:400]
 
 
+def _window_ids(match_reply: str) -> list[str]:
+    """KWin window UUIDs from a WindowsRunner Match reply, ShadowCode's only.
+
+    Each match is a struct whose first two strings are its id ("0_{uuid}",
+    the action and KWin's internal window id) and its text (the caption).
+    """
+    ids = []
+    for chunk in match_reply.split("struct {")[1:]:
+        strings = re.findall(r'^\s*string "(.*)"\s*$', chunk, re.M)
+        if len(strings) < 2 or "shadowcode" not in strings[1].lower():
+            continue
+        uuid = re.search(r"\{[0-9A-Fa-f-]{36}\}", strings[0])
+        if uuid and uuid.group(0) not in ids:
+            ids.append(uuid.group(0))
+    return ids
+
+
+def _dbus_scalars(reply: str) -> dict[str, Any]:
+    """The string and number entries of an a{sv} dict as dbus-send prints it."""
+    values: dict[str, Any] = {}
+    for key, kind, value in re.findall(
+        r'string "([^"]+)"\s*\n\s*variant\s+(string|double|u?int(?:16|32|64)|boolean)'
+        r'\s+("[^"\n]*"|\S+)', reply,
+    ):
+        if kind == "string":
+            values[key] = value.strip('"')
+        elif kind == "boolean":
+            values[key] = value == "true"
+        else:
+            try:
+                values[key] = float(value)
+            except ValueError:
+                pass
+    return values
+
+
+def _shadowcode_window_frame(
+    machine: Guest, session: dict[str, str]
+) -> tuple[dict[str, list[int]] | None, str]:
+    """The size of ShadowCode's window as KWin has it on screen, and why not.
+
+    The frame geometry KWin reports for the window (org.kde.KWin /KWin
+    getWindowInfo, by the id WindowsRunner gives), so the size the user sees
+    is measured whatever the app saves or does not save. With more than one
+    ShadowCode window the largest is the main one. ({"frame": [w, h]}, "") or
+    (None, what KWin answered).
+    """
+    found = _shadowcode_windows(machine, session)
+    ids = _window_ids(found["raw"])
+    if not ids:
+        return None, "no ShadowCode window id in KWin's WindowsRunner reply: " + found["raw"][:300]
+    frames = []
+    replies = []
+    for window in ids:
+        reply = _as_session(
+            machine, session,
+            "/usr/bin/dbus-send --session --print-reply --dest=org.kde.KWin /KWin "
+            f"org.kde.KWin.getWindowInfo string:{shlex.quote(window)}",
+            timeout=60,
+        )
+        info = _dbus_scalars(reply["stdout"])
+        named = " ".join(str(info.get(key, "")) for key in
+                         ("resourceClass", "desktopFile", "caption"))
+        size = _positive_size(info.get("width"), info.get("height"))
+        if size is not None and "shadowcode" in re.sub(r"[^a-z]", "", named.lower()):
+            frames.append(size)
+        replies.append(f"{window}: exit {reply['exitcode']} "
+                       f"{(reply['stdout'] + reply['stderr']).strip()[:300]}")
+    if not frames:
+        return None, "; ".join(replies)[:600]
+    return {"frame": max(frames, key=lambda size: size[0] * size[1])}, ""
+
+
 def _window_growth(per_close: list[dict[str, list[int]] | None]) -> dict[str, Any]:
-    """The longest run of consecutive closes at which a saved window got larger.
+    """The longest run of consecutive launches at which a window got larger.
 
     ShadowCode 1.0.0 opens a larger window at every launch on Plasma Wayland.
     tauri-plugin-window-state saves tao's inner size at exit, which there is
@@ -3121,16 +3401,20 @@ def _window_growth(per_close: list[dict[str, list[int]] | None]) -> dict[str, An
     from 1.6% to 6.0%: the main process repaints an ever larger window. On an
     installed system the file is on disk, so it keeps growing across reboots.
 
-    A close is compared with the previous close only when both have a reading;
-    a missing or unreadable file breaks the run rather than bridging it. A
-    window is larger when its width OR height went up. One increase can be a
-    first save settling; increases at consecutive closes are a size being fed
-    back into itself, and 1.0.0 grows at every close.
+    Used on two readings per launch: the size the plugin saved at the close,
+    and the frame KWin showed during the hold. A launch is compared with the
+    previous one only when both have a reading; a missing one, or a size of 0
+    or less, breaks the run rather than bridging it. A window is larger when
+    its width OR height went up. One increase can be a first save settling;
+    increases at consecutive launches are a size being fed back into itself,
+    and 1.0.0 grows at every one.
     """
     longest = run = compared = 0
     grew_at: list[int] = []
     previous: dict[str, list[int]] | None = None
     for cycle, sizes in enumerate(per_close, start=1):
+        sizes = {label: size for label, size in (sizes or {}).items()
+                 if _positive_size(*size) is not None} or None
         if sizes is None:
             previous, run = None, 0
             continue
@@ -3171,9 +3455,13 @@ def case_shadowcode_soak(ctx: Context) -> None:
 
     * The system's own work landed inside the cycles. KDE's update notifier
       has PackageKit refresh the apt indexes 300s after login, and on the live
-      medium ~350 MB of them go into RAM-backed Shmem, in one step, mid-soak.
-      The notifier is stopped, PackageKit let finish and its idle daemon
-      stopped before the baseline (_quiesce_update_notifier).
+      medium ~350 MB of them go into RAM-backed Shmem, in one step, mid-soak;
+      and the hourly apt-listchanges timer ran at 21:00 UTC, taking 68 and
+      87 MiB out of closes 14 and 15. The notifier is stopped, PackageKit let
+      finish and its idle daemon stopped (_quiesce_update_notifier), then
+      every system and user timer is stopped (_quiesce_timers), all before
+      the baseline. The units the system did start during the soak are
+      recorded against the close they precede (`soak_units_started`).
     * It compared the first close with the single lowest later close, so one
       step or one dip anywhere became the "leak" (680 MiB, reported as 28 MiB a
       cycle, when the after-step slope was -1.5 to -1.8 MiB a cycle). Drift is
@@ -3182,27 +3470,35 @@ def case_shadowcode_soak(ctx: Context) -> None:
       the first bounds how far memory moved over the soak, first-launch
       warm-up included, the second catches a steady per-launch leak too small
       for the first. --soak-slope-mib is 8: the 2d8a72e0 closes after its step
-      slope at -1.8 MiB a cycle, and the whole run with the step taken out at
-      -2.0 (-3.7 with the warm-up of closes 1 and 2 fitted in). A leak of 8 MiB
-      a launch moves the end medians only ~170 MiB in 24 cycles, under the 256
-      MiB end-to-end limit -- which is why the slope is its own check. It is
-      judged only on SOAK_MIN_CLOSES (18) closes or more: a clean shorter soak
-      is BLOCKED, because there noise and warm-up decide the slope. Shmem and
-      AnonPages are sampled beside MemAvailable so a change can be attributed
-      to tmpfs or to process memory from the evidence alone.
+      slope at -1.7 to -2.0 MiB a cycle. A leak of 8 MiB a launch moves the end
+      medians only ~170 MiB in 24 cycles, under the 256 MiB end-to-end limit
+      -- which is why the slope is its own check. Shmem and AnonPages are
+      sampled beside MemAvailable so a change can be attributed to tmpfs or to
+      process memory from the evidence alone.
 
-    The saved window size is read after every close (_window_growth) because
+    The slope is judged only on SOAK_MIN_CLOSES (18) closes or more. The soak
+    runs for --soak-minutes and then on until it has that many, bounded by
+    --soak-max-minutes. Every other check is made whatever the count: a
+    growing window, a SIGKILLed close or a drop past the end-to-end limit
+    FAILS a short soak as it would a long one. Only a soak in which nothing
+    failed, and which still ended short of the floor, is BLOCKED.
+
+    The window is measured twice a launch (_window_growth): the frame KWin
+    shows during the hold, and the size ShadowCode saves at the close.
     ShadowCode 1.0.0 restores a larger window at every launch; growth at two
-    consecutive closes fails.
+    consecutive launches fails. 1.0.1 saves no size (the plugin keeps 0x0),
+    which is no reading, so there the KWin frame is the measurement. A soak in
+    which nothing failed and neither was measured is BLOCKED.
     """
     pin = _shadowcode_pin(ctx)
     soak_minutes = float(ctx.options.get("soak_minutes", 30))
+    max_minutes = max(soak_minutes, float(ctx.options.get("soak_max_minutes", 60)))
     hold = float(ctx.options.get("soak_hold", 60))
     drift_mib = float(ctx.options.get("soak_drift_mib", 256))
     slope_mib = float(ctx.options.get("soak_slope_mib", 8))
     cpu_limit = float(ctx.options.get("soak_cpu_percent", 50))
     ctx.observe("soak_thresholds", {
-        "minutes": soak_minutes, "hold_seconds": hold,
+        "minutes": soak_minutes, "max_minutes": max_minutes, "hold_seconds": hold,
         "max_mem_available_drop_mib": drift_mib,
         "mem_available_drop": f"median of the first {SOAK_DRIFT_WINDOW} closes minus "
                               f"median of the last {SOAK_DRIFT_WINDOW}",
@@ -3210,13 +3506,18 @@ def case_shadowcode_soak(ctx: Context) -> None:
         "mem_available_loss_per_cycle": f"least-squares slope from close "
                                         f"{SOAK_SLOPE_FROM_CLOSE} on",
         "min_closes": SOAK_MIN_CLOSES,
+        "min_closes_applies_to": "the per-cycle slope only; cycles continue past "
+                                 "minutes until min_closes, up to max_minutes",
         "max_idle_cpu_percent": cpu_limit,
-        "window_growth_fails_after_consecutive_closes": SOAK_WINDOW_GROWTH_RUN,
+        "window_growth_fails_after_consecutive_launches": SOAK_WINDOW_GROWTH_RUN,
+        "window_measured_by": "KWin frame geometry during the hold (getWindowInfo) "
+                              "and the size saved in ~/" + SHADOWCODE_WINDOW_STATE,
         "close_method": "systemctl --user stop (SIGTERM, 20s before SIGKILL)",
         "session_awake": "screen locker Autolock=false, DPMS/dim/suspend off, "
                          "logind idle:sleep inhibitor held for the whole soak",
         "quiesce": f"{DISCOVER_NOTIFIER_UNIT} stopped if running, then packagekitd "
-                   "idle on two polls in a row and stopped, before the baseline",
+                   "idle on two polls in a row and stopped, then every active system "
+                   "and user timer stopped, before the baseline",
     })
     machine = _boot_live_for_shadowcode(ctx, "shadowcode-soak")
     session: dict[str, str] | None = None
@@ -3228,15 +3529,22 @@ def case_shadowcode_soak(ctx: Context) -> None:
         _require_window_probe(ctx, machine, session)
         awake = _hold_session_awake(ctx, machine, session)
         quiesce = _quiesce_update_notifier(ctx, machine, session)
+        quiesce["timers"] = _quiesce_timers(ctx, machine, session)
+        ctx.observe("soak_quiesce", quiesce)
 
         since = machine.out("/usr/bin/date +%s")
+        baseline_at = time.monotonic()
         baseline = _meminfo_kib(machine)
         cycles: list[dict[str, Any]] = []
-        deadline = time.monotonic() + soak_minutes * 60
-        while time.monotonic() < deadline:
+        deadline = baseline_at + soak_minutes * 60
+        cap = baseline_at + max_minutes * 60
+        while time.monotonic() < deadline or (
+            len(cycles) < SOAK_MIN_CLOSES and time.monotonic() < cap
+        ):
             index = len(cycles) + 1
             unit = f"{SHADOWCODE_UNIT}-{index}"
-            cycle: dict[str, Any] = {"cycle": index, "unit": unit}
+            cycle: dict[str, Any] = {"cycle": index, "unit": unit,
+                                     "after_deadline": time.monotonic() >= deadline}
             started = _start_shadowcode(ctx, machine, session, unit)
             cycle["started"] = started["exitcode"] == 0
             seconds, windows = _await_window(ctx, machine, session, unit)
@@ -3258,18 +3566,27 @@ def case_shadowcode_soak(ctx: Context) -> None:
                 ) if elapsed > 0 else None
             if index == 1:
                 ctx.snap(machine, "shadowcode-soak-window.png", required=True)
+            # The window as KWin shows it, at the end of the hold: settled, and
+            # still open. Asked only when a window appeared.
+            if seconds is not None:
+                cycle["window_frame"], frame_note = _shadowcode_window_frame(machine, session)
+                if frame_note:
+                    cycle["window_frame_unread"] = frame_note
             # Asked while the app is still open, i.e. during the measured hold.
             cycle["screen_locked"] = _screen_locked(machine, session)
             cycle["stop"] = _stop_shadowcode(machine, session, unit)
             time.sleep(5)
             closed = _meminfo_kib(machine)
+            # Guest time of this reading, from the baseline's guest clock, to
+            # tie a unit the system started to the close it precedes.
+            cycle["closed_seconds_after_baseline"] = round(time.monotonic() - baseline_at, 1)
             cycle["mem_available_after_close_kib"] = closed["MemAvailable"]
             cycle["shmem_after_close_kib"] = closed["Shmem"]
             cycle["anon_pages_after_close_kib"] = closed["AnonPages"]
             # Read after the exit: the plugin writes the file as the app quits.
-            cycle["window_state"], unreadable = _window_state(machine, session)
-            if unreadable:
-                cycle["window_state_unreadable"] = unreadable
+            cycle["window_state"], no_size = _window_state(machine, session)
+            if no_size:
+                cycle["window_state_without_size"] = no_size
             cycles.append(cycle)
             ctx.log(
                 f"cycle {index}: window={seconds}s held={cycle['held']} "
@@ -3277,25 +3594,41 @@ def case_shadowcode_soak(ctx: Context) -> None:
                 f"avail={cycle['mem_available_after_close_kib']}KiB "
                 f"shmem={cycle['shmem_after_close_kib']}KiB "
                 f"anon={cycle['anon_pages_after_close_kib']}KiB "
-                f"saved-window={cycle['window_state']}"
+                f"frame={cycle.get('window_frame')} saved-window={cycle['window_state']}"
             )
             if not cycle["started"] or seconds is None or not cycle["held"]:
                 break
+        ran_for = round((time.monotonic() - baseline_at) / 60, 1)
+        ctx.observe("soak_cycles", len(cycles))
+        ctx.observe("soak_run", {
+            "closes": len(cycles), "minutes": ran_for,
+            "closes_after_deadline": sum(1 for c in cycles if c["after_deadline"]),
+            "stopped_by": ("a failed cycle" if cycles and not (
+                cycles[-1]["started"] and cycles[-1]["window_seconds"] is not None
+                and cycles[-1]["held"]) else "the deadline" if len(cycles) >= SOAK_MIN_CLOSES
+                else "--soak-max-minutes"),
+        })
+        guest_start = float(since) if since.replace(".", "", 1).isdigit() else None
+        started_units, journal = _units_started(
+            machine, session, since,
+            [guest_start + c["closed_seconds_after_baseline"] for c in cycles]
+            if guest_start is not None else [],
+        )
+        ctx.evidence.write_text("shadowcode-soak-units-started.log", journal)
+        others = [entry for entry in started_units
+                  if not entry["unit"].startswith((SHADOWCODE_UNIT, SOAK_INHIBIT_UNIT))]
+        ctx.observe("soak_units_started", [
+            f"{entry['unit']} ({entry['manager']}, "
+            + (f"before close {entry['before_close']})" if entry["before_close"]
+               else "after the last close)")
+            for entry in others
+        ])
         ctx.evidence.write_json("shadowcode-soak-cycles.json", {
             "baseline_mem_available_kib": baseline["MemAvailable"],
-            "baseline_meminfo_kib": baseline, "session_awake": awake,
-            "quiesce": quiesce, "cycles": cycles,
+            "baseline_meminfo_kib": baseline, "baseline_guest_epoch": since,
+            "session_awake": awake, "quiesce": quiesce, "cycles": cycles,
+            "units_started": started_units,
         })
-        ctx.observe("soak_cycles", len(cycles))
-        if len(cycles) < SOAK_MIN_CLOSES and all(
-            c["started"] and c["window_seconds"] is not None and c["held"] for c in cycles
-        ):
-            ctx.blocked(
-                f"only {len(cycles)} open/close cycles fit in --soak-minutes "
-                f"{soak_minutes:g} with --soak-hold {hold:g}s; the per-cycle memory slope "
-                f"needs at least {SOAK_MIN_CLOSES} closes to tell a {slope_mib:g} MiB/cycle "
-                "loss from after-close noise and first-launch warm-up"
-            )
         ctx.check(f"every cycle opened a ShadowCode window ({len(cycles)} cycles)",
                   all(c["started"] and c["window_seconds"] is not None for c in cycles),
                   "window seconds: " + ", ".join(str(c["window_seconds"]) for c in cycles))
@@ -3319,6 +3652,7 @@ def case_shadowcode_soak(ctx: Context) -> None:
                     {"mem_available": drift, "shmem": shmem, "anon_pages": anon})
         where = (f"; over the same closes Shmem {_change_mib(shmem)}, "
                  f"AnonPages {_change_mib(anon)}")
+        # Not floored: a drop past the end-to-end limit is a fact at any length.
         ctx.check(
             f"available memory after close does not drift down by more than {drift_mib:g} MiB "
             f"(median of the first {SOAK_DRIFT_WINDOW} closes to median of the last "
@@ -3329,9 +3663,8 @@ def case_shadowcode_soak(ctx: Context) -> None:
              f"drop {drift['drop_mib']:g} MiB" if drift is not None
              else "fewer than two after-close readings") + where,
         )
-        # Judged only on a soak long enough to judge it (SOAK_MIN_CLOSES). A
-        # clean shorter soak was BLOCKED above, so a short one here stopped on
-        # a failed cycle, and that failure is the verdict.
+        # The slope alone needs SOAK_MIN_CLOSES: below it, after-close noise
+        # and first-launch warm-up decide it, in either direction.
         if len(cycles) >= SOAK_MIN_CLOSES:
             fitted = SOAK_MIN_CLOSES - SOAK_SLOPE_FROM_CLOSE + 1
             slope = drift["slope_mib_per_cycle"] if drift is not None else None
@@ -3357,12 +3690,27 @@ def case_shadowcode_soak(ctx: Context) -> None:
             ctx.observe("memory_slope_unjudged",
                         f"{len(cycles)} closes, fewer than the {SOAK_MIN_CLOSES} a per-cycle "
                         "slope is judged on; no slope claim is made")
+        frames = _window_growth([c.get("window_frame") for c in cycles])
+        ctx.observe("soak_window_frame_growth", frames)
+        if frames["compared"]:
+            ctx.check(
+                "the ShadowCode window KWin shows does not grow at "
+                f"{SOAK_WINDOW_GROWTH_RUN} consecutive launches",
+                frames["longest_run"] < SOAK_WINDOW_GROWTH_RUN,
+                f"grew at launches {frames['grew_at_closes']} (longest run "
+                f"{frames['longest_run']}); KWin frame at the end of each hold: "
+                + " ".join(size or "-" for size in frames["sizes"]),
+            )
+        else:
+            ctx.observe("window_frame_unobserved",
+                        "KWin's getWindowInfo gave no ShadowCode frame size at two "
+                        "consecutive launches; no claim is made from it")
         growth = _window_growth([c.get("window_state") for c in cycles])
         ctx.observe("soak_window_growth", growth)
         if growth["compared"]:
             ctx.check(
-                "the window ShadowCode restores does not grow at "
-                f"{SOAK_WINDOW_GROWTH_RUN} consecutive launches",
+                "the window size ShadowCode saves does not grow at "
+                f"{SOAK_WINDOW_GROWTH_RUN} consecutive closes",
                 growth["longest_run"] < SOAK_WINDOW_GROWTH_RUN,
                 f"grew at closes {growth['grew_at_closes']} (longest run "
                 f"{growth['longest_run']}); saved size after each close: "
@@ -3370,8 +3718,9 @@ def case_shadowcode_soak(ctx: Context) -> None:
             )
         else:
             ctx.observe("window_state_unobserved",
-                        f"~/{SHADOWCODE_WINDOW_STATE} was not readable after two "
-                        "consecutive closes; no window-size claim is made")
+                        f"~/{SHADOWCODE_WINDOW_STATE} held no saved size (missing, "
+                        "unreadable or 0x0) after two consecutive closes; no claim is "
+                        "made from it")
         cpu = [c["idle_cpu_percent"] for c in cycles if c.get("idle_cpu_percent") is not None]
         if cpu:
             ctx.check(
@@ -3398,6 +3747,25 @@ def case_shadowcode_soak(ctx: Context) -> None:
                         "org.freedesktop.ScreenSaver.GetActive did not answer; the "
                         "locker was disabled and inhibited (soak_session_awake) but "
                         "its state during the holds is not claimed")
+        # What the soak could not judge. A failed check above is the verdict
+        # already; only a soak in which nothing failed is held back here.
+        if not any(check["state"] == "FAILED" for check in ctx.checks):
+            unjudged = []
+            if len(cycles) < SOAK_MIN_CLOSES:
+                unjudged.append(
+                    f"only {len(cycles)} open/close cycles fit in --soak-max-minutes "
+                    f"{max_minutes:g} with --soak-hold {hold:g}s; the per-cycle memory "
+                    f"slope needs at least {SOAK_MIN_CLOSES} closes to tell a "
+                    f"{slope_mib:g} MiB/cycle loss from after-close noise and "
+                    "first-launch warm-up"
+                )
+            if not frames["compared"] and not growth["compared"]:
+                unjudged.append(
+                    "the window size was measured at no two consecutive launches "
+                    "(no KWin frame size, no saved size), so whether it grows is unknown"
+                )
+            if unjudged:
+                ctx.blocked("; ".join(unjudged))
     finally:
         try:
             if session is not None:
@@ -3405,6 +3773,7 @@ def case_shadowcode_soak(ctx: Context) -> None:
             machine.shutdown()
         finally:
             ctx.collect_machine_evidence(machine, "shadowcode-soak")
+
 
 # --- registry -----------------------------------------------------------------
 

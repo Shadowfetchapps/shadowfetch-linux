@@ -96,7 +96,7 @@ captured and hashed, never a trusted attestation.
 | `recovery-interrupted` | companion of `RECOVERY-01` | Power is cut mid-restore. |
 | `recovery-project` | `RECOVERY-01` | Fireline's project diff/undo, against a workspace an agent has damaged. The case RECOVERY-01 is recorded from. |
 | `shadowcode` | companion of `SHADOWCODE-01` | ShadowCode is installed at the version pinned in `tools/release/shadowcode.toml`, `shadowcode --version` answers it, the bundled `llama-server`/`llama-cli` execute and report the pinned llama.cpp commit, and the app launched in the live user's session shows a window (per KWin) and stays up for `--shadowcode-minutes` (5) with no crash, no restart and a clean exit. |
-| `shadowcode-soak` | `SHADOWCODE-01` | The same install checks, then open/close cycles for `--soak-minutes` (30, `--soak-hold` 60s each): every cycle shows a window, stays up, exits without SIGKILL, leaves no process; no coredump or kernel fault; MemAvailable after close drifts down no more than `--soak-drift-mib` (256, median of the first three closes to median of the last three) and falls no faster than `--soak-slope-mib` (8 MiB/cycle, least-squares slope from the third close, after the first launches settle); idle CPU under `--soak-cpu-percent`; the window size ShadowCode saves (`~/.config/com.shadowfetch.shadowcode/.window-state.json`) does not grow at two consecutive closes. A soak that runs cleanly but fits fewer than 18 closes in `--soak-minutes` is **BLOCKED**: below that, after-close noise (about ±20 MiB, with one-close dips of 60–120 MiB) and first-launch warm-up decide the slope. Recorded only when a `shadowcode` run of the same artifact has passed. |
+| `shadowcode-soak` | `SHADOWCODE-01` | The same install checks, then open/close cycles for `--soak-minutes` (30, `--soak-hold` 60s each), and on past that until there are 18 closes, up to `--soak-max-minutes` (60): every cycle shows a window, stays up, exits without SIGKILL, leaves no process; no coredump or kernel fault; MemAvailable after close drifts down no more than `--soak-drift-mib` (256, median of the first three closes to median of the last three) and falls no faster than `--soak-slope-mib` (8 MiB/cycle, least-squares slope from the third close, after the first launches settle); idle CPU under `--soak-cpu-percent`; the window does not grow at two consecutive launches, measured twice per launch: the frame KWin shows (`getWindowInfo`) during the hold, and the size ShadowCode saves (`~/.config/com.shadowfetch.shadowcode/.window-state.json`) at the close. A 0x0 saved entry (ShadowCode 1.0.1 saves no size) is no reading, not a size that held. Every check is made whatever the number of closes; only the slope needs 18 (below that, after-close noise of about ±13 MiB on a quiet system, and first-launch warm-up, decide it). A soak in which nothing failed is **BLOCKED** if it still ended short of 18 closes, or if it measured the window size at no two consecutive launches. Recorded only when a `shadowcode` run of the same artifact has passed. |
 
 ### ShadowCode: how it is driven
 
@@ -162,10 +162,30 @@ each way of running out says what it is:
   `shadowcode-soak-quiesce.log`); a notifier that will not stop, or a
   PackageKit that never goes idle or will not stop, is **BLOCKED**. Images
   with shadowfetch-defaults' live-medium drop-in (5.0.1 on) never start the
-  notifier on the live medium, so there is nothing to stop. Every sample and
-  every close also records Shmem and AnonPages beside MemAvailable, so a
-  change can be attributed to tmpfs or to process memory from the evidence
-  alone.
+  notifier on the live medium, so there is nothing to stop.
+
+  Then every active timer is stopped, the system manager's and the live
+  user's, plus a named list in case the listing misses one
+  (`SOAK_SYSTEM_TIMERS`: apt-listchanges, fwupd-refresh, apt-daily,
+  apt-daily-upgrade, man-db, dpkg-db-backup, logrotate,
+  flatpak-system-update, systemd-tmpfiles-clean and others), and so is any
+  job a timer had already started. The image's `apt-listchanges.timer` is
+  `OnCalendar=hourly` with no random delay and runs at the first full hour
+  of every live boot (about 2 minutes, 145 MB peak); it ran at 21:00 UTC in
+  the 2d8a72e0 soak and took 68 and 87 MiB out of closes 14 and 15, dips
+  first taken for after-close noise. `fwupd-refresh.timer` fires on the hour
+  with up to 1h of random delay and `systemd-tmpfiles-clean.timer` 15 minutes
+  after boot, inside every soak. What was stopped is recorded
+  (`soak_quiesce.timers`, `shadowcode-soak-timers.log`); a listing that
+  fails, a timer still armed or a job still running is **BLOCKED**. The
+  units PID 1 and the user's manager did start during the soak are read from
+  their own `Starting`/`Started` journal lines and tied to the close each one
+  precedes (`soak_units_started`, `shadowcode-soak-units-started.log`), so a
+  dip that remains can be matched to a job from the evidence.
+
+  Every sample and every close also records Shmem and AnonPages beside
+  MemAvailable, so a change can be attributed to tmpfs or to process memory
+  from the evidence alone.
 
 ### Contributing to a required case is not proving it
 

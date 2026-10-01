@@ -160,6 +160,7 @@ def command_run(args: argparse.Namespace) -> int:
         "shadowcode_minutes": args.shadowcode_minutes,
         "window_timeout": args.window_timeout,
         "soak_minutes": args.soak_minutes,
+        "soak_max_minutes": args.soak_max_minutes,
         "soak_hold": args.soak_hold,
         "soak_drift_mib": args.soak_drift_mib,
         "soak_slope_mib": args.soak_slope_mib,
@@ -578,8 +579,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--soak-minutes", type=float, default=30.0,
-        help="shadowcode-soak: total duration of the open/close cycles; a clean soak "
-        "that fits fewer than 18 cycles is BLOCKED",
+        help="shadowcode-soak: duration of the open/close cycles; the soak runs on "
+        "past it until it has 18 closes (the fewest its per-cycle slope is judged on), "
+        "up to --soak-max-minutes",
+    )
+    run_parser.add_argument(
+        "--soak-max-minutes", type=float, default=60.0,
+        help="shadowcode-soak: hard cap on the cycles when 18 closes do not fit in "
+        "--soak-minutes; a soak in which nothing failed but that ends short of 18 "
+        "closes is BLOCKED",
     )
     run_parser.add_argument(
         "--soak-hold", type=float, default=60.0,

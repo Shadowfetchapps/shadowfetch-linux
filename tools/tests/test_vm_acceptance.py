@@ -961,6 +961,11 @@ MIB = 1024
 # (work/qa-5.0.0/evidence/vm-acceptance/shadowcode-soak-20260930T204046Z-*).
 # The 476 MiB step between closes 3 and 4 is PackageKit writing apt lists into
 # the live overlay's RAM; ShadowCode's unit memory stayed flat across it.
+# Closes 14 (21:00:36 UTC) and 15 (21:01:53), -68 and -87 MiB against the
+# fit of the others and recovered at close 16, are the hourly
+# apt-listchanges.timer run (OnCalendar=hourly, 21:00:00; ~2 min, 145 MB peak
+# on the installed proof boot): a system job, not after-close noise.
+SOAK_2D8A_HOURLY_JOB_CLOSES = (14, 15)
 SOAK_2D8A_AFTER_CLOSE = [
     6274964, 6250740, 6185764, 5698732, 5709232, 5672980, 5653092, 5676564,
     5680008, 5658800, 5672648, 5666612, 5683308, 5598556, 5578144, 5669044,
@@ -980,6 +985,34 @@ def plugin_file(width: int, height: int) -> str:
         "prev_y": 80, "maximized": False, "visible": True, "decorated": True,
         "fullscreen": False,
     }})
+
+
+def windows_runner_reply(uuid: str, caption: str = "ShadowCode") -> str:
+    """One match of KWin's WindowsRunner, as `dbus-send --print-reply` prints it."""
+    return (
+        "method return time=1790800392.800074 sender=:1.17 -> destination=:1.81 "
+        "serial=498 reply_serial=2\n   array [\n      struct {\n"
+        f'         string "0_{{{uuid}}}"\n         string "{caption}"\n'
+        '         string "wayland"\n         int32 100\n         double 0.8\n'
+        '         array [\n            dict entry(\n               string "subtext"\n'
+        '               variant                   string "Activate running window on '
+        'Desktop 1"\n            )\n         ]\n      }\n   ]\n'
+    )
+
+
+def window_info_reply(width: float, height: float, caption: str = "ShadowCode") -> str:
+    """KWin's getWindowInfo a{sv}, as `dbus-send --print-reply` prints it (KWin 6: doubles)."""
+    entries = [
+        ("activities", "array [\n            ]"), ("caption", f'string "{caption}"'),
+        ("desktopFile", 'string "shadowcode"'), ("fullscreen", "boolean false"),
+        ("height", f"double {height:g}"), ("resourceClass", 'string "shadowcode"'),
+        ("width", f"double {width:g}"), ("x", "double 0"), ("y", "double 0"),
+    ]
+    return ("method return time=1790800393.1 sender=:1.17 -> destination=:1.82 serial=499 "
+            "reply_serial=2\n   array [\n" + "".join(
+                f'      dict entry(\n         string "{key}"\n'
+                f"         variant             {value}\n      )\n"
+                for key, value in entries) + "   ]\n")
 
 
 class SoakMeasurementTests(unittest.TestCase):
@@ -1014,7 +1047,10 @@ class SoakMeasurementTests(unittest.TestCase):
         self.assertTrue(self.passes(drift))
 
     def test_a_one_cycle_dip_is_not_charged_as_drift(self) -> None:
-        # 2d8a72e0 close 15: -118 MiB, recovered 89 MiB at the next close.
+        # 2d8a72e0 close 15: -118 MiB below close 1's neighbour, recovered 89
+        # MiB at the next close. That one was the hourly apt-listchanges run,
+        # which the soak now stops before its baseline; a dip of any origin
+        # still must not decide the end-to-end drop on its own.
         values = [6_000_000 + jitter(cycle) for cycle in range(1, 25)]
         values[14] -= 118 * MIB
         old_metric_mib = (values[0] - min(values[1:])) / MIB
@@ -1055,29 +1091,35 @@ class SoakMeasurementTests(unittest.TestCase):
         # The end-to-end drop still counts the warm-up: it is memory gone.
         self.assertAlmostEqual(drift["drop_mib"], 111.7, places=1)
 
-    def test_measured_noise_neither_fails_a_healthy_soak_nor_hides_a_15_mib_leak(self) -> None:
+    def test_measured_noise_neither_fails_a_healthy_soak_nor_hides_a_leak(self) -> None:
         """Seeded simulation on the noise the 2d8a72e0 soak actually had.
 
-        Residuals of its closes after the PackageKit step (sd ~26 MiB, one-close
-        dips to -61 and -79 MiB) are resampled; the harsher model adds a
-        90-120 MiB one-close dip at 10% of closes. Every soak also gets a
-        first-launch warm-up (+30..90 and +0..68 MiB at closes 1 and 2) and a
-        background drift of 0 to -2.5 MiB a cycle, as measured. At the shortest
-        soak the case accepts and at the default length, a healthy app must
-        not fail and one losing 15 MiB a launch must not pass.
+        Residuals of its closes after the PackageKit step are resampled,
+        WITHOUT closes 14 and 15: those were the hourly apt-listchanges run
+        (SOAK_2D8A_HOURLY_JOB_CLOSES), which the soak now stops before its
+        baseline, not after-close noise (sd 13 MiB without them, 26 with).
+        The harsher model adds a 90-120 MiB one-close dip at 10% of closes,
+        for noise that soak did not show. Every soak also gets a first-launch
+        warm-up (+30..90 and +0..68 MiB at closes 1 and 2) and a background
+        drift of 0 to -2.5 MiB a cycle, as measured. At the shortest soak the
+        slope is judged on and at the default length, a healthy app must not
+        fail and one losing 15 MiB a launch must not pass; on the measured
+        noise one losing 10 MiB a launch must not pass either.
         """
         import random
-        after_step = [value / MIB for value in SOAK_2D8A_AFTER_CLOSE[3:]]
-        cycles = range(1, len(after_step) + 1)
-        mean_x, mean_y = sum(cycles) / len(after_step), sum(after_step) / len(after_step)
-        slope = (sum((x - mean_x) * (y - mean_y) for x, y in zip(cycles, after_step))
-                 / sum((x - mean_x) ** 2 for x in cycles))
-        residuals = [y - mean_y - slope * (x - mean_x) for x, y in zip(cycles, after_step)]
+        kept = [(cycle, value / MIB) for cycle, value in enumerate(SOAK_2D8A_AFTER_CLOSE, 1)
+                if cycle >= 4 and cycle not in SOAK_2D8A_HOURLY_JOB_CLOSES]
+        mean_x = sum(x for x, _ in kept) / len(kept)
+        mean_y = sum(y for _, y in kept) / len(kept)
+        slope = (sum((x - mean_x) * (y - mean_y) for x, y in kept)
+                 / sum((x - mean_x) ** 2 for x, _ in kept))
+        residuals = [y - mean_y - slope * (x - mean_x) for x, y in kept]
+        self.assertLess(max(abs(r) for r in residuals), 30, "a system job is in the model")
         rng = random.Random(501)
         trials = 300
         for closes in (self.cases.SOAK_MIN_CLOSES, 24):
             for harsh in (False, True):
-                false_fail = missed = 0
+                false_fail = missed = missed_10 = 0
                 for _ in range(trials):
                     first = rng.uniform(30, 90)
                     warm = {1: first, 2: rng.uniform(0, 0.75 * first)}
@@ -1090,9 +1132,25 @@ class SoakMeasurementTests(unittest.TestCase):
                                        + noise[c - 1]) * MIB) for c in range(1, closes + 1)]
                     false_fail += not self.passes(self.drift(series(0)))
                     missed += self.passes(self.drift(series(15)))
+                    missed_10 += self.passes(self.drift(series(10)))
                 with self.subTest(closes=closes, harsh=harsh):
                     self.assertLessEqual(false_fail, trials // 100, "healthy soaks failed")
                     self.assertLessEqual(missed, trials // 100, "15 MiB/cycle leaks passed")
+                    if not harsh:
+                        self.assertLessEqual(missed_10, trials // 100,
+                                             "10 MiB/cycle leaks passed")
+
+    def test_a_system_job_early_in_the_soak_hides_a_leak(self) -> None:
+        # Why the timers are stopped rather than modelled as noise: the
+        # 2d8a72e0 hourly pair (-70, -90 MiB) at closes 3 and 4 of an
+        # 18-close soak lifts a 10 MiB/cycle leak's slope above -8.
+        values = [6_000_000 - 10 * MIB * cycle + jitter(cycle, 13) for cycle in range(1, 19)]
+        self.assertFalse(self.passes(self.drift(values)))
+        values[2] -= 70 * MIB
+        values[3] -= 90 * MIB
+        drift = self.drift(values)
+        self.assertGreater(drift["slope_mib_per_cycle"], -8)
+        self.assertTrue(self.passes(drift), "the job did not hide the leak")
 
     def test_a_step_inside_the_soak_still_fails(self) -> None:
         # The metric does not explain a step away; quiescing PackageKit before
@@ -1136,6 +1194,17 @@ class SoakMeasurementTests(unittest.TestCase):
         for text in ("", "not json", "[]", "{}", '{"main": {"width": "wide"}}'):
             self.assertIsNone(parse(text), text)
 
+    def test_a_0x0_entry_is_no_saved_size(self) -> None:
+        # ShadowCode 1.0.1 leaves SIZE out of the plugin's flags and the
+        # plugin keeps a fresh entry at 0x0. That was read as a size, compared
+        # equal at every close and passed a check that had measured nothing.
+        parse = self.cases._parse_window_state
+        for width, height in ((0, 0), (0, 920), (1380, 0), (-1, 920)):
+            self.assertIsNone(parse(plugin_file(width, height)), (width, height))
+        both = json.dumps({"main": json.loads(plugin_file(0, 0))["main"],
+                           "settings": json.loads(plugin_file(640, 480))["main"]})
+        self.assertEqual(parse(both), {"settings": [640, 480]})
+
     def test_shadowcode_1_0_0_growth_fails(self) -> None:
         # +52 px wide, +99 px tall at every launch on Plasma Wayland.
         closes = self.sizes(*[(1432 + 52 * n, 1019 + 99 * n) for n in range(6)])
@@ -1144,12 +1213,27 @@ class SoakMeasurementTests(unittest.TestCase):
         self.assertEqual(growth["grew_at_closes"], [2, 3, 4, 5, 6])
         self.assertGreaterEqual(growth["longest_run"], self.cases.SOAK_WINDOW_GROWTH_RUN)
 
-    def test_a_size_that_is_not_saved_or_does_not_move_passes(self) -> None:
-        # 1.0.1 leaves SIZE out of the plugin's flags: the file keeps 0x0 (or a
-        # size an older version saved) and never grows.
-        for closes in (self.sizes(*[(0, 0)] * 6), self.sizes(*[(1380, 920)] * 6)):
-            growth = self.cases._window_growth(closes)
-            self.assertEqual((growth["compared"], growth["longest_run"]), (5, 0))
+    def test_a_size_that_does_not_move_passes(self) -> None:
+        growth = self.cases._window_growth(self.sizes(*[(1380, 920)] * 6))
+        self.assertEqual((growth["compared"], growth["longest_run"]), (5, 0))
+
+    def test_a_0x0_size_is_never_compared(self) -> None:
+        # No size is not a size that held: nothing was measured.
+        growth = self.cases._window_growth(self.sizes(*[(0, 0)] * 6))
+        self.assertEqual((growth["compared"], growth["longest_run"]), (0, 0))
+        self.assertEqual(growth["sizes"][0], "main=0x0")
+
+    def test_kwin_window_ids_and_frame_size_are_read_from_dbus_send(self) -> None:
+        match = windows_runner_reply("f00288e7-48eb-4725-abb2-e6732144c378")
+        match += windows_runner_reply("0d1e2f3a-4b5c-4d6e-8f90-a1b2c3d4e5f6", caption="Dolphin")
+        self.assertEqual(self.cases._window_ids(match),
+                         ["{f00288e7-48eb-4725-abb2-e6732144c378}"])
+        info = self.cases._dbus_scalars(window_info_reply(1484, 1071))
+        self.assertEqual((info["width"], info["height"]), (1484.0, 1071.0))
+        self.assertEqual(info["caption"], "ShadowCode")
+        self.assertIs(info["fullscreen"], False)
+        self.assertEqual(self.cases._window_ids('   array [\n      string "ShadowCode"\n   ]\n'),
+                         [])
 
     def test_one_increase_is_not_a_run_but_height_alone_is(self) -> None:
         once = self.cases._window_growth(self.sizes((1380, 920), (1432, 1019), (1432, 1019)))
@@ -1191,25 +1275,81 @@ class SoakGuest:
     """A live session running ShadowCode, answering what shadowcode-soak asks.
 
     `saved` gives the window size the app writes at its Nth exit (None: no
-    file), `available` the MemAvailable KiB after N closes. The update notifier
-    starts `notifier`; PackageKit answers `packagekit` in turn (its last state
-    repeats) with `transactions` running, and goes inactive when stopped
-    unless `packagekit_stops` is False.
+    file), `frame` the size KWin shows for the window of its Nth launch (None:
+    getWindowInfo gives nothing), `available` the MemAvailable KiB after N
+    closes, `stop_result` the unit's Result after the Nth close. The update
+    notifier starts `notifier`; PackageKit answers `packagekit` in turn (its
+    last state repeats) with `transactions` running, and goes inactive when
+    stopped unless `packagekit_stops` is False. `timers` and `user_timers` are
+    the active timers of each manager ({timer: service it triggers}); they
+    stop unless `timers_stop` is False, and `running_jobs` are services a
+    timer had already started. `journal` is what PID 1 logged during the soak.
     """
+
+    TIMERS = {"apt-listchanges.timer": "apt-listchanges.service",
+              "fwupd-refresh.timer": "fwupd-refresh.service",
+              "systemd-tmpfiles-clean.timer": "systemd-tmpfiles-clean.service"}
+    USER_TIMERS = {"systemd-tmpfiles-clean.timer": "systemd-tmpfiles-clean.service"}
 
     def __init__(self, pin: dict, saved, *, notifier: str = "active",
                  packagekit=("inactive",), transactions: int = 0,
-                 packagekit_stops: bool = True, available=lambda _closes: 6000000) -> None:
+                 packagekit_stops: bool = True, available=lambda _closes: 6000000,
+                 frame=lambda _launch: (1380, 920), stop_result=lambda _close: "success",
+                 timers=None, user_timers=None, timers_stop: bool = True,
+                 timer_listing_fails: bool = False, running_jobs=(),
+                 journal: str = "") -> None:
         self.pin = pin
         self.saved = saved
+        self.frame = frame
+        self.stop_result = stop_result
         self.notifier = notifier
         self.packagekit = list(packagekit)
         self.transactions = transactions
         self.packagekit_stops = packagekit_stops
         self.available = available
         self.closes = 0
+        self.launches = 0
         self.stopped: set[str] = set()
         self.log: list[str] = []
+        self.timers = {"system": dict(self.TIMERS if timers is None else timers),
+                       "user": dict(self.USER_TIMERS if user_timers is None else user_timers)}
+        self.armed = {scope: set(found) for scope, found in self.timers.items()}
+        self.running = set(running_jobs)
+        self.timers_stop = timers_stop
+        self.timer_listing_fails = timer_listing_fails
+        self.journal = journal
+
+    def unit_state(self, scope: str, unit: str) -> str:
+        if unit.endswith(".timer"):
+            return "active" if unit in self.armed[scope] else "inactive"
+        return "activating" if unit in self.running else "inactive"
+
+    def systemctl(self, scope: str, command: str):
+        """list-units/show/stop for timers and the jobs they trigger."""
+        import shlex as _shlex
+        inner = command[command.index("/usr/bin/systemctl"):]  # past runuser's wrapper
+        words = _shlex.split(inner.split(" 2>", 1)[0])
+        verb = next(word for word in words if word in ("list-units", "show", "stop"))
+        units = [word for word in words[words.index(verb) + 1:] if not word.startswith("-")]
+        if verb == "list-units":
+            self.log.append(f"{scope}-timers-listed")
+            if self.timer_listing_fails:
+                return {"exitcode": 1, "stdout": "", "stderr": "Failed to connect to bus"}
+            return "".join(f"{timer} loaded active waiting Some timer\n"
+                           for timer in sorted(self.armed[scope]))
+        if verb == "show":
+            return "\n".join(
+                f"Id={unit}\nLoadState={'loaded' if unit in self.timers[scope] or unit in self.timers[scope].values() else 'not-found'}\n"
+                f"ActiveState={self.unit_state(scope, unit)}\nSubState=x\n"
+                f"Triggers={self.timers[scope].get(unit, '')}\n"
+                for unit in units
+            )
+        for unit in units:
+            self.log.append(f"{scope}-stop:{unit}")
+            if self.timers_stop:
+                self.armed[scope].discard(unit)
+                self.running.discard(unit)
+        return ""
 
     def __call__(self, command: str):
         import re
@@ -1222,6 +1362,15 @@ class SoakGuest:
             self.log.append("meminfo")
             return (f"MemAvailable: {self.available(self.closes)}\n"
                     "Shmem: 200000\nAnonPages: 900000")
+        if "journalctl" in command and "Start(ing|ed)" in command:
+            return self.journal if "_PID=1" in command else ""
+        timer_verb = r"(list-units --type=timer|(show|stop) .*\.(timer|service))"
+        if re.search(r"systemctl --user " + timer_verb, command) \
+                and "sf-acceptance" not in command and "discover" not in command:
+            return self.systemctl("user", command)
+        if re.search(r"^/usr/bin/systemctl " + timer_verb, command) \
+                and "packagekit" not in command:
+            return self.systemctl("system", command)
         if "for p in $(pgrep -x plasmashell)" in command:
             return "live\t1000\t\twayland-0\n"
         if "getent passwd" in command:
@@ -1237,7 +1386,15 @@ class SoakGuest:
         if "llama-server --version" in command or "llama-cli --version" in command:
             return f"version: 1\ncommit {pin['runtime_commit']}"
         if "WindowsRunner" in command:
-            return '   array [\n      string "ShadowCode"\n   ]\n'
+            if self.launches == 0:
+                return "   array [\n   ]\n"
+            return windows_runner_reply(f"00000000-0000-4000-8000-{self.launches:012d}")
+        if "getWindowInfo" in command:
+            size = self.frame(self.launches)
+            if size is None:
+                return {"exitcode": 1, "stdout": "",
+                        "stderr": "Error org.freedesktop.DBus.Error.UnknownMethod"}
+            return window_info_reply(*size)
         if "kreadconfig6" in command:
             return "false"
         if command.startswith("/usr/bin/systemd-inhibit --list"):
@@ -1270,7 +1427,9 @@ class SoakGuest:
         match = re.search(r"systemctl --user show (sf-acceptance-shadowcode-\d+)", command)
         if match:
             if match.group(1) in self.stopped:
-                return "ActiveState=inactive\nSubState=dead\nResult=success\nMainPID=0\n"
+                result = self.stop_result(self.closes)
+                return (f"ActiveState={'failed' if result != 'success' else 'inactive'}\n"
+                        f"SubState=dead\nResult={result}\nMainPID=0\n")
             return ("LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\n"
                     "MainPID=4242\nNRestarts=0\nMemoryCurrent=180000000\n"
                     "MemoryPeak=220000000\nCPUUsageNSec=900000000\n")
@@ -1278,6 +1437,9 @@ class SoakGuest:
         if match:
             self.stopped.add(match.group(1))
             self.closes += 1
+            return ""
+        if "systemd-run --user --unit=sf-acceptance-shadowcode-" in command:
+            self.launches += 1
             return ""
         if "ScreenSaver.GetActive" in command:
             return "   boolean false\n"
@@ -1288,9 +1450,12 @@ class SoakCaseTests(unittest.TestCase):
     """shadowcode-soak end to end against a fake live session.
 
     A fake clock makes the cycle count exact: twenty minutes at the default
-    60s hold is eighteen open/close cycles, the fewest the case judges
+    60s hold is eighteen open/close cycles, the fewest the slope is judged on
     (SOAK_MIN_CLOSES).
     """
+
+    SAVED = "the window size ShadowCode saves does not grow"
+    FRAME = "the ShadowCode window KWin shows does not grow"
 
     def setUp(self) -> None:
         directory = tempfile.TemporaryDirectory()
@@ -1322,43 +1487,85 @@ class SoakCaseTests(unittest.TestCase):
         CASES["shadowcode-soak"].run(ctx)
         return ctx
 
+    def blocked(self, session: SoakGuest, **options) -> tuple[Context, str]:
+        ctx = self.context(FakeGuest(self.root, session), **options)
+        with self.assertRaises(Blocked) as caught:
+            CASES["shadowcode-soak"].run(ctx)
+        return ctx, str(caught.exception)
+
     def check(self, ctx: Context, prefix: str) -> dict:
         found = [c for c in ctx.checks if c["name"].startswith(prefix)]
         self.assertEqual(len(found), 1, [c["name"] for c in ctx.checks])
         return found[0]
 
-    def test_a_window_that_grows_at_every_launch_fails_the_soak(self) -> None:
-        # ShadowCode 1.0.0: the file appears at the first exit and grows at each.
-        ctx = self.soak(SoakGuest(self.pin, lambda n: (1380 + 52 * n, 920 + 99 * n)))
-        self.assertEqual(ctx.observations["soak_cycles"], self.cases.SOAK_MIN_CLOSES)
-        growth = self.check(ctx, "the window ShadowCode restores does not grow")
-        self.assertEqual(growth["state"], "FAILED", growth)
-        self.assertIn(f"grew at closes {list(range(2, 19))}", growth["detail"])
-        self.assertEqual(vm_acceptance.verdict_for(ctx),
-                         ("FAIL", growth["name"]))
+    def cycles(self) -> dict:
+        return json.loads((self.root / "evidence" / "shadowcode-soak-cycles.json").read_text())
 
-    def test_a_window_size_that_holds_passes_the_soak(self) -> None:
-        # ShadowCode 1.0.1: SIZE is not a saved flag; the file holds 0x0.
+    # -- window size ------------------------------------------------------------
+
+    def test_a_window_that_grows_at_every_launch_fails_the_soak(self) -> None:
+        # ShadowCode 1.0.0: the file appears at the first exit and grows at
+        # each, and the window KWin shows grows with it.
+        ctx = self.soak(SoakGuest(self.pin, lambda n: (1380 + 52 * n, 920 + 99 * n),
+                                  frame=lambda n: (1380 + 52 * n, 920 + 99 * n)))
+        self.assertEqual(ctx.observations["soak_cycles"], self.cases.SOAK_MIN_CLOSES)
+        saved = self.check(ctx, self.SAVED)
+        self.assertEqual(saved["state"], "FAILED", saved)
+        self.assertIn(f"grew at closes {list(range(2, 19))}", saved["detail"])
+        frame = self.check(ctx, self.FRAME)
+        self.assertEqual(frame["state"], "FAILED", frame)
+        self.assertIn(f"grew at launches {list(range(2, 19))}", frame["detail"])
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "FAIL")
+
+    def test_shadowcode_1_0_1_is_judged_on_the_kwin_frame_not_its_0x0_file(self) -> None:
+        # 1.0.1: SIZE is not a saved flag; the file holds 0x0, which is no
+        # size. The window KWin shows holds its size, and that is the pass.
         ctx = self.soak(SoakGuest(self.pin, lambda n: (0, 0) if n else None))
-        growth = self.check(ctx, "the window ShadowCode restores does not grow")
-        self.assertEqual(growth["state"], "PASSED", growth)
+        self.assertFalse([c for c in ctx.checks if c["name"].startswith(self.SAVED)])
+        self.assertIn("window_state_unobserved", ctx.observations)
+        frame = self.check(ctx, self.FRAME)
+        self.assertEqual(frame["state"], "PASSED", frame)
+        self.assertIn("frame=1380x920", frame["detail"])
         for prefix in ("available memory after close does not drift",
                        "available memory after close does not fall"):
             self.assertEqual(self.check(ctx, prefix)["state"], "PASSED")
         self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS", ctx.checks)
-        cycles = json.loads((self.root / "evidence" / "shadowcode-soak-cycles.json").read_text())
+        cycles = self.cycles()
         close = cycles["cycles"][0]
         self.assertEqual((close["shmem_after_close_kib"], close["anon_pages_after_close_kib"]),
                          (200000, 900000))
         self.assertEqual(close["samples"][0]["shmem_kib"], 200000)
-        self.assertEqual(close["window_state"], {"main": [0, 0]})
+        self.assertIsNone(close["window_state"])
+        self.assertIn('"width": 0', close["window_state_without_size"])
+        self.assertEqual(close["window_frame"], {"frame": [1380, 920]})
         self.assertEqual(cycles["baseline_meminfo_kib"],
                          {"MemAvailable": 6000000, "Shmem": 200000, "AnonPages": 900000})
 
-    def test_no_window_state_file_makes_no_window_claim(self) -> None:
-        ctx = self.soak(SoakGuest(self.pin, lambda _n: None))
-        self.assertFalse([c for c in ctx.checks if "window ShadowCode restores" in c["name"]])
+    def test_a_0x0_state_file_is_not_recorded_as_a_pass(self) -> None:
+        # Without KWin's frame, 1.0.1's 0x0 file measures nothing: no window
+        # check passes, and a soak that measured no window size is BLOCKED.
+        ctx, reason = self.blocked(SoakGuest(self.pin, lambda n: (0, 0), frame=lambda n: None))
+        self.assertFalse([c for c in ctx.checks if "window" in c["name"]
+                          and "grow" in c["name"]], ctx.checks)
+        self.assertIn("window size was measured at no two consecutive launches", reason)
         self.assertIn("window_state_unobserved", ctx.observations)
+        self.assertIn("window_frame_unobserved", ctx.observations)
+        self.assertIn("UnknownMethod", self.cycles()["cycles"][0]["window_frame_unread"])
+
+    def test_no_window_state_file_is_judged_on_the_frame_alone(self) -> None:
+        ctx = self.soak(SoakGuest(self.pin, lambda _n: None))
+        self.assertFalse([c for c in ctx.checks if c["name"].startswith(self.SAVED)])
+        self.assertIn("window_state_unobserved", ctx.observations)
+        self.assertEqual(self.check(ctx, self.FRAME)["state"], "PASSED")
+
+    def test_a_saved_size_alone_still_judges_the_window(self) -> None:
+        ctx = self.soak(SoakGuest(self.pin, lambda n: (1380 + 52 * n, 920 + 99 * n),
+                                  frame=lambda n: None))
+        self.assertEqual(self.check(ctx, self.SAVED)["state"], "FAILED")
+        self.assertIn("window_frame_unobserved", ctx.observations)
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "FAIL")
+
+    # -- quiescing --------------------------------------------------------------
 
     def test_the_notifier_is_stopped_and_packagekit_idle_before_the_baseline(self) -> None:
         session = SoakGuest(self.pin, lambda n: (1380, 920),
@@ -1386,10 +1593,8 @@ class SoakCaseTests(unittest.TestCase):
     def test_packagekit_that_never_goes_idle_blocks_the_soak(self) -> None:
         session = SoakGuest(self.pin, lambda n: (1380, 920),
                             packagekit=("active",), transactions=1)
-        ctx = self.context(FakeGuest(self.root, session), soak_quiesce_timeout=60)
-        with self.assertRaises(Blocked) as caught:
-            CASES["shadowcode-soak"].run(ctx)
-        self.assertIn("packagekitd did not go idle", str(caught.exception))
+        ctx, reason = self.blocked(session, soak_quiesce_timeout=60)
+        self.assertIn("packagekitd did not go idle", reason)
         self.assertNotIn("since", session.log, "the soak started anyway")
         self.assertFalse(ctx.observations["soak_quiesce"]["packagekit_idle"])
 
@@ -1411,25 +1616,133 @@ class SoakCaseTests(unittest.TestCase):
     def test_a_packagekit_that_will_not_stop_blocks_the_soak(self) -> None:
         session = SoakGuest(self.pin, lambda n: (1380, 920), packagekit=("active",),
                             packagekit_stops=False)
-        ctx = self.context(FakeGuest(self.root, session))
-        with self.assertRaises(Blocked) as caught:
-            CASES["shadowcode-soak"].run(ctx)
-        self.assertIn("packagekitd is still 'active'", str(caught.exception))
+        _ctx, reason = self.blocked(session)
+        self.assertIn("packagekitd is still 'active'", reason)
         self.assertNotIn("since", session.log, "the soak started anyway")
 
-    def test_a_soak_too_short_to_judge_a_per_launch_loss_is_blocked(self) -> None:
+    def test_apt_listchanges_timer_is_stopped_before_the_baseline(self) -> None:
+        # The hourly apt-listchanges run took 68 and 87 MiB out of closes 14
+        # and 15 of the 2d8a72e0 soak. Every active timer, system and user,
+        # is stopped before the baseline, and a job one already started
+        # (here apt-listchanges itself, mid-run) is stopped with it.
+        session = SoakGuest(self.pin, lambda n: (1380, 920),
+                            running_jobs=("apt-listchanges.service",))
+        ctx = self.soak(session)
+        log = session.log
+        baseline = log.index("since")
+        for entry in ("system-stop:apt-listchanges.timer", "system-stop:fwupd-refresh.timer",
+                      "system-stop:systemd-tmpfiles-clean.timer",
+                      "system-stop:apt-listchanges.service",
+                      "user-stop:systemd-tmpfiles-clean.timer"):
+            self.assertIn(entry, log)
+            self.assertLess(log.index(entry), baseline, entry)
+        timers = ctx.observations["soak_quiesce"]["timers"]
+        self.assertTrue(timers["quiet"])
+        self.assertEqual(timers["system"]["stopped"], sorted(SoakGuest.TIMERS))
+        self.assertEqual(timers["system"]["jobs_stopped"]["jobs"], ["apt-listchanges.service"])
+        self.assertEqual(timers["system"]["after"]["apt-listchanges.timer"], "inactive")
+        self.assertEqual(timers["user"]["stopped"], ["systemd-tmpfiles-clean.timer"])
+        self.assertEqual(self.cycles()["quiesce"]["timers"], timers)
+        self.assertTrue((self.root / "evidence" / "shadowcode-soak-timers.log").is_file())
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS", ctx.checks)
+
+    def test_a_named_timer_the_listing_missed_is_still_stopped(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920))
+        session.armed["system"].add("man-db.timer")
+        session.timers["system"]["man-db.timer"] = "man-db.service"
+        listed = session.systemctl
+        session.systemctl = lambda scope, command: (
+            "" if "list-units" in command else listed(scope, command))
+        ctx = self.soak(session)
+        self.assertIn("system-stop:man-db.timer", session.log)
+        self.assertTrue(ctx.observations["soak_quiesce"]["timers"]["quiet"])
+
+    def test_a_timer_that_will_not_stop_blocks_the_soak(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920), timers_stop=False)
+        _ctx, reason = self.blocked(session)
+        self.assertIn("system timers still armed after being stopped: apt-listchanges.timer",
+                      reason)
+        self.assertNotIn("since", session.log, "the soak started anyway")
+
+    def test_a_timer_listing_that_fails_blocks_the_soak(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920), timer_listing_fails=True)
+        _ctx, reason = self.blocked(session)
+        self.assertIn("active timers could not be listed", reason)
+        self.assertNotIn("since", session.log, "the soak started anyway")
+
+    def test_units_started_during_the_soak_are_tied_to_the_close_they_precede(self) -> None:
+        journal = ("1790000100.250000 shadowfetch systemd[1]: Starting "
+                   "apt-listchanges.service - Initialize apt-listchanges database for APT...\n"
+                   "1790000001.0 shadowfetch systemd[1]: Started "
+                   "sf-acceptance-shadowcode-1.service - /usr/bin/shadowcode.\n")
+        ctx = self.soak(SoakGuest(self.pin, lambda n: (1380, 920), journal=journal))
+        cycles = self.cycles()
+        expected = next(c["cycle"] for c in cycles["cycles"]
+                        if c["closed_seconds_after_baseline"] >= 100.25)
+        self.assertGreater(expected, 1)
+        self.assertEqual(ctx.observations["soak_units_started"],
+                         [f"apt-listchanges.service (system, before close {expected})"])
+        self.assertEqual(cycles["units_started"][0]["before_close"], expected)
+        self.assertTrue((self.root / "evidence" / "shadowcode-soak-units-started.log").is_file())
+
+    # -- soak length ------------------------------------------------------------
+
+    def test_a_short_soak_minutes_runs_on_to_the_floor(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920))
+        ctx = self.soak(session, soak_minutes=6)
+        run = ctx.observations["soak_run"]
+        self.assertEqual(run["closes"], self.cases.SOAK_MIN_CLOSES)
+        self.assertGreater(run["closes_after_deadline"], 0)
+        self.assertEqual(self.check(ctx, "available memory after close does not fall")["state"],
+                         "PASSED")
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS", ctx.checks)
+
+    def test_a_clean_soak_capped_short_of_the_floor_is_blocked(self) -> None:
         # Six closes of a healthy app: the first-launch warm-up alone made the
-        # slope -17.8 MiB a cycle, and the noise is +-20-90 MiB a close. Fewer
-        # than SOAK_MIN_CLOSES cannot tell an 8 MiB/cycle loss from either.
+        # slope -17.8 MiB a cycle, and the noise is +-13 MiB a close or more.
+        # Fewer than SOAK_MIN_CLOSES cannot tell an 8 MiB/cycle loss from
+        # either -- but every other check is still made.
         warm = {1: 87 * MIB, 2: 63 * MIB}
         session = SoakGuest(self.pin, lambda n: (0, 0),
                             available=lambda n: 6000000 + warm.get(n, 0))
-        ctx = self.context(FakeGuest(self.root, session), soak_minutes=6)
-        with self.assertRaises(Blocked) as caught:
-            CASES["shadowcode-soak"].run(ctx)
-        self.assertIn(f"at least {self.cases.SOAK_MIN_CLOSES}", str(caught.exception))
+        ctx, reason = self.blocked(session, soak_minutes=6, soak_max_minutes=6)
+        self.assertIn(f"at least {self.cases.SOAK_MIN_CLOSES}", reason)
+        self.assertIn("--soak-max-minutes 6", reason)
         self.assertEqual(ctx.observations["soak_cycles"], 6)
+        self.assertIn("memory_slope_unjudged", ctx.observations)
+        self.assertFalse([c for c in ctx.checks if "per cycle" in c["name"]])
+        for prefix in ("every close was clean", "available memory after close does not drift",
+                       self.FRAME, "no ShadowCode crash"):
+            self.assertEqual(self.check(ctx, prefix)["state"], "PASSED", prefix)
         self.assertTrue((self.root / "evidence" / "shadowcode-soak-cycles.json").is_file())
+
+    def test_a_short_soak_still_fails_on_what_it_measured(self) -> None:
+        # What the 18-close floor exists for is the slope. A growing window, a
+        # SIGKILLed close and a drop three times the end-to-end limit are
+        # facts at any length, and a short soak that saw them FAILS.
+        failures = {
+            "the 1.0.0 window": (
+                dict(saved=lambda n: (1380 + 52 * n, 920 + 99 * n),
+                     frame=lambda n: (1380 + 52 * n, 920 + 99 * n)), self.FRAME),
+            "every close SIGKILLed": (
+                dict(saved=lambda n: (1380, 920), stop_result=lambda n: "signal"),
+                "every close was clean"),
+            "100 MiB lost a cycle": (
+                dict(saved=lambda n: (1380, 920),
+                     available=lambda n: 6000000 - 100 * MIB * n),
+                "available memory after close does not drift"),
+        }
+        for label, (kwargs, failing) in failures.items():
+            for minutes in (6, 15):
+                with self.subTest(label, minutes=minutes):
+                    saved = kwargs["saved"]
+                    rest = {k: v for k, v in kwargs.items() if k != "saved"}
+                    ctx = self.soak(SoakGuest(self.pin, saved, **rest),
+                                    soak_minutes=minutes, soak_max_minutes=minutes)
+                    self.assertLess(ctx.observations["soak_cycles"], self.cases.SOAK_MIN_CLOSES)
+                    self.assertEqual(self.check(ctx, failing)["state"], "FAILED")
+                    self.assertIn("memory_slope_unjudged", ctx.observations)
+                    self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "FAIL")
 
     def test_a_shortest_judged_soak_with_first_launch_warm_up_passes(self) -> None:
         warm = {1: 87 * MIB, 2: 63 * MIB}
