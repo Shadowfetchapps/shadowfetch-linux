@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # UPGRADE-01 for 5.0.1 (APT-only update): take a disk installed from the
-# SHIPPED 5.0.0 ISO, point its Shadowfetch APT source at the locally built and
-# signed 5.0.1 repository (tools/qa_5_0_1/serve_repo.sh), run the documented
-# upgrade (`apt update` then `fireproof update`), reboot, and check the result.
+# SHIPPED 5.0.0 ISO (or the 4.1 upgrade base, QA_USER=demo), point its
+# Shadowfetch APT source at the locally built and signed 5.0.1 repository
+# (tools/qa_5_0_1/serve_repo.sh), run the upgrade, reboot, and check the
+# result. RELEASE-5.0.1.md tells 5.0.0 and 4.1 users to install 5.0.1 with
+# `sudo apt update && sudo apt full-upgrade` (UPGRADE_METHOD=apt, the default);
+# UPGRADE_METHOD=fireproof runs `fireproof update` instead, to record what the
+# 5.0.0 Fireproof daemon does with the 5.0.1 packages.
 #
 #   upgrade_from_500.sh BASE_DISK OUT_DIR PHASE...
 #
@@ -15,11 +19,14 @@
 #             are expected to FAIL on 5.0.0).
 #   upgrade   repoint ONLY the Shadowfetch source at http://10.0.2.2:PORT/
 #             (signed-by kept: the signature check stays on), `apt-get update`,
-#             `fireproof check`, `fireproof update -y` as root (an admin's
-#             authenticated update), then reboot (RELEASE-5.0.1.md says to log
-#             out and back in once; a reboot does that and proves the boot).
-#             UPGRADE_METHOD=apt runs `apt-get full-upgrade` instead, as a
-#             CONTROL; the checks then say the documented command was not used.
+#             `fireproof check` (analyze only, recorded), then the upgrade:
+#             UPGRADE_METHOD=apt (default, the documented command)
+#               `apt-get -y full-upgrade` as root, i.e. `sudo apt full-upgrade`
+#               answered yes, conffile prompts keeping the local version;
+#             UPGRADE_METHOD=fireproof
+#               `fireproof update -y` as root (an admin's authenticated update).
+#             Then reboot (RELEASE-5.0.1.md says to log out and back in once; a
+#             reboot does that and proves the boot).
 #             The fireproof client runs in a pty inside its own scope; if
 #             fireproofd sits in a deferred stop with dpkg gone for 3 minutes
 #             the phase records STUCK and leaves the VM running (no power cut).
@@ -194,7 +201,7 @@ phase_upgrade() {
   ux 'fireproof check; echo "exit=$?"' 900 > "$out/upgrade-fireproof-check.txt" 2>&1
   gx 'date -u +%FT%TZ > /var/log/qa-upgrade-start; wc -l < /var/log/dpkg.log > /var/log/qa-dpkg-lines; wc -l < /var/log/apt/history.log > /var/log/qa-history-lines'
   local rc=0
-  case ${UPGRADE_METHOD:-fireproof} in
+  case ${UPGRADE_METHOD:-apt} in
     fireproof)
       step "fireproof update -y (root: an authenticated admin), in a terminal (pty) in its own scope"
       # A scope, not a service: needrestart restarts services whose libraries
@@ -216,7 +223,7 @@ phase_upgrade() {
         | grep -v -E '^\s*\[ *[0-9]+%\]|^\s*$' > "$out/upgrade-fireproof-update.log"
       ;;
     apt)
-      step "CONTROL: sudo apt full-upgrade instead of fireproof update"
+      step "sudo apt full-upgrade (the command RELEASE-5.0.1.md documents for 5.0.0 and 4.1)"
       gunit qa-apt-full-upgrade 'DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300 -o Dpkg::Options::=--force-confold -y full-upgrade' 5400 "$out/upgrade-apt-full-upgrade.log"
       rc=$?
       echo "qa-apt-full-upgrade exit=$rc"
