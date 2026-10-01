@@ -2889,6 +2889,22 @@ class Store:
                 and path is not None and path.is_file())
         return missions
 
+    def queue(self):
+        """Queued missions, oldest first: the order the worker runs them in.
+
+        created_at has one-second resolution, so missions created in the same
+        second were ordered by their RANDOM id -- RESOURCE-01 ran four missions
+        created within 0.5 s as 1, 4, 3, 2. rowid is the insertion order (a
+        mission row is never deleted and the store never VACUUMs) and breaks
+        the tie, as it already does for page()'s newest-first listing.
+        """
+        def read():
+            with self.db() as db:
+                return [self.unpack(row) for row in db.execute(
+                    "SELECT * FROM missions WHERE state=? ORDER BY created_at,rowid",
+                    (MissionState.QUEUED,))]
+        return self._read(read)
+
     def page(self, *, limit=LIST_PAGE_LIMIT, offset=0, states=None):
         """One explicit page of the queue and the signal that further records exist.
 
@@ -5506,9 +5522,7 @@ def worker(store, once=False):
                     # Stops saved while the database was busy, for missions
                     # that are queued or run by another process.
                     store.apply_cancel_requests()
-                    queue = sorted(store.list(states=("queued",)),
-                                   key=lambda m: (m["created_at"], m["id"]))
-                    for mission in queue:
+                    for mission in store.queue():
                         if stopping:
                             break
                         try:

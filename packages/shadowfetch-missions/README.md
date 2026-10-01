@@ -72,7 +72,8 @@ all external disk pressure or prove full desktop responsiveness under saturation
 State progresses `queued → running → waiting-review → completed`. Errors become
 `failed`; cancellation becomes `cancelled`; successful restoration becomes
 `undone`. A restarted worker records interrupted work as failed and never replays
-it automatically.
+it automatically. Queued missions run oldest first; missions created in the same
+second run in the order they were created.
 
 Reads never wait on a writer: connections never checkpoint on close, so no
 process takes the exclusive file lock SQLite uses for that. When `cancel` cannot
