@@ -9,13 +9,15 @@
   },
   "evidence_root": "work/qa-5.0.1/evidence",
   "artifact": {
-    "iso_path": "shadowfetch-5.0.1-amd64.iso",
-    "iso_sha256": null,
-    "iso_size_bytes": null,
-    "signature_path": "shadowfetch-5.0.1-amd64.iso.asc",
+    "iso_path": "shadowfetch-5.0.0-amd64.iso",
+    "iso_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+    "iso_size_bytes": 4085778432,
+    "signature_path": "shadowfetch-5.0.0-amd64.iso.asc",
     "signing_fingerprint": "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1",
     "evidence_bundle_path": "evidence-bundle-5.0.1.tar.gz",
-    "evidence_bundle_sha256": null
+    "evidence_bundle_sha256": null,
+    "apt_packages_sha256": "b4216844b3c958c4ef91293753bc40d931e1495c8b50ba92fb25d5c7732459d8",
+    "apt_sources_sha256": "6351de1fe4b69ae361e56bdc30dc0832b310ae6f1b101a0c96594432474189f6"
   },
   "cases": [
     {
@@ -209,5 +211,5 @@
       "notes": ""
     }
   ],
-  "candidate_note": "No candidate yet. Every case is pending and the artifact block carries no digest, because no 5.0.1 image has been built. The case list is carried over from 5.0.0 and every RESULT, waiver and note was dropped rather than copied -- including the six 5.0.0 waivers (MISSION-01, GROK-01, GROK-VISUAL-01, UPGRADE-01, SHADOWCODE-01, STRESS-01), which justified shipping ISO 2d8a72e0 and must be re-argued for 5.0.1 if they are needed at all. Three titles named the previous release and were rewritten: ISO-01, UPGRADE-01 and PUB-01. ShadowCode stays at the 1.0.0 pin until its owner publishes the signed 1.0.1 release; the soak's window-growth check fails on 1.0.0 by design, so SHADOWCODE-01 cannot pass on an image built before that pin bump. verify refuses this manifest today, and should."
+  "candidate_note": "APT-only update (tools/release/versions/5.0.1.toml: delivery = \"apt-only\", base_release = \"5.0.0\"). No 5.0.1 image is built: iso_path, iso_sha256, iso_size_bytes and signature_path name the BASE image, 5.0.0's ISO 2d8a72e0 (4085778432 bytes), copied exactly from qa/5.0.0/acceptance.json; UPGRADE-01 starts from an install of it. apt_packages_sha256 and apt_sources_sha256 are the digests of repo/dists/umbra/main/binary-amd64/Packages and main/source/Sources from the umask-022 rebuild that carries the shadowfetch-fireproof self-upgrade fix (Valid-Until 2027-03-30); they pin every .deb and source file, and acceptance.py record stamps them onto each entry. A rebuilt repository changes both, and every case recorded against these has to be recorded again. Required for publication: SRC-01, PKG-01, UPGRADE-01, DURABLE-01, MISSION-01; the image cases may stay pending. Every case is pending. The case list is carried over from 5.0.0 and every RESULT, waiver and note was dropped rather than copied -- including the six 5.0.0 waivers (MISSION-01, GROK-01, GROK-VISUAL-01, UPGRADE-01, SHADOWCODE-01, STRESS-01), which justified shipping ISO 2d8a72e0 and must be re-argued for 5.0.1 if they are needed at all. ShadowCode stays at the 1.0.0 pin until its owner publishes the signed 1.0.1 release."
 }

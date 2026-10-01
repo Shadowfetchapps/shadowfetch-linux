@@ -315,6 +315,29 @@ class TestReleaseData(unittest.TestCase):
         self.assertTrue(found)
         self.assertIn(f"Makefile VERSION is '{WRONG}'", found[0].detail)
 
+    def test_an_apt_only_update_names_its_base_image(self):
+        """5.0.1 ships no ISO: its manifest describes the 5.0.0 image."""
+        def doc(version, delivery=None, base=None):
+            release = {"version": version}
+            if delivery:
+                release["delivery"] = delivery
+            document = {"release": release}
+            if base:
+                document["apt_only"] = {"base_release": base}
+            return document
+
+        docs = {"4.1.0": doc("4.1.0"), "5.0.0": doc("5.0.0"),
+                "5.0.1": doc("5.0.1", "apt-only"),
+                "5.0.2": doc("5.0.2", "apt-only")}
+        self.assertEqual("5.0.0", drift_gate.artifact_iso_version(docs["5.0.0"], docs))
+        self.assertEqual("5.0.0", drift_gate.artifact_iso_version(docs["5.0.1"], docs))
+        # An earlier apt-only update is never a base image.
+        self.assertEqual("5.0.0", drift_gate.artifact_iso_version(docs["5.0.2"], docs))
+        named = doc("5.0.1", "apt-only", base="4.1.0")
+        self.assertEqual("4.1.0", drift_gate.artifact_iso_version(named, docs))
+        with self.assertRaises(RuntimeError):
+            drift_gate.artifact_iso_version(docs["5.0.1"], {"5.0.1": docs["5.0.1"]})
+
     def test_exactly_one_release_is_live(self):
         """Two non-historical data files is an ambiguity, not a default."""
         truth = drift_gate.load_truth()

@@ -7,9 +7,11 @@ the suite they already track. Signing fingerprint unchanged:
 
 Status: **Not released.** This is the point release for the known issues
 5.0.0 shipped with. The fixes and the version bump are in the
-`release/5.0.1` tree. No 5.0.1 image has been built, gated or accepted yet.
-Every case in `qa/5.0.1/acceptance.json` is pending, and nothing below is
-claimed from a 5.0.1 image.
+`release/5.0.1` tree. 5.0.1 is an **APT-only update**: it is published as
+packages in the signed repository, with no new ISO, and installs on top of the
+5.0.0 image (`delivery = "apt-only"`, `base_release = "5.0.0"` in
+`tools/release/versions/5.0.1.toml`). Every case in
+`qa/5.0.1/acceptance.json` is pending.
 
 - Version: 5.0.1, a point release of 5.0.0. Nothing a working 5.0.0 setup
   depends on is removed or renamed, and no package is added or retired.
@@ -26,6 +28,47 @@ claimed from a 5.0.1 image.
 ---
 
 # What 5.0.1 fixes
+
+## `fireproof update` can update Fireproof itself
+
+**Found in 5.0.1 QA; present since 2.1.4.** `fireproof update` (and the
+Fireproof page) could not install an update that included
+`shadowfetch-fireproof`. The new package's install script stopped Fireproof's
+daemon, `fireproofd`. That daemon is the process running apt and dpkg, and
+systemd stopped everything inside its service, so dpkg was killed halfway
+through the update. The system was left with dozens of packages unpacked but
+not configured. needrestart then tried to restart `fireproofd` from inside
+the same update, and that could hang for up to an hour while holding the
+package lock and blocking reboot. Retrying `fireproof update` failed the same
+way.
+
+**Fix** (`shadowfetch-fireproof`):
+
+- No install script of the package stops, starts or restarts `fireproofd`
+  any more.
+- Stopping `fireproofd` signals the daemon only, not dpkg
+  (`KillMode=mixed`). The daemon already waits for dpkg to finish before it
+  exits.
+- needrestart never restarts `fireproofd`
+  (`/etc/needrestart/conf.d/50-shadowfetch-fireproof.conf`).
+- The new daemon still takes over once the update is done. An idle daemon is
+  restarted right away. When `fireproofd` is the one running the update, the
+  restart waits until that update has finished. `fireproofd` also exits after
+  every successful update, so the next request starts the version now
+  installed.
+- **An interrupted update is reported, not built on.** When an earlier dpkg
+  run was interrupted (packages unpacked but not configured, or anything
+  `dpkg --audit` reports), `fireproof check`, `fireproof update` and the
+  Fireproof page offer no update. They list the unfinished packages and show
+  the command that repairs it:
+
+  ```bash
+  sudo dpkg --configure -a && sudo apt -f install
+  ```
+
+- The verify battery's "Mirror still resolves" check now looks up the
+  mirror's host name. A mirror URL with a port (`http://host:3142/`) was
+  looked up as `host:3142` and reported as not resolving.
 
 ## "database is busy" from Mission Control under heavy disk load
 
@@ -117,9 +160,10 @@ drop-in added:
 - **Installed system:** the notifier still started and still refreshed the
   package lists.
 
-**This only changes 5.0.1 USB sticks.** An update cannot change a USB stick
-you already wrote. On a 5.0.0 stick, keep using the 5.0.0 workaround: stay
-offline in the live session, or run
+**This does not change any USB stick yet.** An update cannot change a USB
+stick you already wrote, and 5.0.1 ships no new ISO, so the fix reaches the
+live USB with the next image. On a 5.0.0 stick, keep using the 5.0.0
+workaround: stay offline in the live session, or run
 `systemctl --user stop app-org.kde.discover.notifier@autostart.service` soon
 after logging in.
 
@@ -186,7 +230,8 @@ qualified, not what is installed.
 | `shadowfetch-themes` | SDDM theme metadata reports 5.0.1; no visual change |
 | `shadowfetch-drkonqi-pickup` | CMake project version 5.0.1; no functional change |
 | `shadowfetch-meta` | Rebuild; still requires `shadow-code (>= 1.0.0)` |
-| `shadowfetch-ember`, `-fireproof`, `-firewatchd`, `-hwscan`, `-menus`, `-phoenix`, `-welcome` | Rebuild only: `shadowfetch-desktop` requires every Shadowfetch package at the same version |
+| `shadowfetch-fireproof` | Updates itself without killing dpkg (no stop from its install scripts, `KillMode=mixed`, needrestart leaves `fireproofd` alone, restart after the update); refuses to offer an update on top of an interrupted one and shows the repair command; mirror check ignores the port |
+| `shadowfetch-ember`, `-firewatchd`, `-hwscan`, `-menus`, `-phoenix`, `-welcome` | Rebuild only: `shadowfetch-desktop` requires every Shadowfetch package at the same version |
 
 Each package's `debian/changelog` has the details.
 
@@ -194,16 +239,56 @@ Each package's `debian/changelog` has the details.
 
 # Upgrading
 
-## From 5.0.0
-
-The supported path is the signed Shadowfetch APT repository:
+## From 5.0.0 or 4.1: use apt for this one update
 
 ```bash
-sudo apt update
-fireproof update          # shadowfetch-update still works and means this
+sudo apt update && sudo apt full-upgrade
 ```
 
-Then log out and back in once. The update does not restart the Mission
+Use these two commands, not `fireproof update`, to install 5.0.1. From 5.0.1
+on, `fireproof update` is the update command again, including for Fireproof's
+own updates.
+
+**Why apt this once.** 5.0.1 fixes `fireproof update` updating Fireproof (see
+above), but on a 5.0.0 or 4.1 system this one update would still be run by
+the 5.0.0 or 4.1 Fireproof daemon that is already running. It is not the old
+package's install scripts. Neither 4.1 nor 5.0.0 ships a pre-removal script,
+and their post-removal script acts only when the package is removed. The
+script that stopped Fireproof was the *incoming* package's, and 5.0.1's no
+longer does. What the old version still controls is the update itself:
+
+- The old daemon runs dpkg inside its own service, under the old service
+  settings, until systemd reloads them partway through the update. A stop
+  that reaches it before then, such as a shutdown or a service restart, still
+  kills dpkg with it.
+- Its analyze does not notice a system that an earlier attempt left half
+  configured. It offers a normal update on top.
+- It keeps running its old code until the update has finished and the
+  deferred restart replaces it.
+
+With apt, dpkg runs in your terminal, not inside `fireproofd`, so none of
+this applies. 5.0.1's install script then restarts the idle daemon on the new
+version. (In QA, a fixed package also installed cleanly from 5.0.0 with
+`fireproof update`. That was a diagnostic run, and apt is still the
+recommended path for this update.)
+
+**If an earlier update was interrupted,** repair it first. Signs of this are
+`sudo dpkg --audit` printing anything, or apt asking you to run
+`dpkg --configure -a`. An earlier `fireproof update` that included
+`shadowfetch-fireproof`, such as 4.1 to 5.0.0, went through the same stop
+and was most likely interrupted:
+
+```bash
+sudo dpkg --configure -a && sudo apt -f install
+```
+
+If apt says the package lock is held by `fireproofd`, the old daemon is
+still waiting out its one-hour stop timeout. Wait for it to release the lock,
+then run the repair.
+
+## After updating from 5.0.0
+
+Log out and back in once. The update does not restart the Mission
 Control worker already running in your session, so until you do, that worker
 is still the 5.0.0 engine. To restart only the worker instead:
 
@@ -213,7 +298,7 @@ systemctl --user restart shadowfetch-missions.service
 
 Nothing else changes for a 5.0.0 setup: no setting, command or file format.
 
-## From 4.1
+## After updating from 4.1
 
 The same two commands bring a 4.1 system straight to 5.0.1, because the
 `umbra` suite serves the newest release. Everything in
@@ -223,8 +308,7 @@ used the removed commands, and connect your services in ShadowCode.
 
 ## A new install
 
-Use the 5.0.1 ISO once it is published. Until then, install from the 5.0.0
-ISO and update as above.
+5.0.1 ships no new ISO. Install from the 5.0.0 ISO and update as above.
 
 ---
 
@@ -244,10 +328,13 @@ ISO and update as above.
   SQLite has emptied its log, the next write restarts the log with two disk
   syncs, and on the 5.0.0 stress guest one sync took up to 34 seconds. The
   Stop is saved before that write, so the worker still records it.
-- **Not yet proven on a 5.0.1 image.** The fixes above are proven by host-side
-  tests, and the live-USB change by a VM of the 5.0.0 image with the drop-in
-  added. The 5.0.1 ISO still has to be built, gated and accepted. STRESS-01
-  needs a 45-minute run on an idle host.
+- **Not yet proven on an upgraded system with the final packages.** The
+  fixes above are proven by host-side tests, the live-USB change by a VM of the
+  5.0.0 image with the drop-in added, and the Fireproof self-update by a
+  diagnostic VM run with a prototype of the fix. The APT-only acceptance cases
+  (SRC-01, PKG-01, UPGRADE-01, DURABLE-01, MISSION-01) still have to be run and
+  recorded against the repository that is published, and UPGRADE-01 re-run
+  with `fireproof update` on the final packages.
 - **Carried from 5.0.0, unchanged:** the security advisory about the shared
   DKMS module-signing key on systems installed from 4.x ISOs
   (`shadowfetch-doctor` still flags it), OpenClaw's security record, Hermes
@@ -279,14 +366,27 @@ Measured on this tree, not on an image:
     which crossed 90% used between the runs;
   - two ShadowCode source-archive tests failed when run from a scratch clone,
     where git could not read the archive's commit id.
-- `source_gate`, `package_gate`, `iso_gate` and acceptance: not run. No 5.0.1
-  packages or image exist yet.
+- After the `shadowfetch-fireproof` self-upgrade fix (2026-10-01, umask 022):
+  `make test` passes (2,873 unittest cases in 13 suites, plus the script,
+  shell and adversarial suites). `make packages && make repo && make
+  package-gate` gives PACKAGE_GATE_PASSED: 19 binary and 16 source packages,
+  signed index valid until 2027-03-30, and the built `shadowfetch-fireproof`
+  checked to never stop `fireproofd` from its own upgrade. Index digests
+  recorded in `qa/5.0.1/acceptance.json`: Packages
+  `b4216844b3c958c4ef91293753bc40d931e1495c8b50ba92fb25d5c7732459d8`,
+  Sources `6351de1fe4b69ae361e56bdc30dc0832b310ae6f1b101a0c96594432474189f6`.
+- `source_gate` and acceptance: not run. There is no `iso_gate`: 5.0.1 ships
+  no image.
 
 Still to do before 5.0.1 is published:
 
 1. ShadowCode's owner publishes the signed 1.0.1 release; refresh the trust
    policy and run `tools/bump_shadowcode.py 1.0.1`.
-2. Build the packages, repository and ISO, and pass `source_gate`,
-   `package_gate` and `iso_gate`.
-3. Run and record the acceptance cases in `qa/5.0.1/acceptance.json`
-   against that exact ISO, with STRESS-01 on an idle host.
+2. Build the packages and the signed repository with umask 022, and pass
+   `source_gate` and `package_gate`. There is no ISO, so no `iso_gate`.
+3. Run and record the APT-only acceptance subset in
+   `qa/5.0.1/acceptance.json` (SRC-01, PKG-01, UPGRADE-01, DURABLE-01,
+   MISSION-01) against that repository. Its `artifact` block names the 5.0.0
+   base image and the digests of the repository's Packages and Sources
+   indices; a rebuilt repository changes both digests, and every case
+   recorded against the old ones has to be recorded again.

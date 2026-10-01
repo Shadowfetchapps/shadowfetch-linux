@@ -198,7 +198,10 @@ the ISO's mtime so re-running rewrites nothing.
 A point release that ships no ISO (5.0.1 is the first). Installed systems take
 it with `sudo apt update; fireproof update`; the previous ISO stays the
 download, and the website keeps naming it. The publisher has a mode for exactly
-that and nothing more.
+that and nothing more. (5.0.1 itself is the exception to the command: it is
+the update that fixes `fireproof update` upgrading Fireproof, and systems on
+5.0.0 or 4.1 take it with `sudo apt update && sudo apt full-upgrade`; see
+RELEASE-5.0.1.md.)
 
 **Selecting it.** Either `delivery = "apt-only"` under `[release]` in
 `tools/release/versions/<v>.toml` (the reviewed way: the decision is recorded

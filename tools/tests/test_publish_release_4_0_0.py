@@ -216,7 +216,22 @@ def write_acceptance(root, release=RELEASE, cases=None, artifact=None, bind_to=B
     write(root / f"qa/{release.version}/acceptance.json", json.dumps(document, indent=2))
     return document
 
-def with_data(base=RELEASE, fields=None, **tables):
+def _undeclared(release):
+    """The live release data minus any delivery decision it records.
+
+    The tests below build each mode from a neutral starting point, so they
+    keep testing the publisher's rules rather than whatever the live data file
+    happens to declare (5.0.1 itself says delivery = "apt-only" and adds
+    DURABLE-01 and MISSION-01 to the subset). LiveReleaseDataTests reads the
+    live declaration as it is."""
+    document = json.loads(json.dumps(release.document))
+    document["release"].pop("delivery", None)
+    document.pop("apt_only", None)
+    return dataclasses.replace(release, document=document)
+
+UNDECLARED = _undeclared(RELEASE)
+
+def with_data(base=UNDECLARED, fields=None, **tables):
     """The release data with [release] `fields` and whole tables replaced."""
     document = json.loads(json.dumps(base.document))
     document["release"].update(fields or {})
@@ -327,6 +342,22 @@ class FullReleaseUnchangedTests(Fixture):
 
 
 # -- mode selection --------------------------------------------------------------
+
+class LiveReleaseDataTests(unittest.TestCase):
+    """Whatever the live data declares, it is a delivery the publisher runs."""
+
+    def test_the_live_declaration_is_coherent(self):
+        mode = publisher.publication_mode(False, RELEASE)
+        self.assertIn(mode, publisher.DELIVERIES)
+        if mode != publisher.APT_ONLY:
+            return
+        cases = publisher.apt_only_cases(RELEASE)
+        self.assertEqual(publisher.APT_ONLY_FLOOR, cases[:len(publisher.APT_ONLY_FLOOR)])
+        self.assertEqual(len(cases), len(set(cases)))
+        base = publisher.base_release(RELEASE)
+        self.assertEqual(publisher.DELIVERY_ISO, publisher.delivery(base))
+        self.assertLess(publisher._version_key(base.version), publisher._version_key(RELEASE.version))
+
 
 class ModeTests(unittest.TestCase):
     def test_release_data_or_flag_selects_apt_only(self):

@@ -18,6 +18,12 @@
 #     Stop that is saved but not yet recorded.
 #   * shadowfetch-defaults: KDE's update notifier does not start on the live
 #     medium (a user-unit drop-in); installed systems keep it.
+#   * shadowfetch-fireproof: `fireproof update` can upgrade Fireproof itself
+#     (no maintainer script stops fireproofd, KillMode=mixed, needrestart
+#     leaves it alone, the restart happens after the transaction); analyze
+#     refuses to offer an update on a half-configured system and gives the
+#     repair command; the mirror check resolves the host, not host:port. One
+#     conffile is added (/etc/needrestart/conf.d/50-shadowfetch-fireproof.conf).
 #   * Every other first-party package is rebuilt at 5.0.1-1 only because
 #     shadowfetch-desktop pins its siblings at (= ${binary:Version}).
 # Edition, subtitle, codename, signing key and every list below are 5.0.0's,
@@ -54,6 +60,28 @@ signing_fingerprint = "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1"
 # gate.load_release(None) and tools/drift_gate.py's load_truth() REFUSE rather
 # than guess.
 historical = false
+# How 5.0.1 reaches users: packages only. No 5.0.1 image is built; installed
+# systems take the update from the umbra suite and the 5.0.0 ISO stays the
+# download. The publisher (tools/publish_release_4_0_0.py) reads this and runs
+# its --apt-only mode: repository objects only, never an ISO or CURRENT.json.
+delivery = "apt-only"
+
+[apt_only]
+# The image this update is applied on top of: 5.0.0's ISO 2d8a72e0, exactly as
+# qa/5.0.0/acceptance.json records it. qa/5.0.1/acceptance.json names it in its
+# artifact block, and UPGRADE-01 starts from an install of it. Spelled out
+# rather than left to the default (the newest earlier non-apt-only release,
+# which is also 5.0.0) so the base is a reviewed decision, not an inference.
+base_release = "5.0.0"
+# Required on top of the packages-only floor (SRC-01, PKG-01, UPGRADE-01),
+# because this update changes what they measure: the mission engine changed
+# (no WAL checkpoint on close, a Stop saved while the database is busy and
+# recorded by the worker, creation-order runs, review-gate holds).
+# DURABLE-01 is cancellation, retry, interrupted-service recovery and no
+# duplicated side effects; MISSION-01 is real missions completing with
+# validated artifacts. 5.0.0 passed DURABLE-01 and waived MISSION-01, both
+# against the 5.0.0 engine, so neither result describes this one.
+acceptance = ["DURABLE-01", "MISSION-01"]
 
 [packages]
 # Every Shadowfetch binary package the release publishes. Versions are derived

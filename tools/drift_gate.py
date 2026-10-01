@@ -56,6 +56,37 @@ sys.path.insert(0, str(ROOT / "tools"))
 import generate_theme_assets  # noqa: E402
 
 
+def _version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def artifact_iso_version(document: dict, documents: dict[str, dict]) -> str:
+    """Whose ISO the acceptance manifest's artifact block names.
+
+    An ISO release names its own image. An APT-only point update ships no
+    image: its manifest names the BASE image the update is applied to (the
+    publisher's apt-only mode refuses anything else), which is
+    [apt_only].base_release, or by default the newest earlier release whose
+    data does not say apt-only -- the same rule as
+    tools/publish_release_4_0_0.py's base_release().
+    """
+    release = document["release"]
+    if release.get("delivery", "iso") != "apt-only":
+        return release["version"]
+    named = (document.get("apt_only") or {}).get("base_release")
+    if named:
+        return str(named)
+    earlier = [
+        version for version, other in documents.items()
+        if _version_key(version) < _version_key(release["version"])
+        and other["release"].get("delivery", "iso") != "apt-only"
+    ]
+    if not earlier:
+        raise RuntimeError(
+            f"{release['version']} is apt-only but no earlier ISO release exists to be its base")
+    return max(earlier, key=_version_key)
+
+
 def load_truth() -> dict:
     """Release identity, read from Stage Q's per-release gate data.
 
@@ -68,9 +99,11 @@ def load_truth() -> dict:
     so it raises rather than picking one.
     """
     live = []
+    documents = {}
     for path in sorted(VERSIONS_DIR.glob("*.toml")):
         with path.open("rb") as handle:
             data = tomllib.load(handle)
+        documents[data["release"]["version"]] = data
         if not data.get("release", {}).get("historical", False):
             live.append((path, data["release"]))
     if len(live) != 1:
@@ -85,7 +118,10 @@ def load_truth() -> dict:
         "subtitle": release["subtitle"],
         "codename": release["codename"],
         "codename_display": release["display_codename"],
-        "iso_name": f"shadowfetch-{release['version']}-amd64.iso",
+        # The ISO the acceptance manifest describes: this release's own, or
+        # for an APT-only update the base image it is applied on top of.
+        "iso_name": "shadowfetch-%s-amd64.iso" % artifact_iso_version(
+            documents[release["version"]], documents),
         "signing": {"fingerprint": release["signing_fingerprint"]},
         "release_pointer": pointer["release_pointer"],
         "urls": pointer["urls"],
