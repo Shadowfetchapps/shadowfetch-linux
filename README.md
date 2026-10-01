@@ -84,7 +84,7 @@ Continue only after the signature and checksum both verify. A GPG warning about 
 
 The boot menu offers a normal entry and an "agents offline" entry; the installer carries that choice to the installed system. The live session uses `shadow` / `shadow` with passwordless sudo. The installer creates the chosen user and removes the live account. See the [verification guide](https://www.shadowfetchlinux.org/verify), [Secure Boot guide](https://www.shadowfetchlinux.org/secure-boot) and [known issues](https://www.shadowfetchlinux.org/known-issues).
 
-**Upgrading from 4.1:** `sudo apt update` then `fireproof update`. Read the [release notes](RELEASE-5.0.0.md) first; the upgrade removes `shadowfetch-element`, `shadowfetch-codex` and `shadowfetch-code-agent`, and moves an Ice machine to the offline agent network.
+**Upgrading from 4.1:** `sudo apt update` then `sudo apt full-upgrade` (not `fireproof update` for now: it can stop partway when it updates Fireproof itself; see [Known issues](#known-issues)). Read the [release notes](RELEASE-5.0.0.md) first; the upgrade removes `shadowfetch-element`, `shadowfetch-codex` and `shadowfetch-code-agent`, and moves an Ice machine to the offline agent network.
 
 ## Hardware and limits
 
@@ -96,7 +96,9 @@ Acceptance, recorded in `qa/5.0.0/acceptance.json` against this exact ISO: SRC-0
 
 ## Known issues
 
-The first two are fixed by the 5.0.1 update, which arrives through the Shadowfetch APT repository (`sudo apt update`, then `fireproof update`). The third affects only the live USB, which an update cannot change: 5.0.1 turns it off on the live USB, and a 5.0.0 stick keeps it, so use the workaround. The [release notes](RELEASE-5.0.0.md#known-issues) list every known issue.
+**Upgrade with apt for now, not `fireproof update`:** when it installs a new Fireproof, which every 4.1 to 5.0 upgrade does, it can stop partway through. Use `sudo apt update` then `sudo apt full-upgrade`. If an upgrade already stopped partway: `sudo dpkg --configure -a`, then `sudo apt -f install`, then reboot. Fixed in the 5.0.1 update.
+
+The first two are fixed by the 5.0.1 update, which arrives through the Shadowfetch APT repository (`sudo apt update`, then `sudo apt full-upgrade`). The third affects only the live USB, which an update cannot change: 5.0.1 turns it off on the live USB, and a 5.0.0 stick keeps it, so use the workaround. The [release notes](RELEASE-5.0.0.md#known-issues) list every known issue.
 
 - **ShadowCode's window grows each time it opens (Wayland)** and can extend under the panel; on a 1366x768 screen even the first window is larger than the screen. Workaround: maximize the window (its maximize button, or Meta+PgUp); ShadowCode then does not save the size. Fixed in ShadowCode 1.0.1.
 - **"database is busy" under very heavy disk load.** Mission Control or a `shadowfetch-missions` command can briefly report it while a mission is finishing a step. Workaround: retry after a few seconds.
