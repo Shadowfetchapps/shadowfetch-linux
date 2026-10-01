@@ -5,19 +5,48 @@
 # ShadowCode open in the user's session for the whole run, plus host-side
 # sampling and the crash/OOM/thermal/responsiveness audit.
 # Usage: run_stress.sh VM_NAME [DURATION_SECONDS]
+#
+# Idle host only (5.0.1). Both 5.0.0 runs shared the host with unrelated builds
+# (host load up to 32, kswapd at 100%) and with other VMs, which starved the
+# guest's disk on top of its own stress load. The run refuses to start while
+# the host's 1-minute load is above QA_HOST_MAX_LOAD (default 4) or another
+# QEMU VM is running, samples the host beside the guest, and summary.json
+# says whether the host stayed quiet ("idle") or not ("contended": load above
+# QA_HOST_MAX_RUN_LOAD, default half the host's CPUs, or another VM appeared).
+# A contended run's result says nothing about the image either way.
+# QA_ALLOW_BUSY_HOST=1 starts anyway and records that it did.
 set -uo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 vm="$root/tools/qa_5_0_0/sfvm.py"
 name="${1:?vm name}"; duration="${2:-2700}"
 user="${QA_USER:-demo}"
+max_load="${QA_HOST_MAX_LOAD:-4}"
+run_max_load="${QA_HOST_MAX_RUN_LOAD:-$(( $(nproc) / 2 ))}"
 out="$root/work/qa-5.0.0/stress/$(date -u +%Y%m%dT%H%M%SZ)"
 guest_dir=/opt/shadowfetch-qa-5
 guest_out=/var/tmp/sf-stress-5.0.0
+host_load1() { cut -d' ' -f1 /proc/loadavg; }
+# QEMU processes other than this run's VM (sfvm.py names it sf-qa-NAME).
+other_vms() { pgrep -a -f '^[^ ]*qemu-system' | grep -cvF -- "-name sf-qa-$name " || true; }
+above() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a > b) }'; }
+gate_load="$(host_load1)"; gate_vms="$(other_vms)"
+if above "$gate_load" "$max_load" || (( gate_vms > 0 )); then
+  if [[ ${QA_ALLOW_BUSY_HOST:-0} != 1 ]]; then
+    echo "Host is not idle (1-min load $gate_load, limit $max_load; other VMs $gate_vms). Stress only on an idle host, or set QA_ALLOW_BUSY_HOST=1 to record a contended run." >&2
+    exit 2
+  fi
+  host_gate=overridden
+else
+  host_gate=idle
+fi
 mkdir -p "$out/shots"
 exec > >(tee -a "$out/run.log") 2>&1
+printf 'gate=%s\nload1=%s\nmax_load=%s\nrun_max_load=%s\nother_vms=%s\ncpus=%s\n' \
+  "$host_gate" "$gate_load" "$max_load" "$run_max_load" "$gate_vms" "$(nproc)" > "$out/host-before.txt"
 gx() { "$vm" exec "$name" "$1" --timeout "${2:-300}"; }
 ux() { "$vm" uexec "$name" "$user" "$1" --timeout "${2:-300}"; }
 say() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*"; }
+say "host gate: $host_gate (1-min load $gate_load, other VMs $gate_vms)"
 
 say "push helpers"
 gx "rm -rf $guest_dir && install -d -m 0755 $guest_dir"
@@ -45,15 +74,17 @@ gx 'coredumpctl --no-pager --no-legend list 2>&1 | tail -20' > "$out/coredumps-b
 say "start stress (duration ${duration}s)"
 "$vm" exec "$name" "rm -rf $guest_out; setsid /usr/bin/env QA_RELEASE=5.0.0 QA_USER=$user QA_DURATION_SECONDS=$duration $override $guest_dir/stress_45m.sh $guest_out > /var/tmp/sf-stress-runner.log 2>&1 < /dev/null & echo started" | tee -a "$out/run.log"
 
-printf 'utc\tload1\tload5\tmem_avail_kib\tswap_used_kib\tshadowcode\tkwin_window\n' > "$out/samples.tsv"
-deadline=$(( $(date +%s) + duration + 2400 ))
+printf 'utc\tload1\tload5\tmem_avail_kib\tswap_used_kib\tshadowcode\tkwin_window\thost_load1\thost_other_vms\n' > "$out/samples.tsv"
+# The guest's container helper may legitimately run to duration + 2400 s (see
+# stress_45m.sh), and the audit after it takes minutes.
+deadline=$(( $(date +%s) + duration + 3000 ))
 n=0
 while (( $(date +%s) < deadline )); do
   sleep 60; n=$((n+1))
   row=$(gx "read a b c _ < /proc/loadavg; m=\$(awk '/MemAvailable/{print \$2}' /proc/meminfo); s=\$(awk '/SwapTotal/{t=\$2}/SwapFree/{f=\$2}END{print t-f}' /proc/meminfo); printf '%s\t%s\t%s\t%s' \$a \$b \$m \$s" 60)
   sc=$(ux 'systemctl --user is-active sf-qa-shadowcode' 60 | tr -d '\r\n')
   win=$(ux 'dbus-send --session --print-reply --dest=org.kde.KWin /WindowsRunner org.kde.krunner1.Match string:ShadowCode | grep -c "string \"ShadowCode"' 60 | tr -d '\r\n')
-  printf '%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$row" "$sc" "$win" >> "$out/samples.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$row" "$sc" "$win" "$(host_load1)" "$(other_vms)" >> "$out/samples.tsv"
   (( n % 10 == 0 )) && "$vm" shot "$name" "$out/shots/$(printf %02d $n)-during.png" >/dev/null
   gx "test -s $guest_out/result.json" 30 >/dev/null 2>&1 && break
 done
@@ -73,7 +104,7 @@ gx "journalctl -k --no-pager --since=@$since 2>&1 | grep -iE 'out of memory|oom-
 gx "journalctl --no-pager --since=@$since -p err 2>&1 | tail -300" > "$out/journal-errors.txt"
 gx "ls /sys/class/thermal/ 2>&1; for z in /sys/class/thermal/thermal_zone*; do echo \$z \$(cat \$z/type \$z/temp 2>/dev/null); done" > "$out/guest-thermal.txt"
 (command -v sensors >/dev/null && sensors -A 2>/dev/null | grep -E '^(Tctl|Tccd|Package|Core|edge)' ) > "$out/host-thermal-after.txt" || true
-python3 - "$out" <<'EOF'
+python3 - "$out" "$host_gate" "$run_max_load" <<'EOF'
 import json, sys, tarfile, statistics
 from pathlib import Path
 out = Path(sys.argv[1])
@@ -86,6 +117,20 @@ if rows:
                    min_mem_available_mib=round(min(mem)/1024), peak_swap_used_mib=round(max(int(r[4]) for r in rows if r[4].isdigit())/1024),
                    shadowcode_active_all=all(r[5] == "active" for r in rows),
                    shadowcode_window_all=all(r[6].strip() not in ("", "0") for r in rows))
+def number(value):
+    try:
+        return float(value)
+    except ValueError:
+        return None
+host_load = [v for v in (number(r[7]) for r in rows if len(r) > 8) if v is not None]
+host_vms = [int(r[8]) for r in rows if len(r) > 8 and r[8].strip().isdigit()]
+limit = float(sys.argv[3])
+contended = sys.argv[2] != "idle" or max(host_load, default=0) > limit or any(host_vms)
+summary["host"] = {"gate": sys.argv[2], "run_max_load1": limit, "samples": len(host_load),
+                   "peak_load1": max(host_load, default=None),
+                   "mean_load1": round(statistics.mean(host_load), 2) if host_load else None,
+                   "max_other_vms": max(host_vms, default=None),
+                   "environment": "contended" if contended else "idle" if host_load else "unknown"}
 try:
     with tarfile.open(out/"guest-evidence.tgz") as t:
         probe = t.extractfile("sf-stress-5.0.0/probe-loop.jsonl").read().decode().splitlines()
@@ -95,4 +140,4 @@ except Exception as e:
 (out/"summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 print(json.dumps(summary, indent=2))
 EOF
-say "evidence: $out"
+say "evidence: ${out#"$root"/} (host environment: see summary.json)"
