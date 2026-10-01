@@ -2878,11 +2878,12 @@ def _quiesce_update_notifier(
     without the drop-in is measured honestly too: the unit is stopped if it is
     running at all, then packagekitd must report no running transaction on two
     polls in a row -- bounded by --soak-quiesce-timeout -- so a refresh that
-    already started finishes BEFORE the baseline instead of inside the cycles.
-    What was found and done is recorded (`soak_quiesce`,
-    shadowcode-soak-quiesce.log). A notifier that will not stop, or a
-    PackageKit that never goes idle, is BLOCKED: the soak could not then say
-    whose memory it measured.
+    already started finishes BEFORE the baseline instead of inside the cycles,
+    and the idle daemon is then stopped so that its own exit does not land
+    there either. What was found and done is recorded (`soak_quiesce`,
+    shadowcode-soak-quiesce.log). A notifier that will not stop, a PackageKit
+    that never goes idle, or one that will not stop once idle, is BLOCKED: the
+    soak could not then say whose memory it measured.
     """
     timeout = float(ctx.options.get("soak_quiesce_timeout", 900))
     show = (
@@ -2919,6 +2920,22 @@ def _quiesce_update_notifier(
         if idle >= 2 or time.monotonic() - started >= timeout:
             break
         time.sleep(5)
+    # An idle packagekitd is stopped too. It stays up for its idle timeout
+    # (~300s) after the last transaction -- in the 2d8a72e0 diagnostic rerun
+    # the refresh finished at 367s and "daemon quit" came at 674s, taking its
+    # 39 MB RSS with it -- so left running, its exit lands inside the cycles as
+    # memory given BACK, which hides a leak of the same size from the slope.
+    # It is D-Bus activated: anything that needs it later starts it again.
+    pk_stop: dict[str, Any] | None = None
+    if idle >= 2 and polls[-1]["packagekit"] == "active":
+        result = machine.run("/usr/bin/systemctl stop packagekit.service 2>&1", timeout=120)
+        pk_stop = {
+            "exit": result["exitcode"],
+            "output": (result["stdout"] + result["stderr"]).strip()[:400],
+            "state_after": machine.out(
+                "/usr/bin/systemctl is-active packagekit.service 2>/dev/null || true"
+            ) or "(no answer)",
+        }
     record = {
         "notifier_unit": DISCOVER_NOTIFIER_UNIT,
         "notifier_before": before,
@@ -2930,6 +2947,8 @@ def _quiesce_update_notifier(
         "packagekit_busy_polls": sum(1 for poll in polls if poll["transactions"] != 0),
         "packagekit_first": polls[0],
         "packagekit_last": polls[-1],
+        # None: packagekitd was not running once idle, so nothing to stop.
+        "packagekit_stop": pk_stop,
     }
     ctx.evidence.write_text(
         "shadowcode-soak-quiesce.log",
@@ -2937,7 +2956,9 @@ def _quiesce_update_notifier(
         f"stop: {stopped if stopped is not None else '(not running; nothing to stop)'}\n"
         f"after: {after}\n\npackagekitd transactions (GetTransactionList, "
         f"auto-start off), timeout {timeout:g}s:\n"
-        + "".join(f"  {poll}\n" for poll in polls),
+        + "".join(f"  {poll}\n" for poll in polls)
+        + f"\npackagekitd stop once idle: "
+        f"{pk_stop if pk_stop is not None else '(not running; nothing to stop)'}\n",
     )
     ctx.observe("soak_quiesce", record)
     if after.get("ActiveState") in running:
@@ -2952,6 +2973,11 @@ def _quiesce_update_notifier(
             f"{polls[-1]['packagekit']}, transactions {polls[-1]['transactions']}); "
             "its writes would land in the soak and be charged to ShadowCode"
         )
+    if pk_stop is not None and pk_stop["state_after"] not in ("inactive", "failed"):
+        ctx.blocked(
+            f"packagekitd is still {pk_stop['state_after']!r} after being stopped once "
+            "idle; its exit, or its next refresh, would land in the soak"
+        )
     return record
 
 
@@ -2963,26 +2989,52 @@ def _quiesce_update_notifier(
 # one bad reading at either end and still leaves the ends 18+ cycles apart in
 # a default 24-cycle soak.
 SOAK_DRIFT_WINDOW = 3
+# The first close the per-cycle slope is fitted from. Closes 1 and 2 sit above
+# the rest in every 5.0.0 soak -- 2d8a72e0 +87 and +63 MiB over close 3,
+# dfea3c9b +89 and +57, the 2d8a72e0 diagnostic rerun +33 and +30 -- while
+# the session settles around the first windows (in the rerun, AnonPages +42
+# MiB from close 1 to 3, plasmashell and KWin RSS +44 MB, Shmem flat). That is
+# a one-off, which the end-to-end drop still counts; fitted into the slope it
+# read as a per-launch loss, -3.7 instead of -2.0 MiB a cycle on the 2d8a72e0
+# closes, and decided short soaks on its own.
+SOAK_SLOPE_FROM_CLOSE = 3
+# The fewest closes a soak is judged on. An after-close reading is noisy by
+# about +-20 MiB with one-close dips of 60-120 MiB (2d8a72e0: residual sd 26
+# MiB, dips of -61 and -79), and a slope's variance falls with the cube of the
+# number of closes. Simulated on that noise with the warm-up and a background
+# drift of 0 to -2.5 MiB a cycle, 18 closes (16 in the slope) fail a healthy
+# app in 0-0.4% of soaks (1.2% with +-90 MiB at EVERY close) and catch a 15
+# MiB/cycle leak in 99.8-100%; at 24 closes, 0% and 100%. A slope over every
+# close of a 6-close soak failed a healthy app 63-76% of the time. A default
+# 30-minute soak runs 24 closes.
+SOAK_MIN_CLOSES = 18
 
 
 def _after_close_drift(
-    values: list[int | None], window: int = SOAK_DRIFT_WINDOW
+    values: list[int | None], window: int = SOAK_DRIFT_WINDOW,
+    slope_from: int = SOAK_SLOPE_FROM_CLOSE,
 ) -> dict[str, Any] | None:
     """How a per-close memory reading moved across the soak, measured two ways.
 
     `drop_mib` is the median of the first `window` readings minus the median of
     the last `window` (positive: less at the end). `slope_mib_per_cycle` is the
-    least-squares slope of every reading against its cycle number (negative:
-    shrinking). The medians say how far the reading moved end to end without
-    letting one reading at either end decide it. The slope says whether it
-    moved steadily, which is what a per-launch leak looks like and what a
-    single step or dip does not: a leak too small for the end-to-end limit over
-    one soak still shows as a slope.
+    least-squares slope of the readings from close `slope_from` on against
+    their cycle number (negative: shrinking), with its standard error. The
+    medians say how far the reading moved end to end without letting one
+    reading at either end decide it. The slope says whether it moved steadily,
+    which is what a per-launch leak looks like and what a single dip does not:
+    a leak too small for the end-to-end limit over one soak still shows as a
+    slope. A step part-way through moves it too -- one of ~120 MiB in the
+    middle of a 24-close soak reads as -8 MiB a cycle -- which is why system
+    jobs are quiesced before the baseline and Shmem and AnonPages are recorded
+    beside it.
 
     With fewer than 2*window readings the window shrinks to half of them, so
     the two ends never share a reading. Readings that are None or not positive
     (the guest did not answer) are left out and the rest keep their cycle
-    numbers, so a gap does not bend the slope. None with fewer than two.
+    numbers, so a gap does not bend the slope. None with fewer than two
+    readings; the slope (and its error) None with fewer than two (three)
+    from `slope_from` on.
     """
     points = [
         (cycle, value) for cycle, value in enumerate(values, start=1)
@@ -2993,10 +3045,17 @@ def _after_close_drift(
     ends = max(1, min(window, len(points) // 2))
     head = statistics.median(value for _, value in points[:ends])
     tail = statistics.median(value for _, value in points[-ends:])
-    mean_x = statistics.fmean(cycle for cycle, _ in points)
-    mean_y = statistics.fmean(value for _, value in points)
-    sxx = sum((cycle - mean_x) ** 2 for cycle, _ in points)
-    slope = sum((cycle - mean_x) * (value - mean_y) for cycle, value in points) / sxx
+    fitted = [(cycle, value) for cycle, value in points if cycle >= slope_from]
+    slope = stderr = None
+    if len(fitted) >= 2:
+        mean_x = statistics.fmean(cycle for cycle, _ in fitted)
+        mean_y = statistics.fmean(value for _, value in fitted)
+        sxx = sum((cycle - mean_x) ** 2 for cycle, _ in fitted)
+        slope = sum((cycle - mean_x) * (value - mean_y) for cycle, value in fitted) / sxx
+        if len(fitted) >= 3:
+            residual = sum((value - mean_y - slope * (cycle - mean_x)) ** 2
+                           for cycle, value in fitted)
+            stderr = (residual / (len(fitted) - 2) / sxx) ** 0.5
     return {
         "readings": len(points),
         "window": ends,
@@ -3006,7 +3065,10 @@ def _after_close_drift(
         "tail_median_kib": tail,
         # + 0.0: no "-0" in a detail line for a reading that did not move.
         "drop_mib": round((head - tail) / 1024, 1) + 0.0,
-        "slope_mib_per_cycle": round(slope / 1024, 2) + 0.0,
+        "slope_cycles": [fitted[0][0], fitted[-1][0]] if fitted else [],
+        "slope_readings": len(fitted),
+        "slope_mib_per_cycle": None if slope is None else round(slope / 1024, 2) + 0.0,
+        "slope_stderr_mib_per_cycle": None if stderr is None else round(stderr / 1024, 2),
     }
 
 
@@ -3110,22 +3172,24 @@ def case_shadowcode_soak(ctx: Context) -> None:
     * The system's own work landed inside the cycles. KDE's update notifier
       has PackageKit refresh the apt indexes 300s after login, and on the live
       medium ~350 MB of them go into RAM-backed Shmem, in one step, mid-soak.
-      The notifier is stopped and PackageKit let finish before the baseline
-      (_quiesce_update_notifier).
+      The notifier is stopped, PackageKit let finish and its idle daemon
+      stopped before the baseline (_quiesce_update_notifier).
     * It compared the first close with the single lowest later close, so one
       step or one dip anywhere became the "leak" (680 MiB, reported as 28 MiB a
       cycle, when the after-step slope was -1.5 to -1.8 MiB a cycle). Drift is
       now the median of the first three closes against the median of the last
-      three, AND a least-squares slope over every close (_after_close_drift):
-      the first bounds how far memory moved over the soak, the second catches
-      a steady per-launch leak too small for the first. --soak-slope-mib is 8:
-      the 2d8a72e0 closes after its step slope at -1.8 MiB a cycle, and the
-      whole run with the step taken out (first-launch warm-up included) at
-      -3.7. A leak of 8 MiB a launch moves the end medians only ~170 MiB in 24
-      cycles, under the 256 MiB end-to-end limit -- which is why the slope is
-      its own check. Shmem and AnonPages are sampled beside MemAvailable so a
-      change can be attributed to tmpfs or to process memory from the
-      evidence alone.
+      three, AND a least-squares slope from close 3 on (_after_close_drift):
+      the first bounds how far memory moved over the soak, first-launch
+      warm-up included, the second catches a steady per-launch leak too small
+      for the first. --soak-slope-mib is 8: the 2d8a72e0 closes after its step
+      slope at -1.8 MiB a cycle, and the whole run with the step taken out at
+      -2.0 (-3.7 with the warm-up of closes 1 and 2 fitted in). A leak of 8 MiB
+      a launch moves the end medians only ~170 MiB in 24 cycles, under the 256
+      MiB end-to-end limit -- which is why the slope is its own check. It is
+      judged only on SOAK_MIN_CLOSES (18) closes or more: a clean shorter soak
+      is BLOCKED, because there noise and warm-up decide the slope. Shmem and
+      AnonPages are sampled beside MemAvailable so a change can be attributed
+      to tmpfs or to process memory from the evidence alone.
 
     The saved window size is read after every close (_window_growth) because
     ShadowCode 1.0.0 restores a larger window at every launch; growth at two
@@ -3143,14 +3207,16 @@ def case_shadowcode_soak(ctx: Context) -> None:
         "mem_available_drop": f"median of the first {SOAK_DRIFT_WINDOW} closes minus "
                               f"median of the last {SOAK_DRIFT_WINDOW}",
         "max_mem_available_loss_mib_per_cycle": slope_mib,
-        "mem_available_loss_per_cycle": "least-squares slope over every close",
+        "mem_available_loss_per_cycle": f"least-squares slope from close "
+                                        f"{SOAK_SLOPE_FROM_CLOSE} on",
+        "min_closes": SOAK_MIN_CLOSES,
         "max_idle_cpu_percent": cpu_limit,
         "window_growth_fails_after_consecutive_closes": SOAK_WINDOW_GROWTH_RUN,
         "close_method": "systemctl --user stop (SIGTERM, 20s before SIGKILL)",
         "session_awake": "screen locker Autolock=false, DPMS/dim/suspend off, "
                          "logind idle:sleep inhibitor held for the whole soak",
         "quiesce": f"{DISCOVER_NOTIFIER_UNIT} stopped if running, then packagekitd "
-                   "idle on two polls in a row, before the baseline",
+                   "idle on two polls in a row and stopped, before the baseline",
     })
     machine = _boot_live_for_shadowcode(ctx, "shadowcode-soak")
     session: dict[str, str] | None = None
@@ -3221,12 +3287,14 @@ def case_shadowcode_soak(ctx: Context) -> None:
             "quiesce": quiesce, "cycles": cycles,
         })
         ctx.observe("soak_cycles", len(cycles))
-        if len(cycles) < 3 and all(c["started"] and c["window_seconds"] is not None and c["held"]
-                                   for c in cycles):
+        if len(cycles) < SOAK_MIN_CLOSES and all(
+            c["started"] and c["window_seconds"] is not None and c["held"] for c in cycles
+        ):
             ctx.blocked(
                 f"only {len(cycles)} open/close cycles fit in --soak-minutes "
-                f"{soak_minutes:g} with --soak-hold {hold:g}s; a soak of fewer than "
-                "three cycles cannot show drift"
+                f"{soak_minutes:g} with --soak-hold {hold:g}s; the per-cycle memory slope "
+                f"needs at least {SOAK_MIN_CLOSES} closes to tell a {slope_mib:g} MiB/cycle "
+                "loss from after-close noise and first-launch warm-up"
             )
         ctx.check(f"every cycle opened a ShadowCode window ({len(cycles)} cycles)",
                   all(c["started"] and c["window_seconds"] is not None for c in cycles),
@@ -3261,16 +3329,34 @@ def case_shadowcode_soak(ctx: Context) -> None:
              f"drop {drift['drop_mib']:g} MiB" if drift is not None
              else "fewer than two after-close readings") + where,
         )
-        ctx.check(
-            f"available memory after close does not fall by more than {slope_mib:g} MiB "
-            "per cycle (least-squares slope over every close)",
-            drift is not None and drift["slope_mib_per_cycle"] >= -slope_mib,
-            (f"slope {drift['slope_mib_per_cycle']:+g} MiB/cycle over "
-             f"{drift['readings']} closes" if drift is not None
-             else "fewer than two after-close readings")
-            + (f"; Shmem {shmem['slope_mib_per_cycle']:+g}, AnonPages "
-               f"{anon['slope_mib_per_cycle']:+g} MiB/cycle" if shmem and anon else ""),
-        )
+        # Judged only on a soak long enough to judge it (SOAK_MIN_CLOSES). A
+        # clean shorter soak was BLOCKED above, so a short one here stopped on
+        # a failed cycle, and that failure is the verdict.
+        if len(cycles) >= SOAK_MIN_CLOSES:
+            fitted = SOAK_MIN_CLOSES - SOAK_SLOPE_FROM_CLOSE + 1
+            slope = drift["slope_mib_per_cycle"] if drift is not None else None
+            ctx.check(
+                f"available memory after close does not fall by more than {slope_mib:g} MiB "
+                f"per cycle (least-squares slope from close {SOAK_SLOPE_FROM_CLOSE})",
+                slope is not None and drift["slope_readings"] >= fitted and slope >= -slope_mib,
+                (f"slope {slope:+g}"
+                 + (f" +- {drift['slope_stderr_mib_per_cycle']:g}"
+                    if drift["slope_stderr_mib_per_cycle"] is not None else "")
+                 + " MiB/cycle over "
+                 f"{drift['slope_readings']} closes, from close {drift['slope_cycles'][0]} "
+                 f"to {drift['slope_cycles'][1]}" if slope is not None
+                 else "too few after-close readings for a slope")
+                + (f" (fewer than {fitted} readings: not enough to judge)"
+                   if slope is not None and drift["slope_readings"] < fitted else "")
+                + (f"; Shmem {shmem['slope_mib_per_cycle']:+g}, AnonPages "
+                   f"{anon['slope_mib_per_cycle']:+g} MiB/cycle"
+                   if shmem and anon and shmem["slope_mib_per_cycle"] is not None
+                   and anon["slope_mib_per_cycle"] is not None else ""),
+            )
+        else:
+            ctx.observe("memory_slope_unjudged",
+                        f"{len(cycles)} closes, fewer than the {SOAK_MIN_CLOSES} a per-cycle "
+                        "slope is judged on; no slope claim is made")
         growth = _window_growth([c.get("window_state") for c in cycles])
         ctx.observe("soak_window_growth", growth)
         if growth["compared"]:

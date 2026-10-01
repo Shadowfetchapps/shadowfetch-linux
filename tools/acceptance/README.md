@@ -96,7 +96,7 @@ captured and hashed, never a trusted attestation.
 | `recovery-interrupted` | companion of `RECOVERY-01` | Power is cut mid-restore. |
 | `recovery-project` | `RECOVERY-01` | Fireline's project diff/undo, against a workspace an agent has damaged. The case RECOVERY-01 is recorded from. |
 | `shadowcode` | companion of `SHADOWCODE-01` | ShadowCode is installed at the version pinned in `tools/release/shadowcode.toml`, `shadowcode --version` answers it, the bundled `llama-server`/`llama-cli` execute and report the pinned llama.cpp commit, and the app launched in the live user's session shows a window (per KWin) and stays up for `--shadowcode-minutes` (5) with no crash, no restart and a clean exit. |
-| `shadowcode-soak` | `SHADOWCODE-01` | The same install checks, then open/close cycles for `--soak-minutes` (30, `--soak-hold` 60s each): every cycle shows a window, stays up, exits without SIGKILL, leaves no process; no coredump or kernel fault; MemAvailable after close drifts down no more than `--soak-drift-mib` (256, median of the first three closes to median of the last three) and falls no faster than `--soak-slope-mib` (8 MiB/cycle, least-squares slope over every close); idle CPU under `--soak-cpu-percent`; the window size ShadowCode saves (`~/.config/com.shadowfetch.shadowcode/.window-state.json`) does not grow at two consecutive closes. Recorded only when a `shadowcode` run of the same artifact has passed. |
+| `shadowcode-soak` | `SHADOWCODE-01` | The same install checks, then open/close cycles for `--soak-minutes` (30, `--soak-hold` 60s each): every cycle shows a window, stays up, exits without SIGKILL, leaves no process; no coredump or kernel fault; MemAvailable after close drifts down no more than `--soak-drift-mib` (256, median of the first three closes to median of the last three) and falls no faster than `--soak-slope-mib` (8 MiB/cycle, least-squares slope from the third close, after the first launches settle); idle CPU under `--soak-cpu-percent`; the window size ShadowCode saves (`~/.config/com.shadowfetch.shadowcode/.window-state.json`) does not grow at two consecutive closes. A soak that runs cleanly but fits fewer than 18 closes in `--soak-minutes` is **BLOCKED**: below that, after-close noise (about ±20 MiB, with one-close dips of 60–120 MiB) and first-launch warm-up decide the slope. Recorded only when a `shadowcode` run of the same artifact has passed. |
 
 ### ShadowCode: how it is driven
 
@@ -151,15 +151,21 @@ each way of running out says what it is:
 * **a quiet system.** Before its baseline `shadowcode-soak` stops KDE's update
   notifier (`app-org.kde.discover.notifier@autostart.service`) if it is
   running, then waits, for up to `--soak-quiesce-timeout` (900s), until
-  packagekitd reports no running transaction on two polls in a row. The
-  notifier asks PackageKit to refresh the apt indexes 300s after login; the ISO
-  ships none, so on the live medium ~350 MB of them landed in RAM-backed Shmem
-  between cycles 3 and 4 of the 2d8a72e0 soak and were charged to ShadowCode.
+  packagekitd reports no running transaction on two polls in a row, and then
+  stops the idle daemon. The notifier asks PackageKit to refresh the apt
+  indexes 300s after login; the ISO ships none, so on the live medium ~350 MB
+  of them landed in RAM-backed Shmem between cycles 3 and 4 of the 2d8a72e0
+  soak and were charged to ShadowCode. An idle packagekitd still exits on its
+  own ~300s after its last transaction, returning its memory mid-soak, which
+  would hide a leak of the same size; stopping it first keeps that out too.
   What it found and did is recorded (`soak_quiesce`,
-  `shadowcode-soak-quiesce.log`); a notifier that will not stop or a PackageKit
-  that never goes idle is **BLOCKED**. Every sample and every close also
-  records Shmem and AnonPages beside MemAvailable, so a change can be
-  attributed to tmpfs or to process memory from the evidence alone.
+  `shadowcode-soak-quiesce.log`); a notifier that will not stop, or a
+  PackageKit that never goes idle or will not stop, is **BLOCKED**. Images
+  with shadowfetch-defaults' live-medium drop-in (5.0.1 on) never start the
+  notifier on the live medium, so there is nothing to stop. Every sample and
+  every close also records Shmem and AnonPages beside MemAvailable, so a
+  change can be attributed to tmpfs or to process memory from the evidence
+  alone.
 
 ### Contributing to a required case is not proving it
 

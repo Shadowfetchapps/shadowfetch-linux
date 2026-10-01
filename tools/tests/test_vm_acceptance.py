@@ -1035,9 +1035,64 @@ class SoakMeasurementTests(unittest.TestCase):
         drift = self.drift(without)
         self.assertTrue(self.passes(drift), drift)
         self.assertAlmostEqual(drift["drop_mib"], 111.7, places=1)
-        self.assertAlmostEqual(drift["slope_mib_per_cycle"], -3.69, places=2)
+        self.assertAlmostEqual(drift["slope_mib_per_cycle"], -2.03, places=2)
         # From close 4 on (after the step) the slope is noise.
         self.assertTrue(self.passes(self.drift(SOAK_2D8A_AFTER_CLOSE[3:])))
+
+    def test_the_slope_starts_after_the_first_launches_settle(self) -> None:
+        # Closes 1 and 2 sit above the rest in every 5.0.0 soak: 2d8a72e0 +87
+        # and +63 MiB over close 3, dfea3c9b +89 and +57, the diagnostic rerun
+        # +33 and +30, as plasmashell and KWin settle around the new window. A
+        # one-off, not a per-launch loss -- fitted into the slope it doubled
+        # the 2d8a72e0 "leak" and decided short soaks on its own.
+        step = SOAK_2D8A_AFTER_CLOSE[2] - SOAK_2D8A_AFTER_CLOSE[3]
+        without = SOAK_2D8A_AFTER_CLOSE[:3] + [v + step for v in SOAK_2D8A_AFTER_CLOSE[3:]]
+        drift = self.drift(without)
+        self.assertEqual(self.cases.SOAK_SLOPE_FROM_CLOSE, 3)
+        self.assertEqual((drift["slope_cycles"], drift["slope_readings"]), ([3, 24], 22))
+        self.assertAlmostEqual(drift["slope_mib_per_cycle"], -2.03, places=2)
+        self.assertLess(drift["slope_stderr_mib_per_cycle"], 1.0)
+        # The end-to-end drop still counts the warm-up: it is memory gone.
+        self.assertAlmostEqual(drift["drop_mib"], 111.7, places=1)
+
+    def test_measured_noise_neither_fails_a_healthy_soak_nor_hides_a_15_mib_leak(self) -> None:
+        """Seeded simulation on the noise the 2d8a72e0 soak actually had.
+
+        Residuals of its closes after the PackageKit step (sd ~26 MiB, one-close
+        dips to -61 and -79 MiB) are resampled; the harsher model adds a
+        90-120 MiB one-close dip at 10% of closes. Every soak also gets a
+        first-launch warm-up (+30..90 and +0..68 MiB at closes 1 and 2) and a
+        background drift of 0 to -2.5 MiB a cycle, as measured. At the shortest
+        soak the case accepts and at the default length, a healthy app must
+        not fail and one losing 15 MiB a launch must not pass.
+        """
+        import random
+        after_step = [value / MIB for value in SOAK_2D8A_AFTER_CLOSE[3:]]
+        cycles = range(1, len(after_step) + 1)
+        mean_x, mean_y = sum(cycles) / len(after_step), sum(after_step) / len(after_step)
+        slope = (sum((x - mean_x) * (y - mean_y) for x, y in zip(cycles, after_step))
+                 / sum((x - mean_x) ** 2 for x in cycles))
+        residuals = [y - mean_y - slope * (x - mean_x) for x, y in zip(cycles, after_step)]
+        rng = random.Random(501)
+        trials = 300
+        for closes in (self.cases.SOAK_MIN_CLOSES, 24):
+            for harsh in (False, True):
+                false_fail = missed = 0
+                for _ in range(trials):
+                    first = rng.uniform(30, 90)
+                    warm = {1: first, 2: rng.uniform(0, 0.75 * first)}
+                    background = rng.uniform(-2.5, 0)
+                    noise = [rng.choice(residuals)
+                             - (rng.uniform(90, 120) if harsh and rng.random() < 0.1 else 0)
+                             for _ in range(closes)]
+                    def series(leak: float) -> list[int]:
+                        return [round((6000 + warm.get(c, 0) + (background - leak) * c
+                                       + noise[c - 1]) * MIB) for c in range(1, closes + 1)]
+                    false_fail += not self.passes(self.drift(series(0)))
+                    missed += self.passes(self.drift(series(15)))
+                with self.subTest(closes=closes, harsh=harsh):
+                    self.assertLessEqual(false_fail, trials // 100, "healthy soaks failed")
+                    self.assertLessEqual(missed, trials // 100, "15 MiB/cycle leaks passed")
 
     def test_a_step_inside_the_soak_still_fails(self) -> None:
         # The metric does not explain a step away; quiescing PackageKit before
@@ -1064,7 +1119,8 @@ class SoakMeasurementTests(unittest.TestCase):
                          (2, [1, 2], [4, 5]))
 
     def test_missing_readings_are_skipped_and_keep_their_cycle_numbers(self) -> None:
-        drift = self.drift([6_000_000, -1, None, 6_000_000 - 3 * 8 * MIB])
+        drift = self.cases._after_close_drift([6_000_000, -1, None, 6_000_000 - 3 * 8 * MIB],
+                                              slope_from=1)
         self.assertEqual(drift["readings"], 2)
         self.assertEqual((drift["head_cycles"], drift["tail_cycles"]), ([1], [4]))
         self.assertAlmostEqual(drift["slope_mib_per_cycle"], -8.0)
@@ -1135,17 +1191,22 @@ class SoakGuest:
     """A live session running ShadowCode, answering what shadowcode-soak asks.
 
     `saved` gives the window size the app writes at its Nth exit (None: no
-    file). The update notifier starts `notifier`; PackageKit answers
-    `packagekit` in turn (its last state repeats) with `transactions` running.
+    file), `available` the MemAvailable KiB after N closes. The update notifier
+    starts `notifier`; PackageKit answers `packagekit` in turn (its last state
+    repeats) with `transactions` running, and goes inactive when stopped
+    unless `packagekit_stops` is False.
     """
 
     def __init__(self, pin: dict, saved, *, notifier: str = "active",
-                 packagekit=("inactive",), transactions: int = 0) -> None:
+                 packagekit=("inactive",), transactions: int = 0,
+                 packagekit_stops: bool = True, available=lambda _closes: 6000000) -> None:
         self.pin = pin
         self.saved = saved
         self.notifier = notifier
         self.packagekit = list(packagekit)
         self.transactions = transactions
+        self.packagekit_stops = packagekit_stops
+        self.available = available
         self.closes = 0
         self.stopped: set[str] = set()
         self.log: list[str] = []
@@ -1159,7 +1220,8 @@ class SoakGuest:
             return "" if size is None else plugin_file(*size)
         if "/proc/meminfo" in command:
             self.log.append("meminfo")
-            return "MemAvailable: 6000000\nShmem: 200000\nAnonPages: 900000"
+            return (f"MemAvailable: {self.available(self.closes)}\n"
+                    "Shmem: 200000\nAnonPages: 900000")
         if "for p in $(pgrep -x plasmashell)" in command:
             return "live\t1000\t\twayland-0\n"
         if "getent passwd" in command:
@@ -1191,6 +1253,11 @@ class SoakGuest:
             self.log.append("notifier-stop")
             self.notifier = "inactive"
             return ""
+        if "systemctl stop packagekit.service" in command:
+            self.log.append("packagekit-stop")
+            if self.packagekit_stops:
+                self.packagekit = ["inactive"]
+            return ""
         if "is-active packagekit.service" in command:
             state = self.packagekit.pop(0) if len(self.packagekit) > 1 else self.packagekit[0]
             self.log.append(f"packagekit:{state}")
@@ -1220,8 +1287,9 @@ class SoakGuest:
 class SoakCaseTests(unittest.TestCase):
     """shadowcode-soak end to end against a fake live session.
 
-    A fake clock makes the cycle count exact: five minutes at the default
-    60s hold is five open/close cycles.
+    A fake clock makes the cycle count exact: twenty minutes at the default
+    60s hold is eighteen open/close cycles, the fewest the case judges
+    (SOAK_MIN_CLOSES).
     """
 
     def setUp(self) -> None:
@@ -1244,7 +1312,7 @@ class SoakCaseTests(unittest.TestCase):
             run_dir=self.root / "run",
             evidence=EvidenceSet(REPO_ROOT, self.root / "evidence"),
             artifact={"path": str(self.root / "unit.iso"), "sha256": "b" * 64},
-            options={"version": "5.0.0", "desktop_settle": 0, "soak_minutes": 5, **options},
+            options={"version": "5.0.0", "desktop_settle": 0, "soak_minutes": 20, **options},
         )
         ctx.guest = lambda *_a, **_k: guest  # type: ignore[method-assign]
         return ctx
@@ -1262,10 +1330,10 @@ class SoakCaseTests(unittest.TestCase):
     def test_a_window_that_grows_at_every_launch_fails_the_soak(self) -> None:
         # ShadowCode 1.0.0: the file appears at the first exit and grows at each.
         ctx = self.soak(SoakGuest(self.pin, lambda n: (1380 + 52 * n, 920 + 99 * n)))
-        self.assertEqual(ctx.observations["soak_cycles"], 5)
+        self.assertEqual(ctx.observations["soak_cycles"], self.cases.SOAK_MIN_CLOSES)
         growth = self.check(ctx, "the window ShadowCode restores does not grow")
         self.assertEqual(growth["state"], "FAILED", growth)
-        self.assertIn("grew at closes [2, 3, 4, 5]", growth["detail"])
+        self.assertIn(f"grew at closes {list(range(2, 19))}", growth["detail"])
         self.assertEqual(vm_acceptance.verdict_for(ctx),
                          ("FAIL", growth["name"]))
 
@@ -1324,6 +1392,62 @@ class SoakCaseTests(unittest.TestCase):
         self.assertIn("packagekitd did not go idle", str(caught.exception))
         self.assertNotIn("since", session.log, "the soak started anyway")
         self.assertFalse(ctx.observations["soak_quiesce"]["packagekit_idle"])
+
+    def test_an_idle_packagekit_is_stopped_before_the_baseline(self) -> None:
+        # packagekitd stays up for its idle timeout (~300 s) after the last
+        # transaction -- 2d8a72e0's diagnostic rerun: refresh done at 367 s,
+        # "daemon quit" at 674 s, its 39 MB RSS gone with it. Left running, that
+        # exit lands inside the cycles as memory given BACK, which hides a leak
+        # of the same size from the slope.
+        session = SoakGuest(self.pin, lambda n: (1380, 920), packagekit=("active",))
+        ctx = self.soak(session)
+        log = session.log
+        self.assertIn("packagekit-stop", log)
+        self.assertLess(log.index("packagekit-stop"), log.index("since"))
+        record = ctx.observations["soak_quiesce"]
+        self.assertEqual(record["packagekit_stop"]["state_after"], "inactive")
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS", ctx.checks)
+
+    def test_a_packagekit_that_will_not_stop_blocks_the_soak(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (1380, 920), packagekit=("active",),
+                            packagekit_stops=False)
+        ctx = self.context(FakeGuest(self.root, session))
+        with self.assertRaises(Blocked) as caught:
+            CASES["shadowcode-soak"].run(ctx)
+        self.assertIn("packagekitd is still 'active'", str(caught.exception))
+        self.assertNotIn("since", session.log, "the soak started anyway")
+
+    def test_a_soak_too_short_to_judge_a_per_launch_loss_is_blocked(self) -> None:
+        # Six closes of a healthy app: the first-launch warm-up alone made the
+        # slope -17.8 MiB a cycle, and the noise is +-20-90 MiB a close. Fewer
+        # than SOAK_MIN_CLOSES cannot tell an 8 MiB/cycle loss from either.
+        warm = {1: 87 * MIB, 2: 63 * MIB}
+        session = SoakGuest(self.pin, lambda n: (0, 0),
+                            available=lambda n: 6000000 + warm.get(n, 0))
+        ctx = self.context(FakeGuest(self.root, session), soak_minutes=6)
+        with self.assertRaises(Blocked) as caught:
+            CASES["shadowcode-soak"].run(ctx)
+        self.assertIn(f"at least {self.cases.SOAK_MIN_CLOSES}", str(caught.exception))
+        self.assertEqual(ctx.observations["soak_cycles"], 6)
+        self.assertTrue((self.root / "evidence" / "shadowcode-soak-cycles.json").is_file())
+
+    def test_a_shortest_judged_soak_with_first_launch_warm_up_passes(self) -> None:
+        warm = {1: 87 * MIB, 2: 63 * MIB}
+        session = SoakGuest(self.pin, lambda n: (0, 0),
+                            available=lambda n: 6000000 + warm.get(n, 0) - 2 * MIB * n)
+        ctx = self.soak(session)
+        slope = self.check(ctx, "available memory after close does not fall")
+        self.assertEqual(slope["state"], "PASSED", slope)
+        self.assertIn("from close 3", slope["detail"])
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "PASS", ctx.checks)
+
+    def test_a_15_mib_per_launch_loss_fails_the_shortest_judged_soak(self) -> None:
+        session = SoakGuest(self.pin, lambda n: (0, 0),
+                            available=lambda n: 6000000 - 15 * MIB * n)
+        ctx = self.soak(session)
+        slope = self.check(ctx, "available memory after close does not fall")
+        self.assertEqual(slope["state"], "FAILED", slope)
+        self.assertEqual(vm_acceptance.verdict_for(ctx)[0], "FAIL")
 
     def test_an_unreadable_packagekit_answer_is_never_taken_for_idle(self) -> None:
         for state in ("activating", ""):

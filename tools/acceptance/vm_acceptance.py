@@ -578,7 +578,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--soak-minutes", type=float, default=30.0,
-        help="shadowcode-soak: total duration of the open/close cycles",
+        help="shadowcode-soak: total duration of the open/close cycles; a clean soak "
+        "that fits fewer than 18 cycles is BLOCKED",
     )
     run_parser.add_argument(
         "--soak-hold", type=float, default=60.0,
@@ -592,7 +593,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--soak-slope-mib", type=float, default=8.0,
         help="shadowcode-soak: largest allowed loss of MemAvailable after close per "
-        "cycle, as the least-squares slope over every close",
+        "cycle, as the least-squares slope from the third close on",
     )
     run_parser.add_argument(
         "--soak-quiesce-timeout", type=float, default=900.0,
