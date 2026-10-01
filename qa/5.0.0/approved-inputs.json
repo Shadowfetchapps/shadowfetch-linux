@@ -1,0 +1,472 @@
+{
+  "schema_version": 1,
+  "screenshots": [
+    {
+      "path": "fire-5.0.0-2d8a/cc-sidebar-software-badge-gold-pill-1920x1080.png",
+      "sha256": "2760439f41955dae94b0f7e9d9eb3e56257a23ebc9f13e9a1a6016dd0f3ed459",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-live-desktop-welcome-1920x1080.png",
+      "sha256": "e3d117033bb7014fcc7938ec6a4406b1d8944d1d3b437cfb7cb419ca6c242a91",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-mission-control-1280x768.png",
+      "sha256": "700d0fa9568f72974c021f17a6490e629af68eafd083e1aee4d466f654475407",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-mission-control-ui-mission-accepted-1920x1080.png",
+      "sha256": "63c7759d7f8f1866e31c767e44b11ad3fd6b2d153eada06daa57a7397f31f9ff",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-mission-control-ui-mission-review-1920x1080.png",
+      "sha256": "762e7fccb3a4c62e4f188269e9f7d4047c59d090c07fd03b0ef3c42713864cf5",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-mission-control-ui-new-mission-1920x1080.png",
+      "sha256": "a4d94fb2ec0f5df1092846366058ec5b21e1f4eff12649513f90f6dad8fb8a4d",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-mission-control-undone-mission-overview-restored-1920x1080.png",
+      "sha256": "497f2a99fc6c0ada4703e1c3d65bf723b5017d033c0518153f3e840c87313c8b",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-signin-button-claude-hidden-1920x1080.png",
+      "sha256": "dabe5af838ff800cd20535268dbab215bba314669c1d4606e104eef949fa9d47",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-signin-button-codex-1920x1080.png",
+      "sha256": "f65763847ed976ebc689b835891a9e5ed1d49a8f42e13c7e57dc1c903067d990",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/fire-signin-button-localmodel-hidden-1920x1080.png",
+      "sha256": "df5005c07eb91cc3e61f5548260efb30844c5d6d4a6ba1ae7881eaad369effe9",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/firebreak-launcher-konsole-help-prompt-1920x1080.png",
+      "sha256": "64928b6359ef7d13414f26e19070a0603f71c2f1b6b581df4ac6168852e32ea1",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/firebreak-launcher-konsole-help-scrolled-1920x1080.png",
+      "sha256": "8466c04a555c04ecffd7c0202a4c4d1f7fe126b38cc1c1677ae179cf92897666",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/guide-01-welcome-check-this-computer-no-mc-1920x1080.png",
+      "sha256": "29f1c69b8eb348e7c6c534ff0769f4d7a210c73fa38eb7b78d4d5594d38139fd",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/guide-04-mission-control-sidebar-guide-report-1920x1080.png",
+      "sha256": "5767f4ee5288f045d4697faf558646a37cb1bb7390bc1e54e235ecef02053e19",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/guide-06-welcome-check-this-computer-with-mc-open-1920x1080.png",
+      "sha256": "e37f57583010ead3778402468f08ed830b943ca299134295dd1b6600031a6d9d",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/guide-07-mc-switched-to-guide-by-welcome-1920x1080.png",
+      "sha256": "e8e1e154892484af2a67e862d56d84b5f4f5625dc7aae18afe78382a78429da0",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/welcome-ignition-choose-your-setup-offline-right-now-1920x1080.png",
+      "sha256": "e3d117033bb7014fcc7938ec6a4406b1d8944d1d3b437cfb7cb419ca6c242a91",
+      "approved": true
+    },
+    {
+      "path": "fire-5.0.0-2d8a/welcome-menu-entry-after-wizard-opens-window-1920x1080.png",
+      "sha256": "5797100e9a7101a85221d060355935e0e8ce6488261fe1235d3bbf463b6aa5a2",
+      "approved": true
+    },
+    {
+      "path": "grok-5.0.0-2d8a/grok-bot-after-url-handler-1920x1080.png",
+      "sha256": "a6131f0a90f39ff5829c7c02571efdd9946234836099d80d4c2b1ccf2225652b",
+      "approved": true
+    },
+    {
+      "path": "grok-5.0.0-2d8a/grok-bot-cc-installed-1920x1080.png",
+      "sha256": "f03dfac9220525ab1cd2a0fda544ec030235c2f972c70072d0e178783ac4e70a",
+      "approved": true
+    },
+    {
+      "path": "grok-5.0.0-2d8a/grok-bot-desktop-entry-1920x1080.png",
+      "sha256": "be6434e1838f4c1b98acc267fed3be64a3742d0d4d2837ca1d805dacd96955d7",
+      "approved": true
+    },
+    {
+      "path": "grok-5.0.0-2d8a/grok-bot-native-signin-1920x1080.png",
+      "sha256": "12a8725015f754926c754d761b26e9fac6e41a238c41f545d0f5004b40b6a413",
+      "approved": true
+    },
+    {
+      "path": "ice-5.0.0-2d8a/ice-offline-agents-paused-1280x768.png",
+      "sha256": "9cd960cf3d07fd46e6fe06b1830cb77de80c1ab8cf4e23773da9db523a68cfb3",
+      "approved": true
+    },
+    {
+      "path": "ice-5.0.0-2d8a/ice-offline-agents-paused-1920x1080.png",
+      "sha256": "1a99666f9740c1f158f61612839469673147ae9640776cd70520bd1cd6a0de20",
+      "approved": true
+    },
+    {
+      "path": "live-5.0.0-2d8a/live-keyring-store-lookup-no-prompt-1920x1080.png",
+      "sha256": "c82ba188efa4a8853ceba5ecbb5aaa199413c5d58579d8c326c65e6ec50ef4d8",
+      "approved": true
+    },
+    {
+      "path": "live-5.0.0-2d8a/welcome-06-agentsetup.png",
+      "sha256": "f3c5b1163ff8a8302b740dfb47d725da123dd6530a09625c491f6673b1cc17be",
+      "approved": true
+    },
+    {
+      "path": "live-5.0.0-2d8a/welcome-06b-agentsetup-grok-only.png",
+      "sha256": "78006fa5d0cf5a71818819944c886b8e62fbedb843353e471181659da5ce2ece",
+      "approved": true
+    },
+    {
+      "path": "live-5.0.0-2d8a/welcome-07-install.png",
+      "sha256": "1618d7acaec2f5de17e5dd3aae8fe83166e82825feb21fe55db4048fb453cdb1",
+      "approved": true
+    },
+    {
+      "path": "live-5.0.0-2d8a/welcome-07b-install-grok-ready.png",
+      "sha256": "da9c74d323a26c0de9d8bc7a283cac326f9d7e400df48cf0fd5fa2e04de13cdf",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/first-login-notice/harness-first-50-login-shared-mok-notice.png",
+      "sha256": "0b9c5bf1c0801cfe372bddcf0b3423880b690fcc5cd74e9aef2df2bdcb37a367",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/first-login-notice/n1-later-login-sheet.png",
+      "sha256": "61766601fd6d6cec8b7fd5f606bd8d8fb08c8d23d29a8fdd874d586e3de2d3a6",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/run-2/41-before-desktop.png",
+      "sha256": "78df8615154bf39ac81e5d079929b3e5dea223bf90d128c28af0f7d888f50584",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/run-2/first-login-sheet.png",
+      "sha256": "05d55831d5687372df0297e6def66a7f34347358a34384161a5d01c1ae390e31",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/run-2/second-login-sheet.png",
+      "sha256": "6b5f407bc2b3bafdb8696f326b3ca919b732e6fe3b654f958f4a9e1b31c48329",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/50-after-upgrade-desktop.png",
+      "sha256": "746f8e0ff80d0ab7cf06424eed111292c76a5d27e8bb0cf39fc9b72c338d53fc",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/control-center/01-Guide.png",
+      "sha256": "983bde4fa36f198dfe7835fc680cf4522970922ef74645c7c9fa5aed6dd79567",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/control-center/13-guide-check-again.png",
+      "sha256": "fee109b83eede2ed4a29d65d8e2de2cfe6a243fbb3607c2e94874f0aaf6556ef",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/control-center/pages-sheet.png",
+      "sha256": "6614a2e434516e0c9d49c41ee609245f2e3f49046f96ec5b531c6e1035b5e344",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/keyring-01-sddm-greeter.png",
+      "sha256": "a7ec71d7aa331588f5d94f2d4226cd80411eff1ef5b0774ef2762d63b906ac7e",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/keyring-03-store-no-prompt.png",
+      "sha256": "47caa1a12711ecef106d2a813cfc191c6b9e4a5e899cf52674262ce6cc5f47bf",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/keyring-05-relogin-lookup-no-prompt.png",
+      "sha256": "231a1f65146958de362d1570e0696a114fd85f5bbc8a8abbe3b3c0d7adebd977",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/relogin-contact-sheet.png",
+      "sha256": "371ea07be285797488c7b823b7c20674b8afb051ea72d040aa508b5df129589d",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/welcome-02-menu-opened.png",
+      "sha256": "c50a9d179bb45a9ff2cfc0b5f7a149e8661dbd1b24ea3437aed2342cfaa33816",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/welcome-06-check-this-computer.png",
+      "sha256": "7a546dd149d284c8ff88b176e6907c3d89c5a4b6e2b5693fcd70861e3524d202",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/welcome-15-menu-search-after-setup.png",
+      "sha256": "ae80bb65aa13564f8acd4cd6f0ff875e828733e5316e094b50714b13c02665a3",
+      "approved": true
+    },
+    {
+      "path": "upgrade-5.0.0-2d8a/verify-1/welcome-16-menu-opened-after-setup.png",
+      "sha256": "9944d34ef0623349ebbd24141f89e434284f085b56de2676d372fe78a153d1d3",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/desktop-1366x768.png",
+      "sha256": "86fa43ddbc185c11697f23c53bf2319aecffd620bd52795be62801d9594a3543",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/desktop-1920x1080.png",
+      "sha256": "2956f90e3bf760b1ffb39e448a890c36850b895df24854b755129b550275d0df",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-1366x768.png",
+      "sha256": "83d1ac12ef25c80de0be2f2d5b7363ffaff1197a00e5671c73eedfce73cbaf0a",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-1920x1080.png",
+      "sha256": "0641bb9cb5278d5e5076f3cc57a252ed3817acca8e484e86ba39fe6e67bd96e5",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-help-1366x768.png",
+      "sha256": "87d7638f8fd7f55d335b71e1476cd4d0f622a7f03876318584a91ef8b5d70c66",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-help-1920x1080.png",
+      "sha256": "14c3b3b7ad3a8339fb337f56ec897996dd50f8c1e4326ed483011a3f17f41808",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-help-live-1366x768.png",
+      "sha256": "897c36cd073e68d309ad16d3c588672a696e4ea71275bced9586c0bab803f0f2",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-live-1366x768.png",
+      "sha256": "8d4904bf289ca069a0d33b4cbc754c2d74d98526d81b87bf3d4e381dd0ad5840",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/grok-bot-1366x768.png",
+      "sha256": "9a09e3b1f4688df0d9fb25ef7320b462cb6f5ffb4dfd063ffbe65a8cc376722b",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/grok-bot-1920x1080.png",
+      "sha256": "0b06d8287c5a57bd0c2ff571aac4e74689eccdf9b4a7eec7081f6943888703f7",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/guide-passport-installed-1366x768.png",
+      "sha256": "867f255a0dc3dc6c31e2e3531bdfd9e360a8b643f029961e1d8446e466288c02",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/guide-passport-installed-1920x1080.png",
+      "sha256": "64817d90e95671b6e1b415d6ddac8bea0a67629c28b5b027d866d054cfd1588e",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/guide-passport-installed-scrolled-1920x1080.png",
+      "sha256": "0b65be9468f43b795d1e439f752e942a3989403761df2b8df0ac7594b3dfb600",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/guide-passport-live-1920x1080.png",
+      "sha256": "e67373a0b558913104fb4424dbaef49c068d0c78c8915668e1d085c6a20e80e1",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/guide-passport-report-saved-1366x768.png",
+      "sha256": "336c5b0242a1a18a9739c7d30eb4d50c51c046cc417921aa29f9a8325bc5eaba",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/guide-passport-save-dialog-1366x768.png",
+      "sha256": "f4366ac3503218590eb6e6df2fe4b1852d411f144d1d079d82db8f39600fe00d",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/installer-keyboard-list-selection-1920x1080.png",
+      "sha256": "300613ee6f4f202aa08abc1426cb4d14f0fc97820de3ece21495882ba8865288",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/installer-slide1-1920x1080.png",
+      "sha256": "1576abfd3c40e81d3e246ddc2d3795576db68dee26758d5408a50eb8f5fd5f9e",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/installer-slide2-1920x1080.png",
+      "sha256": "ef0a9241f4c115e94ac8d9f4d708f8fdb089bd52ee8cec45a033d3acadbf7ac1",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/installer-slide3-1920x1080.png",
+      "sha256": "0e65a522c0f2c54ab6126386794e73609369546b531ce5a04c4217d284a1b763",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/installer-welcome-1366x768.png",
+      "sha256": "86e0d4066cf61dd971920170a45c0a2a6b4b9643f4fd3fb273c869435acb6654",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/installer-welcome-1920x1080.png",
+      "sha256": "1118593b0799b3caa7d93d51298fe09362babe0b80b700288c9823d653d2b7e1",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/mission-control-1366x768.png",
+      "sha256": "e2035abfaddc2c60ddbe83c99626923887e0956ddb6abac3693674a46fd046a9",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/mission-control-1920x1080.png",
+      "sha256": "f84ccb49481ee3fc5e2205af6b545066395e4b36d3bfe02931864a3464129b11",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/shadowcode-1366x768.png",
+      "sha256": "094b274d8ec0feabb93e75869ad5ad18abc81eed9600efc8f4910ec0aa8be191",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/shadowcode-1920x1080.png",
+      "sha256": "0f4de5cf9d847b6a069514ebeb30224461d75ad11f4ecca36335db2d4d8139d2",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/shadowcode-first-run-1920x1080.png",
+      "sha256": "2e7dba256c598c62bb13e24e7a76896613e90583a81a5092e10d0330fb05618e",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/shadowcode-unmaximized-1366x768.png",
+      "sha256": "13c2610edc76bfde9f9076591c85e4dc99d24135ecbce479da48fdf1ec2a9ae5",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/underload-1366x768.png",
+      "sha256": "084a5537b0d3108f35feaf4414fea524842b7fc19143b00050daa3dcffb9dab5",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/underload-1920x1080.png",
+      "sha256": "ed3de6b177a1997dbc210e5f75cdcedac5e7c70e5a07e215a08b36ed77e73535",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-1366x768.png",
+      "sha256": "6b942658c5bda2b5fa4d11011e3fe465c3fab66219c6045f5478ab08334142f3",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-1920x1080.png",
+      "sha256": "c124f42b5da8040d8908774a202a097ddd3c68aff563e280992114ae1e60d809",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-agents-radio-checkbox-1920x1080.png",
+      "sha256": "e81af2bf5401f509e21dee6ead1cc2625c3c22163fe000ee41c03482c38e969c",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-allset-no-inbar-percent-1920x1080.png",
+      "sha256": "178ee01c42738bcf03143d402b9ab7cd4ace34fa8f627d5a1c96a061c83e724b",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-ignition-installed-1366x768.png",
+      "sha256": "bd2cb0d0e822fd1b779d13c0e580b1e713413aa30039d16cd5698255961f92cc",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-ignition-installed-1920x1080.png",
+      "sha256": "c7cc34ea3f8abef95c68724961abe0683127a2a5a3a2abfabad6fc0c28d58236",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-ignition-live-1366x768.png",
+      "sha256": "95ef50f5dbd9ab795b3745f681d53a264413ed253c3c2e06f43adf35a33bc565",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-ignition-live-1920x1080.png",
+      "sha256": "c25888414e9fc1f146ae97daf467c02a9498e7631c0e18ab458c41f802e22cec",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-profile-checkbox-1920x1080.png",
+      "sha256": "8f1f7eb0d09f5140ee20cda3aa563517b780f522fa4063a64557f4a07b633a45",
+      "approved": true
+    },
+    {
+      "path": "visual-5.0.0-2d8a72e0/welcome-shadowcode-handoff-1920x1080.png",
+      "sha256": "b1166645777b8e1fbeb56ffda50baa81a8b1a8f60bf017dbd570fca3f3a2ee4f",
+      "approved": true
+    },
+    {
+      "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-bios.png",
+      "sha256": "277b2759b95ebdb3cb4c0ddb7b18308645d5d76d98889a39162db3722aa23e22",
+      "approved": true
+    },
+    {
+      "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-uefi.png",
+      "sha256": "a2844f8885d0640418968fe451c1d8fad2bdc13f206266ba8f2a55830df71977",
+      "approved": true
+    },
+    {
+      "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-desktop.png",
+      "sha256": "43742e93a382ff80d6740b9be88039f249b4d7d4ab1fbaf16750308c4ae4c828",
+      "approved": true
+    },
+    {
+      "path": "vm-acceptance/shadowcode-20260930T203138Z-2d8a72e044e8/shadowcode-window.png",
+      "sha256": "99143e281767e1e816d7fb905f9cad2618f0f7e917551053cee228110c1cea2b",
+      "approved": true
+    },
+    {
+      "path": "vm-acceptance/shadowcode-soak-20260930T204046Z-2d8a72e044e8/shadowcode-soak-window.png",
+      "sha256": "869500a12f46806a3a42a49af5e7e38fc7b946dff1690a594631b99ffd5cc3e8",
+      "approved": true
+    },
+    {
+      "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-after.png",
+      "sha256": "0b9c5bf1c0801cfe372bddcf0b3423880b690fcc5cd74e9aef2df2bdcb37a367",
+      "approved": true
+    }
+  ],
+  "documents": [
+    {
+      "path": "qa/5.0.0/evidence-redactions.md",
+      "sha256": "14c566b42cba36c1b038f859957374faa7294d76e20fe71210a23e3eca9f0455",
+      "approved": true
+    }
+  ]
+}

@@ -79,6 +79,33 @@ class PreReleaseCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PRE_RELEASE_CHECK_PASSED", result.stdout)
 
+    def _third_party(self, tamper: bool = False) -> None:
+        """A republished binary whose source ships as third-party archives."""
+        import hashlib
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        packages = self.root / "repo/dists/umbra/main/binary-amd64/Packages"
+        packages.write_text(packages.read_text() + "Package: shadow-code\nVersion: 1.0.0\n\n")
+        folder = self.root / "repo/pool/third-party-source/shadow-code/1.0.0"
+        folder.mkdir(parents=True)
+        archive = folder / "shadowcode-abc.tar.gz"
+        archive.write_bytes(b"source")
+        digest = hashlib.sha256(b"source").hexdigest()
+        (folder / "SOURCE-SHA256SUMS").write_text(f"{digest}  shadowcode-abc.tar.gz\n")
+        if tamper:
+            archive.write_bytes(b"changed")
+
+    def test_verified_third_party_source_satisfies_the_offer(self) -> None:
+        self._third_party()
+        result = self.check()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("shadow-code 1.0.0 source published as verified third-party archives", result.stdout)
+
+    def test_tampered_third_party_source_still_fails(self) -> None:
+        self._third_party(tamper=True)
+        result = self.check()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no corresponding source in main/source: shadow-code", result.stderr)
+
     def test_tracked_wrangler_state_still_fails(self) -> None:
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         cache = self.root / ".wrangler" / "state.json"

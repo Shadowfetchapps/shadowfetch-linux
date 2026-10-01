@@ -15,7 +15,7 @@
     "signature_path": "shadowfetch-5.0.0-amd64.iso.asc",
     "signing_fingerprint": "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1",
     "evidence_bundle_path": "evidence-bundle-5.0.0.tar.gz",
-    "evidence_bundle_sha256": null,
+    "evidence_bundle_sha256": "f7a95161fc787fe9ef3680c9550850b42e174f8860de51e818c8a54f3b13f260",
     "source_commit": "9587a7ca348e817870baffa9d390754acf331266",
     "source_tree": "2986e02421fc6af1353ce7e7b7695a390c724acf"
   },
@@ -26,9 +26,16 @@
       "area": "src",
       "title": "Source, behavioral tests, linters and secret scans",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "gates/source-gate-2d8a.log",
+          "sha256": "fa28f66c167ad8e014699912ebca8a314eef563b0958dda1823126a54f9a6880",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "source_gate PASSED (make source-gate exit 0, 108 PASS lines) on HEAD 9ce745b, 2026-09-30T16:19-16:30-04:00, host otherwise idle. 9ce745b differs from the ISO's source 9587a7c only in qa/5.0.0/acceptance.json and a renamed draft under tools/qa_5_0_0/upstream/ (neither is in the image). Covers the behavioral/unit test suites and attacks, git whitespace, Python parse, ShellCheck (--severity=warning), desktop-file validation, JSON/XML, gitleaks tree and history, provider manifests, the retired-runtime scan and the optional-agent allowlist."
     },
     {
       "id": "PKG-01",
@@ -36,9 +43,16 @@
       "area": "pkg",
       "title": "Exact binary and corresponding-source package inventory, signed APT and clean installation",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "gates/package-gate-2d8a.log",
+          "sha256": "d4a2a700d8fc6894c9ca671cb4ecf38bcdbb8fe61522434ff235b85aa859a3ad",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "package_gate PASSED (exit 0, tools/release/package_gate.py --version 5.0.0 run directly) against candidate 2d8a72e044e8061b on 2026-09-30T15:35:01-04:00 (finished 15:39:32), inspecting the existing build/ debs and repo/ WITHOUT rebuilding: 'make package-gate' was not used because it rebuilds every package and regenerates repo/. build/*.deb and repo InRelease sha256 unchanged across the run (and across the later iso-gate run); all 19 repo/pool debs byte-identical to build/; ISO-01 ties the ISO's critical helpers to these payloads. Log is the gate's own stdout+stderr, unedited."
     },
     {
       "id": "ISO-01",
@@ -46,9 +60,16 @@
       "area": "iso",
       "title": "Fresh signed BIOS/UEFI ISO, exact embedded 5.0 packages and no credentials",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "gates/iso-gate-2d8a.log",
+          "sha256": "551681bad0071381e7086d7794cbcef483dc3a61e07d63ff758aa249ff489644",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "iso_gate PASSED (exit 0, via make iso-gate) against candidate 2d8a72e044e8061b (4085778432 bytes, built from 9587a7c tree 2986e02) on 2026-09-30T15:39:44-04:00: SHA-256, detached signature (fingerprint 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1), BIOS/UEFI boot structure, 19 exact Shadowfetch packages, 18 critical helpers match freshly built package payloads, no DKMS MOK/snakeoil/SSH host/private keys, no build leaks. Log is the gate's own stdout+stderr, unedited (make's tee copy, byte-identical, at iso/runs/iso-gate-20260930T193944Z.log)."
     },
     {
       "id": "FIRE-01",
@@ -56,9 +77,226 @@
       "area": "fire",
       "title": "Live desktop and Mission Control render and work",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-live-desktop-welcome-1920x1080.png",
+          "sha256": "e3d117033bb7014fcc7938ec6a4406b1d8944d1d3b437cfb7cb419ca6c242a91",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-mission-control-ui-new-mission-1920x1080.png",
+          "sha256": "a4d94fb2ec0f5df1092846366058ec5b21e1f4eff12649513f90f6dad8fb8a4d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-mission-control-ui-mission-review-1920x1080.png",
+          "sha256": "762e7fccb3a4c62e4f188269e9f7d4047c59d090c07fd03b0ef3c42713864cf5",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-mission-control-ui-mission-accepted-1920x1080.png",
+          "sha256": "63c7759d7f8f1866e31c767e44b11ad3fd6b2d153eada06daa57a7397f31f9ff",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-mission-control-1280x768.png",
+          "sha256": "700d0fa9568f72974c021f17a6490e629af68eafd083e1aee4d466f654475407",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-signin-button-codex-1920x1080.png",
+          "sha256": "f65763847ed976ebc689b835891a9e5ed1d49a8f42e13c7e57dc1c903067d990",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-signin-button-claude-hidden-1920x1080.png",
+          "sha256": "dabe5af838ff800cd20535268dbab215bba314669c1d4606e104eef949fa9d47",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-signin-button-localmodel-hidden-1920x1080.png",
+          "sha256": "df5005c07eb91cc3e61f5548260efb30844c5d6d4a6ba1ae7881eaad369effe9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/fire-online-sandbox-network.json",
+          "sha256": "f525bbfd946269dbf9846265acfae6b427bc328e240b98b06f355a73b2ca9e98",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/fire-ui-mission-receipt.json",
+          "sha256": "e2c30b7d2b8ab35d0f896046ea4ca66abb9c2504c5241a85cea2a7fc384e1672",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/fire-ui-mission-events.json",
+          "sha256": "f659796a005f0d7f06b4c143177b08d1b04bce5f8f12131e1a111922486e2382",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/fire-ui-mission-verify.log",
+          "sha256": "c86f5da0af7d524b4720fba7d9c6718717a05e2374c42b267ac0476ca7fb16c0",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "mission-5.0.0-2d8a/mission-acceptance.json",
+          "sha256": "466eb5aad6037fa43911a346c8cef846be03ac737f7f020ac55f4b2212c90d24",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/new-fixes-2d8a.log",
+          "sha256": "16c523b6c8dbd2dd9d145cf35e601bea217cd0caa6245c732784b17f38358c17",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/guide-fix-check.log",
+          "sha256": "8d88afc9054edca5af8fe1e9e8a2434d302aa55520565a82749ba1450d1a2f44",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/guide-01-welcome-check-this-computer-no-mc-1920x1080.png",
+          "sha256": "29f1c69b8eb348e7c6c534ff0769f4d7a210c73fa38eb7b78d4d5594d38139fd",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/guide-04-mission-control-sidebar-guide-report-1920x1080.png",
+          "sha256": "5767f4ee5288f045d4697faf558646a37cb1bb7390bc1e54e235ecef02053e19",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/guide-06-welcome-check-this-computer-with-mc-open-1920x1080.png",
+          "sha256": "e37f57583010ead3778402468f08ed830b943ca299134295dd1b6600031a6d9d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/guide-07-mc-switched-to-guide-by-welcome-1920x1080.png",
+          "sha256": "e8e1e154892484af2a67e862d56d84b5f4f5625dc7aae18afe78382a78429da0",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "live-5.0.0-2d8a/coredumps-end.log",
+          "sha256": "d2e716509d01e97e4217b41f5d8c8b0918d6eb2831a8a88c182b7a1cdf4dc96f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/welcome-menu-entry.log",
+          "sha256": "f6e0c504ed0bc89a75df0f1f8b6e92035246d48050c6b661fbde3682c2fbe3fa",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/welcome-menu-entry-after-wizard-opens-window-1920x1080.png",
+          "sha256": "5797100e9a7101a85221d060355935e0e8ce6488261fe1235d3bbf463b6aa5a2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/firebreak-launcher.log",
+          "sha256": "416718179538811cd97ca38f7b3a7f323115c135d1ac6e72323a1d11f7614e53",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/firebreak-launcher-konsole-help-prompt-1920x1080.png",
+          "sha256": "64928b6359ef7d13414f26e19070a0603f71c2f1b6b581df4ac6168852e32ea1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/firebreak-launcher-konsole-help-scrolled-1920x1080.png",
+          "sha256": "8466c04a555c04ecffd7c0202a4c4d1f7fe126b38cc1c1677ae179cf92897666",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "live-5.0.0-2d8a/live-keyring-secret-service-fire.log",
+          "sha256": "7b57e35b72556924a7058bd345057a7fdb8dac638a434f879970a90a819eaac2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "live-5.0.0-2d8a/live-keyring-store-lookup-no-prompt-1920x1080.png",
+          "sha256": "c82ba188efa4a8853ceba5ecbb5aaa199413c5d58579d8c326c65e6ec50ef4d8",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/fire-mission-control-undone-mission-overview-restored-1920x1080.png",
+          "sha256": "497f2a99fc6c0ada4703e1c3d65bf723b5017d033c0518153f3e840c87313c8b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/welcome-ignition-choose-your-setup-offline-right-now-1920x1080.png",
+          "sha256": "e3d117033bb7014fcc7938ec6a4406b1d8944d1d3b437cfb7cb419ca6c242a91",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "fire-5.0.0-2d8a/cc-sidebar-software-badge-gold-pill-1920x1080.png",
+          "sha256": "2760439f41955dae94b0f7e9d9eb3e56257a23ebc9f13e9a1a6016dd0f3ed459",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "live-5.0.0-2d8a/live-session-lock-wallet-fire2d8a-end.log",
+          "sha256": "68a77d0f72189980f4d67c4ce36d4c8e40f331f1f9cfc65db6f2960132b97f21",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "live-5.0.0-2d8a/live-session-lock-wallet-grok2d8a-end.log",
+          "sha256": "d23bb7d436ebacfac941157f39da755ec06c0efb1cb5a0e2c74c7d239b6ddced",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/guest-identity.txt",
+          "sha256": "d336b5615211cd5fe16befdb02ff1a2aef64c3926f34b0c8fe409fb93ba90195",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/sandbox_audit.py",
+          "sha256": "6c5ddd10d2306f504f6314603deaea0f8e3929a1768d9ab796aff60ad8520a24",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/secret_service_probe.py",
+          "sha256": "929bb0e662764eb4eb5e19781fe2e17f9b36f5e63314830ad950af40c24d76f3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/live_session_check.sh",
+          "sha256": "f8d89aefa7a88b5c44ba3b65d3eccd03e53bd3af01f8eee3d8084f462f55d141",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Live session of the FINAL ISO 2d8a72e0 (QEMU/KVM BIOS, 4 vCPU/6 GiB, throwaway disk, live user 'shadow'), 2026-09-30 19:37-20:01 UTC, agent network ONLINE (sf.agent-network=online). Desktop, Welcome and Mission Control render (1920x1080; Mission Control also at 1280x768 via kscreen-doctor). Mission Control WORKS end to end through its own UI: a media mission was created in the New mission dialog by real pointer/keyboard input (Media export, project 'studio', voice-note.wav, offline connection), executed by the production shadowfetch-missions.service to 'Ready for review' (Results 01-voice-note.wav + exports.json; both receipt artifact SHA-256s re-verified), accepted with 'Accept result' (CLI state completed). Sign-in button follows the provider: Codex CLI shows 'Sign in to Codex CLI (cloud) for missions...', Claude Code and Local model show none. Same session: mission_acceptance 15/15 and fixes_acceptance 19/19 through the production worker. Online posture: sandbox_audit network --expect online 6/6 (firebreak with no --net -> network allow, sandbox reaches the internet). FIXES VERIFIED ON THIS ISO (new-fixes-2d8a.log): (a) Guide: Mission Control -> sidebar Guide runs the check and shows the System Passport report; Welcome 'Check this computer' opens Guide both without Mission Control running (new window) and with it already open (running instance switches to Guide); coredumpctl 'No coredumps found' on both VMs, no Traceback/NameError in the journal. (b) after Ignition + wizard were completed (grok VM), the 'Shadowfetch Welcome' menu entry (Exec shadowfetch-welcome --force) opens the Welcome window from Kickoff and gtk-launch; autostart form stays quiet. (c) Firebreak launcher opens a Konsole that stays open with the firebreak --help text and an interactive prompt. (d) Secret Service CreateItem + SearchItems via python3-secretstorage with no Unlock call and no dialog/prompter. (e) undone mission Overview says 'Restored' (no 'Retry or Undo'); Ignition shows 'Choose your setup' and 'Offline right now?'; Software sidebar badge is a gold pill (RGB 242,179,61, '44'). (f) Autolock=false/LockOnResume=false, ScreenSaver inactive, LockedHint no at 6 and 24 min; live kwalletrc Enabled=false, no kwalletd/ksecretd, no KWallet prompt. Observations, not defects: Wayland focus-stealing prevention leaves an already-open Mission Control and the Firebreak Konsole behind Welcome; the Software badge appears on the first 60 s refresh. Harness: evidence/qa-harness-5.0.0-2d8a (hashes in guest-identity.txt). Supplementary images kept in the evidence directory but not bundled (the bundle accepts only full-frame captures of at least 1280x720): fire-5.0.0-2d8a/cc-sidebar-software-badge-gold-pill-zoom.png (864x160)."
     },
     {
       "id": "ICE-01",
@@ -66,9 +304,64 @@
       "area": "ice",
       "title": "Offline agent network: task network isolation and offline media/workspaces",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "ice-5.0.0-2d8a/ice-offline-sandbox-network.json",
+          "sha256": "7d4d7f6e66bc4841a405d56bce29b3f25fe1790518f9d013652d174cff9046b2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "ice-5.0.0-2d8a/engine-acceptance-offline.json",
+          "sha256": "a85a461d169dfb80c59cd4142860496a6a6561e51f0cff4bb94f43055c18e648",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "ice-5.0.0-2d8a/agent-network-set-offline.log",
+          "sha256": "d30090b044b219aead192ad64c509d6b3be75526f1126405f2637ca20a3475a2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "ice-5.0.0-2d8a/ice-offline-agents-paused-1920x1080.png",
+          "sha256": "1a99666f9740c1f158f61612839469673147ae9640776cd70520bd1cd6a0de20",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "ice-5.0.0-2d8a/ice-offline-agents-paused-1280x768.png",
+          "sha256": "9cd960cf3d07fd46e6fe06b1830cb77de80c1ab8cf4e23773da9db523a68cfb3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "durable-5.0.0-2d8a/offline-chain-run.log",
+          "sha256": "61ce4a4b4d7fcfa3e9ce0ded0df0b006b66f27b253c16fca766af3ee4646f262",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/sandbox_audit.py",
+          "sha256": "6c5ddd10d2306f504f6314603deaea0f8e3929a1768d9ab796aff60ad8520a24",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/engine_acceptance.py",
+          "sha256": "edd5879da4e2f420e4b314663c1c01718876bf85ef42f2e59d85c3655926ff1e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/guest-identity.txt",
+          "sha256": "d336b5615211cd5fe16befdb02ff1a2aef64c3926f34b0c8fe409fb93ba90195",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Agent-network offline mode on the FINAL ISO 2d8a72e0 live session (VM fire2d8a, same VM as FIRE-01), after 'shadowfetch-agent-network set offline' as the desktop user (status: offline from ~/.config/shadowfetch/agent-network; firebreak defaults to --net none; cloud agents paused). Task network isolation: sandbox_audit network --expect offline 8/8 - a real shadowfetch-firebreak run with NO --net flag records network_requested null / network_effective none; inside the sandbox no DNS, no TCP by name or by IP, only 'lo'; enforcement report network 'enforced' (unshare-net). The identical probe in online mode reached the internet (FIRE-01, 6/6), so the setting is what changed the posture. Offline media/workspaces: engine_acceptance.py 19/19 PASS under offline mode (real ffmpeg media_export missions network=none, receipts hash-verified, diff, undo incl. newer-file refusal, invalid media fails with a receipt, bounded retry, scope refusals, running-sandbox cancel, 24 concurrent CLI writes). UI: Mission Control's Hermes & OpenClaw page reports 'The agent network is offline: setup, update and launch are paused.' with Install/Check for update/Open disabled at 1920x1080 and 1280x768 (the open page picked the change up on its 60 s status refresh). Run order/timestamps: offline-chain-run.log."
     },
     {
       "id": "INSTALL-01",
@@ -76,9 +369,76 @@
       "area": "install",
       "title": "Fresh BIOS and UEFI Calamares installs boot from disk",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-provenance.json",
+          "sha256": "343c3d362f48547d252576d8b4ed3a41c8e37a59d0c8ed5a0096e8c00e932afe",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-bios-base.json",
+          "sha256": "e2184fb005e094bb1d855656da6b05c8fa5dc4bb9c1ce89fdd8f8bac3b800f71",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-bios-installed-report.json",
+          "sha256": "fe2e5fa21cc927edd08e48b4bca326488ef714e8222d633c9cedbf2e1ed689fd",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-bios.png",
+          "sha256": "277b2759b95ebdb3cb4c0ddb7b18308645d5d76d98889a39162db3722aa23e22",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-bios-qemu.log",
+          "sha256": "64f90c6d3c903bafc1323256433bcc6fd7471194033a7580f62a3bb4aa5d052c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-uefi-base.json",
+          "sha256": "a6bf3f9e2ace344786e42fa725130feb963e4d51b86188efebb11a882049fb0f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-uefi-installed-report.json",
+          "sha256": "6cb7617f1a7c5369188bb767ec33d8394cd4467d4b0a856684a189aafc3c4432",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-uefi.png",
+          "sha256": "a2844f8885d0640418968fe451c1d8fad2bdc13f206266ba8f2a55830df71977",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-uefi-serial.log",
+          "sha256": "eb0d009974d15758629cf181d8f99c99c34025a389bb97ec7b474710719ac112",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-uefi-qemu.log",
+          "sha256": "f7b187f5aa4d60168a5d505918a306ad8d5745cb25bb99740393a66d94e28165",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/install-both-firmwares-20260930T195620Z-2d8a72e044e8/install-both-firmwares-transcript.log",
+          "sha256": "129898baaae57abe1e4f11cc59ca12260fe10ce6bef1186205fec333bca60577",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Recorded by tools/acceptance/vm_acceptance.py run --case install-both-firmwares (run install-both-firmwares-20260930T195620Z-2d8a72e044e8, receipt 398e832158d3ae90, harness 52c702996ba78dfc) against shadowfetch-5.0.0-amd64.iso sha256 2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21. 16 checks evaluated against the running machine."
     },
     {
       "id": "UPGRADE-01",
@@ -86,9 +446,446 @@
       "area": "upgrade",
       "title": "Existing 4.1 systems (published ISO, updated from the published APT suite) upgrade to 5.0 with preserved user data and working recovery",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "waived",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/UPGRADE-01-summary.txt",
+          "sha256": "0a9b9e3bfc12a3bdbba0ead992e85aa7d6f519c593140acab08654fbb1caaefe",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/served-repo-check.txt",
+          "sha256": "49e8ce65e61d8fe72ae9f515432976c8cdace35e841c0faadfff8646cdf7bbf0",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/iso-sha256.txt",
+          "sha256": "c6b3d5647d10ce246e0d5cfce9900a17f15c17ea4f38c17a24db41e9653f92f3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/base-stat-before.txt",
+          "sha256": "afe4956a788c5ad95bcca784c9a850995e9495e804a815d2b4d15312cea2cd9b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/base-stat-after.txt",
+          "sha256": "afe4956a788c5ad95bcca784c9a850995e9495e804a815d2b4d15312cea2cd9b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/refresh-local-index.log",
+          "sha256": "94b9507b8b733fed657d414d2dca745ee15993b3eeb42f2ea33e92ec13a452ab",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/41-pam-before.txt",
+          "sha256": "013e8b6c3c592ec463417c3b757f72c97a574b3c68836a3cccac921867710984",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/harness-upgrade-case.log",
+          "sha256": "080252732f0f7d3d50df723ccf022be5f77906c049c2538f113e1c5ed5b6d5c1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/harness-receipt.json",
+          "sha256": "77a57aa39a088f99c26a9df5df2734110e008a82f2efc372fd5bbed749dc468c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify_upgrade_u01.sh",
+          "sha256": "fe3b688f09078944ff20301ed149333d51392609debd6b2468d78b22e77d7d39",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/extra_checks.sh",
+          "sha256": "c9275ce8ecc5d3f87e924c537c3f1e72a6ac8984de9059fd03e4e61759006c62",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/login_shots.sh",
+          "sha256": "c9aaa140f3dbf1961ca60baa5e7f34f9c18c05d81edd2669482cf468b93090a4",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/keyring_probe.py",
+          "sha256": "23dea3dd9d1f9329d49e5e8a01e59e5f17ca21b1fdea3f1c135bea1f29a56cf2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/repo-server-access.log",
+          "sha256": "321c4c91e99c08df29d5cdc40cbee8ec6080247dbfbe63c844b28b18af628aa0",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/checks.txt",
+          "sha256": "8b4383c93b3d9ee46dc1ee2b35cfd9572f05138c5de283ae80fb429b278cadbd",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/verify.log",
+          "sha256": "429ac577500f35971902cad1bcd7c948438110160e858d4565b3b526afbc4c4d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/look.txt",
+          "sha256": "267ca58dbb964c0f893113dc7eee25da27ab2ca8400b2c149795669648ce781c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/50-after-upgrade-desktop.png",
+          "sha256": "746f8e0ff80d0ab7cf06424eed111292c76a5d27e8bb0cf39fc9b72c338d53fc",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/extra-checks.txt",
+          "sha256": "c3928b425d8340acef70b204950504883f5b66407df467bbc29ee12c97cfa8b1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/look-selection.txt",
+          "sha256": "e9bac93674439d6b43777d79db16694ced4ca3b2ac1d73da9f0ce0749d37f7f7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/doctor-dkms_mok.txt",
+          "sha256": "651557456b9592386235150243a1e3789fd136935f2d025c972e33da5588eba7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/agent-network.txt",
+          "sha256": "b0b6d2232ec3196d4ea9e5d4f85e3a69b4cef3d8217a89b0fbc800903706363c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/retired-launchers.txt",
+          "sha256": "7e69589aba1bf1a7c9b8f77500c78ee64130617a801e128f4322bc5f689cd591",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/shadowcode.txt",
+          "sha256": "98bef8499d7d986bf35f9e789272f88c07523fc84b48af77373ca4fb104824c2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/control-center/pages.txt",
+          "sha256": "6ab695aab790e39ad3c46afd2006ee726084cecd27b830a0aabd7901b54f185b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/control-center/pages-stderr-note.txt",
+          "sha256": "0d7024802d8641a27b3ec1729c8f2ca5a3c352bc9aab0d3fc8fca1f52b1605ac",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/control-center/pages-sheet.png",
+          "sha256": "6614a2e434516e0c9d49c41ee609245f2e3f49046f96ec5b531c6e1035b5e344",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/control-center/01-Guide.png",
+          "sha256": "983bde4fa36f198dfe7835fc680cf4522970922ef74645c7c9fa5aed6dd79567",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/control-center/13-guide-check-again.png",
+          "sha256": "fee109b83eede2ed4a29d65d8e2de2cfe6a243fbb3607c2e94874f0aaf6556ef",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/welcome-menu.txt",
+          "sha256": "047ee0d5d1aaf20cbc1347802dbcc192378b1b7c4bf5f7ecf1823944bc819f98",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/welcome-02-menu-opened.png",
+          "sha256": "c50a9d179bb45a9ff2cfc0b5f7a149e8661dbd1b24ea3437aed2342cfaa33816",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/welcome-06-check-this-computer.png",
+          "sha256": "7a546dd149d284c8ff88b176e6907c3d89c5a4b6e2b5693fcd70861e3524d202",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/welcome-15-menu-search-after-setup.png",
+          "sha256": "ae80bb65aa13564f8acd4cd6f0ff875e828733e5316e094b50714b13c02665a3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/welcome-16-menu-opened-after-setup.png",
+          "sha256": "9944d34ef0623349ebbd24141f89e434284f085b56de2676d372fe78a153d1d3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/relogin-stamps.txt",
+          "sha256": "3e61839e82d9d7fb3f209f42f391c1065a699c5185400755e336692a831e0514",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/relogin-contact-sheet.png",
+          "sha256": "371ea07be285797488c7b823b7c20674b8afb051ea72d040aa508b5df129589d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/notice-rerun-dbus.txt",
+          "sha256": "01563147e82c94309aeae3025c7def4c00b1cd62fa5e45d4d72b37460715b420",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/keyring-setup.txt",
+          "sha256": "356ef2db0a4cbcf4c891ab022dd3192ab6f8930c2af1d8243c2d69ccb8690ef7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/keyring-01-sddm-greeter.png",
+          "sha256": "a7ec71d7aa331588f5d94f2d4226cd80411eff1ef5b0774ef2762d63b906ac7e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/keyring-probe.txt",
+          "sha256": "b8eabcf350fab54f5a3410e1c4554b3d19a111a0fe71f9f6504774f1eeb12b46",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/keyring-03-store-no-prompt.png",
+          "sha256": "47caa1a12711ecef106d2a813cfc191c6b9e4a5e899cf52674262ce6cc5f47bf",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/verify-1/keyring-probe-relogin.txt",
+          "sha256": "db105f73219be32a1714f71f4c544c4b69faa2096e3e71c657a85ee573f7c98f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/verify-1/keyring-05-relogin-lookup-no-prompt.png",
+          "sha256": "231a1f65146958de362d1570e0696a114fd85f5bbc8a8abbe3b3c0d7adebd977",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/first-login-notice/harness-first-50-login-shared-mok-notice.png",
+          "sha256": "0b9c5bf1c0801cfe372bddcf0b3423880b690fcc5cd74e9aef2df2bdcb37a367",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/first-login-notice/stamp-and-journal.txt",
+          "sha256": "22652426a7d5652dcf0820f7097b62776ec4521fb4e2be2c3069615e4ced0795",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/first-login-notice/n1-later-login-sheet.png",
+          "sha256": "61766601fd6d6cec8b7fd5f606bd8d8fb08c8d23d29a8fdd874d586e3de2d3a6",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/run-2/41-before-desktop.png",
+          "sha256": "78df8615154bf39ac81e5d079929b3e5dea223bf90d128c28af0f7d888f50584",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/41-before-state.txt",
+          "sha256": "9d9ba37cb2d10935b5032c0edc2037c981803650d476cbaed23a0a9704493f21",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/41-seeded-launchers.txt",
+          "sha256": "0c69e90af351cc6fc49543a044806b8b1302b1fd20cbcf2cd8919b6af6676008",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/seed_41.sh",
+          "sha256": "2a76e19d69b04954413977b409607a6161d721293b50b3ec4efbd77dc48b0913",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/manifest.sh",
+          "sha256": "a0d9bff6f05d160867f7665edcb8ad7b20dd2df0b0acb55f5de1266a9068781d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/upgrade-apt.log",
+          "sha256": "fc415b6c2664e4f1250ef542f63e0a687069801ba564bb47cc1fd29f6b7f1d9e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/after-upgrade-system.txt",
+          "sha256": "2181ac17e7b73c84d35515df68ecb18af5ad35e7f3bada6e5ffdc0dbf4173ac1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/journal-first-login.txt",
+          "sha256": "3ad6152ba9c18c04dea8ab2dbcf32c1430f2fe8e1fb75408b22d0557fcb61773",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/run-2/first-login-sheet.png",
+          "sha256": "05d55831d5687372df0297e6def66a7f34347358a34384161a5d01c1ae390e31",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/extra-checks.txt",
+          "sha256": "c3928b425d8340acef70b204950504883f5b66407df467bbc29ee12c97cfa8b1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/look-selection.txt",
+          "sha256": "92f0dd51bf192075672ff6ca8a3d9b66113d5abf58ee6826e53bea93c4436029",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/doctor-dkms_mok.txt",
+          "sha256": "651557456b9592386235150243a1e3789fd136935f2d025c972e33da5588eba7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/50-launchers.txt",
+          "sha256": "749e8cec08d87691eae3e1ee57cd0075b8bc752190bd7bf91ec8ca176ca384bf",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/home-manifest-before.txt",
+          "sha256": "bdf0b4a13529de2c848cbb386453a2b334d9b930a9b486a08fcc017142b864d2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/home-manifest-after.txt",
+          "sha256": "bdf0b4a13529de2c848cbb386453a2b334d9b930a9b486a08fcc017142b864d2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/user-data-check.txt",
+          "sha256": "0421ec7346fd17be198230ce66296936a4aa61c0c942ad4ec69b3e6776979bd0",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/notice-stamp-before-relogin.txt",
+          "sha256": "635d36f6d5f25ba0f03d8391952571f82c6621aa91d92fc9a959c248dda0b79e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-5.0.0-2d8a/run-2/notice-stamp-after-relogin.txt",
+          "sha256": "61c881374576a9803eddea635668dc54df79e0cf456a63a0f84b036fb517af62",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-5.0.0-2d8a/run-2/second-login-sheet.png",
+          "sha256": "6b5f407bc2b3bafdb8696f326b3ca919b732e6fe3b654f958f4a9e1b31c48329",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-after.json",
+          "sha256": "d21de693466a0f6f0c83c4dd35249ebf4c46e2db3a86d8e1a393c81e0001cb4f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-after.png",
+          "sha256": "0b9c5bf1c0801cfe372bddcf0b3423880b690fcc5cd74e9aef2df2bdcb37a367",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-apt.log",
+          "sha256": "5a0a9075d68417c5826876314147e3cbd2af246c80e4acf2a2e433ca4ea43641",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-base-provenance.json",
+          "sha256": "fdbf25d8497fee20725ed1d89b217b8be7f6c32154d2aa7b587dba412220f308",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-before.json",
+          "sha256": "6efe4194dd41290fc5dca3cc2f10a271a9554dcd70f4a13eac98bfac84276639",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-qemu.log",
+          "sha256": "d74de9831cf839ffaba53914439376a5080d2ab7f04dcd35f883d90429d4fc52",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/upgrade-20260930T193737Z-2d8a72e044e8/upgrade-transcript.log",
+          "sha256": "3217f661dc3ad594b1d3a95c44733628a14ca47ab027b8d63498380bf35ce411",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Upgrade 4.1.0 (Ice install, updated from the published suite) -> 5.0.0 with repo/ rebuilt from 9587a7c (all 19 pool debs byte-identical to build/; shadowfetch-defaults carries the pam-configs profile; served control-center has the busutil fix; served Welcome menu entry runs --force), on artifact 2d8a72e0, same method as a83d7d8a. Harness upgrade case run upgrade-20260930T193737Z-2d8a72e044e8 PASSED 7/7 (apt exit 0, no removals, 5.0.0, user data byte-identical, machine-id kept, dpkg clean, running) but refused to record only because of its recovery-leg manifest_gap. Independently verified on the harness-upgraded disk and a separate manual upgrade: verify_upgrade.sh 14/14; extra checks 19/19 on both (look-migrate shadowcode-2 and gold Selection; doctor sec.dkms_mok FAILs on the shared 4.1.0 MOK; element ice -> agent-network offline; Buzz/codex/code-agent files and seeded launchers gone, user launcher kept; shadow-code 1.0.0). Shared-MOK notice shown once: on screen at the first 5.0 login (harness screenshot), stamp shown, and absent at every later login (screenshots, unchanged stamp, 0 Notify on re-run with a positive control). 23 user files sha256-identical. common-session gains 'session optional pam_gnome_keyring.so auto_start'; after a typed password login at SDDM gkr-pam unlocks the login keyring and a python3-secretstorage CreateItem (no Unlock) + SearchItems works with no prompt, also after a reboot and second password login. NEW on 2d8a: Control Center -> Guide renders the System Passport (a83d NameError fixed) and every sidebar page (Guide, ShadowCode, Grok Bot, Hermes & OpenClaw, Workbench, Ignite, Watch, Recover, Workspaces, Drivers, Software, Mission Control) opened with 0 tracebacks; the Shadowfetch Welcome menu entry opens the Welcome window both before and after setup was completed (welcome-completed written via the UI; autostart then stays quiet); Welcome 'Check this computer' opens the Guide without a crash. Everything passed on 2d8a72e0; ONLY the recovery leg (Phoenix Point restore on the upgraded system) is unproven, because of the harness gap. No defects found. See upgrade-5.0.0-2d8a/UPGRADE-01-summary.txt. Supplementary images kept in the evidence directory but not bundled (the bundle accepts only full-frame captures of at least 1280x720): upgrade-5.0.0-2d8a/first-login-notice/shared-mok-notice-crop.png (340x280).",
+      "waiver": {
+        "approver": "release owner",
+        "reason": "Recovery leg not exercised: the harness upgrade case has a manifest_gap (it does not restore a Phoenix Point on the upgraded system). Everything else in UPGRADE-01 passed on 2d8a72e0, including the Control Center Guide page and the Welcome menu entry."
+      }
     },
     {
       "id": "SHADOWCODE-01",
@@ -96,9 +893,74 @@
       "area": "shadowcode",
       "title": "Pinned ShadowCode is installed, launches in the live session and survives an open/close soak",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "waived",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "vm-acceptance/shadowcode-20260930T203138Z-2d8a72e044e8/shadowcode-installed.json",
+          "sha256": "f7b5402f4169396e9b20865ce360b59bb3147197d7cc1a64c6f4c2eddd932a15",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/shadowcode-20260930T203138Z-2d8a72e044e8/shadowcode-transcript.log",
+          "sha256": "68860f249589186fe1c5fbb99a2d17fad0dd48c5fad97ee56a808b571c90ba35",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/shadowcode-20260930T203138Z-2d8a72e044e8/shadowcode-samples.json",
+          "sha256": "3a4bb7819b0971ef315929554036eff5798975e1477609026def40208b528f57",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "vm-acceptance/shadowcode-20260930T203138Z-2d8a72e044e8/shadowcode-window.png",
+          "sha256": "99143e281767e1e816d7fb905f9cad2618f0f7e917551053cee228110c1cea2b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/shadowcode-soak-20260930T204046Z-2d8a72e044e8/shadowcode-soak-cycles.json",
+          "sha256": "eacb93a77d2a1b82bb69f8837adb1f02cc33063d6217f6c4be9f8fc02e4dc213",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/shadowcode-soak-20260930T204046Z-2d8a72e044e8/shadowcode-soak-transcript.log",
+          "sha256": "2cec2b1e97bbf391969deef4ff64e7f624ef772e7e6272ae7d66a26a8b3fed40",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/shadowcode-soak-20260930T204046Z-2d8a72e044e8/shadowcode-soak-crash-scan.log",
+          "sha256": "a552c80aca25b973134c284979126507a285ac51ba165c3d8302715e2ab77bca",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "vm-acceptance/shadowcode-soak-20260930T204046Z-2d8a72e044e8/shadowcode-soak-window.png",
+          "sha256": "869500a12f46806a3a42a49af5e7e38fc7b946dff1690a594631b99ffd5cc3e8",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "shadowcode-soak-diag-2d8a/sc-diag.tgz",
+          "sha256": "b144ccfccc645c097079f27c8fbc87e79f3beebc3cb6eac4d8d63b169de9fd7c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "shadowcode-soak-diag-2d8a/sc_diag.sh",
+          "sha256": "33cd03c639a195b1590000be18e7cf8c9fccecba71c3e4c81b9e1726e46505c7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "On ISO 2d8a72e0: case shadowcode PASS (pinned 1.0.0, bundled llama-server/llama-cli report 18f9f7bef, window up 5 min, clean exit, no leftovers). shadowcode-soak 24 cycles: every cycle opened a window and closed cleanly (no SIGKILL, no failed unit), no leftover process, 0 crashes, screen never locked, idle CPU 1.6-6.0% (limit 50%). FAILED only 'available memory after close does not drift down by more than 256 MiB': 680.5 MiB = 87 MiB warm-up + one ~476 MiB step at cycle 4 + 118 MiB noise; the unit's own MemoryCurrent stayed flat (~176-180 MiB) through the step. Diagnostic rerun (sc-diag.tgz): packagekit refresh-cache at ~344 s after the notifier armed its 300 s timer; /var/lib/apt 0.2->207 MB, /var/cache 28->123 MB, Shmem 196->550 MB; ShadowCode home dirs flat after cycle 1. Separately, idle CPU and unit memory peak rise per launch because the window grows ~+52x+99 px per launch on Wayland (tauri-plugin-window-state restores a size including client-side decorations); known issue for 5.0.0 with a maximize workaround, fixed in ShadowCode 1.0.1 (5.0.1). Not proven: a passing memory-drift check on this ISO.",
+      "waiver": {
+        "approver": "release owner",
+        "reason": "Release owner chose to ship 5.0.0 on ISO 2d8a72e0 and deliver fixes in 5.0.1 (2026-09-30). The soak failed only its memory-drift check, which a diagnostic rerun attributes to a one-time PackageKit refresh started by the Discover notifier ~300 s after login (~350 MB of apt lists written to the live RAM overlay), not to ShadowCode; and ShadowCode 1.0.0's window grows on each launch under Wayland (window-state plugin restores a CSD-inflated size), fixed in ShadowCode 1.0.1 for 5.0.1."
+      }
     },
     {
       "id": "MISSION-01",
@@ -106,9 +968,74 @@
       "area": "mission",
       "title": "Real code, cited document and media missions complete with validated artifacts",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "waived",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "mission-5.0.0-2d8a/mission-acceptance.json",
+          "sha256": "466eb5aad6037fa43911a346c8cef846be03ac737f7f020ac55f4b2212c90d24",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "mission-5.0.0-2d8a/mission-fixes-acceptance.json",
+          "sha256": "b6d19ae47ef3c2e48b6e2a9215eb5ec8101cedbd1dec2792d4c6d608c04b31e9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "mission-5.0.0-2d8a/localmodel-cited-report.md",
+          "sha256": "5c7e80391c67545809a0b5130a73cac9080b0526b3a9aa7aba426d330dc8bdd2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "mission-5.0.0-2d8a/qa-model-relay.log",
+          "sha256": "a1ef1a490005c2bed2e5ff5311238d6da5c86c2f6a843064a5e7f7ca08c86695",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/fire-ui-mission-receipt.json",
+          "sha256": "e2c30b7d2b8ab35d0f896046ea4ca66abb9c2504c5241a85cea2a7fc384e1672",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "fire-5.0.0-2d8a/fire-ui-mission-verify.log",
+          "sha256": "c86f5da0af7d524b4720fba7d9c6718717a05e2374c42b267ac0476ca7fb16c0",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/mission_acceptance.py",
+          "sha256": "b54791f16dfb335545c1eae723e4ea2710a64617d8e211f767c478ea75a14fd0",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/fixes_acceptance.py",
+          "sha256": "4bcd579b2aeaf88e4061f34ae6ebc3da36e1dcce73eb5506d4d5a1e2e466fb6a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/model_relay.py",
+          "sha256": "99f6fb4e0d1112141873470408d599cd260a561922a01f2b8e6c619f386c9ff2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/guest-identity.txt",
+          "sha256": "d336b5615211cd5fe16befdb02ff1a2aef64c3926f34b0c8fe409fb93ba90195",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "WAIVED (code sub-part only). PROVEN on the FINAL ISO 2d8a72e0 live session (VM fire2d8a): mission_acceptance.py 15/15 through the PRODUCTION shadowfetch-missions.service. (a) MEDIA - offline-media (real ffmpeg, network none) to review, receipt SHA-256/sizes re-verified, output independently probed 48 kHz PCM and fully decoded, source untouched, accepted; plus a Mission Control UI-created media mission (FIRE-01, both artifact hashes re-verified). (b) CITED DOCUMENT - localmodel sourced_report with REAL inference: a user-supplied local model service (Qwen3-4B-Instruct Q6_K, no account) on the QA host, exposed at /var/lib/shadowfetch/localmodel/model.sock by a labelled QA relay (qa-model-relay.log, one model only, 2 chat calls); sandbox network none, no credentials, sole read grant the socket directory; 7 citations over both sources, all independently re-validated in range; source register hashes = files; accepted. RE-VERIFIED FIXES (fixes_acceptance.py 19/19): report provenance reads 'Generated by Local model (on-device) with no network access permitted, using model hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q6_K' (no Codex / network claim); the receipt's inference record carries model = requested model (model_requested and model_reported set; model_selection 'Requested ...; confirmed by Local model (on-device)'); an interrupted mission's partial export is removed on recovery and Undo is performed (see DURABLE-01). NOT PROVEN: (c) CODE - codex and claude need a paid cloud account/API key (not exercised with real credentials by policy); the localmodel bridge is chat-only - the observed localmodel code mission ran a real turn, left calc.py unchanged and failed on the real unit test (observations.code_localmodel, state failed), so no provider on this ISO completed a code mission without a paid account.",
+      "waiver": {
+        "approver": "release owner",
+        "reason": "The code sub-part needs a paid vendor account (Codex or Claude) that release QA does not exercise; media and cited-report sub-parts and the provenance/model/interruption fixes were proven on the final ISO 2d8a72e0."
+      }
     },
     {
       "id": "DURABLE-01",
@@ -116,9 +1043,70 @@
       "area": "durable",
       "title": "Cancellation, retry, interrupted service recovery and no duplicated side effects",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "durable-5.0.0-2d8a/durable-worker-acceptance.json",
+          "sha256": "e312e937fbbe618be8416847968d9c72902269b2beeb74fa6f230e863dbbac09",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "durable-5.0.0-2d8a/durable-service-interruption.json",
+          "sha256": "ede15e67e73c776b46aa5e0bbb013c6aad72cc58845290b5db3e7110118a53d7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "durable-5.0.0-2d8a/retry-budget-real-runs.log",
+          "sha256": "7e1c89e34a2fdf543351a38b8e1a0076f412376cf3e58186f08f7eb66e1c4f9c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "durable-5.0.0-2d8a/offline-chain-run.log",
+          "sha256": "61ce4a4b4d7fcfa3e9ce0ded0df0b006b66f27b253c16fca766af3ee4646f262",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "ice-5.0.0-2d8a/engine-acceptance-offline.json",
+          "sha256": "a85a461d169dfb80c59cd4142860496a6a6561e51f0cff4bb94f43055c18e648",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "mission-5.0.0-2d8a/mission-fixes-acceptance.json",
+          "sha256": "b6d19ae47ef3c2e48b6e2a9215eb5ec8101cedbd1dec2792d4c6d608c04b31e9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/durable_service.py",
+          "sha256": "5c00fbc18ef4256dc2dcfa23893ebd3008d1031e49a872d128a99a7de4a91550",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/durable_worker_acceptance.py",
+          "sha256": "9e98253e7743bfb5e914b4c3c01663c9556a3711aa0aad1beeb3aa8c5f6d663f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/fixes_acceptance.py",
+          "sha256": "4bcd579b2aeaf88e4061f34ae6ebc3da36e1dcce73eb5506d4d5a1e2e466fb6a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/guest-identity.txt",
+          "sha256": "d336b5615211cd5fe16befdb02ff1a2aef64c3926f34b0c8fe409fb93ba90195",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "FINAL ISO 2d8a72e0 live session (VM fire2d8a), agent network offline for (1)-(3), real processes only. (1) durable_worker_acceptance.py 9/9: production unit kernel limits (pids.max 128, memory.max 4 GiB, cpu.max 200%); a private real worker SIGKILLed inside checkpoint preparation; fresh workers record the mission failed, no automatic replay, source byte-identical, no output; required-checkpoint storage failure refuses execution with a failed receipt; per-scope firebreak cgroup limits; production worker PID unchanged (3742). (2) durable_service.py 15/15: SIGKILL to the whole PRODUCTION shadowfetch-missions.service while its sandboxed ffmpeg export was running; systemd restarted it (NRestarts 1->2, PID 3742->5377); the mission is failed/'no automatic replay'; the sandbox died with the service; mission-output EMPTY right after recovery and 40 s later; explicit retry ran once (attempt 2) and published exactly ONE H.264/AAC export matching its receipt; exactly two executions in the event history; undo removed it; audit chain verifies. (3) engine_acceptance 19/19: queued cancel persists, running-sandbox cancel bounded, cancelled work never auto-replayed, bounded retry. (4) fixes_acceptance.py interrupt leg (online, same session): SIGKILL of the production service mid-export with NO retry - the 01-clip.partial.mp4 is removed on recovery (partial-output-discarded), the error offers Retry or Undo, review --decision undo is PERFORMED (state undone, workspace back to clip.mov + notes.txt, source byte-identical); one execution only; audit chain verifies. (5) RE-VERIFIED FIX 9587a7c (retry budget counts real runs; a83d refused the 3rd cancel/retry of a never-run mission): with the worker stopped, a queued mission was cancelled and explicitly retried 4 times - every retry accepted (attempt stays 0), then after the worker restarted it ran exactly once as attempt 1 to review and was accepted (retry-budget-real-runs.log)."
     },
     {
       "id": "SCOPE-01",
@@ -126,9 +1114,40 @@
       "area": "scope",
       "title": "Private home, file/network scope, credential separation and required checkpoint failure behavior",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "scope-5.0.0-2d8a/scope-audit.json",
+          "sha256": "e0ba742cb01a45c87f88ed48e6be7ecc5614542590de03be3a8b984387eb4928",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "ice-5.0.0-2d8a/engine-acceptance-offline.json",
+          "sha256": "a85a461d169dfb80c59cd4142860496a6a6561e51f0cff4bb94f43055c18e648",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "durable-5.0.0-2d8a/durable-worker-acceptance.json",
+          "sha256": "e312e937fbbe618be8416847968d9c72902269b2beeb74fa6f230e863dbbac09",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/sandbox_audit.py",
+          "sha256": "6c5ddd10d2306f504f6314603deaea0f8e3929a1768d9ab796aff60ad8520a24",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/guest-identity.txt",
+          "sha256": "d336b5615211cd5fe16befdb02ff1a2aef64c3926f34b0c8fe409fb93ba90195",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Sandbox scope on the FINAL ISO 2d8a72e0 live session (VM fire2d8a, agent network offline), all real, no mocks. sandbox_audit scope 14/14: real shadowfetch-firebreak with --net none + one --read grant + one --credential-env grant. Private home (HOME=/home/agent; the launcher's real ~/.bashrc unreadable); file scope (granted file readable, an ungranted sentinel in the real home not); credential separation (only the granted ANTHROPIC_API_KEY reaches the sandbox, exact value checked by SHA-256 - a generated test value, never a real key, never written to evidence; a second launcher credential and a plain env var do not); no egress (no DNS/TCP). Firebreak enforcement report: private_home, credentials, network, read_grants all enforced. engine_acceptance 19/19 adds ../outside, /etc/passwd and symlink-escape input refusal; durable_worker_acceptance 9/9 adds required-checkpoint failure: an obstructed checkpoint store refuses execution with a failed, chained receipt, no inference, no artifacts, source intact."
     },
     {
       "id": "GROK-01",
@@ -136,9 +1155,74 @@
       "area": "grok",
       "title": "Official Grok Bot package integrity, installation, native launch, callback registration and observed account boundary",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "waived",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "grok-5.0.0-2d8a/grok-integrity.log",
+          "sha256": "d3952de557472691803a3d55dc51af26839a6ae8e3b375454918fab6a229697c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "grok-5.0.0-2d8a/grok-launch.log",
+          "sha256": "d9ec8712563fdf03ad848d0260638c3690241ead2cb984dd34926f33e823c51b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "grok-5.0.0-2d8a/grok-url-handler.log",
+          "sha256": "05559a1dc5a07643f1289bb7ff564e2c59ab99f14ee23477ab7b292a3e8c475a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "grok-5.0.0-2d8a/grok-bot-native-signin-1920x1080.png",
+          "sha256": "12a8725015f754926c754d761b26e9fac6e41a238c41f545d0f5004b40b6a413",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "grok-5.0.0-2d8a/grok-bot-after-url-handler-1920x1080.png",
+          "sha256": "a6131f0a90f39ff5829c7c02571efdd9946234836099d80d4c2b1ccf2225652b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "grok-5.0.0-2d8a/grok-bot-cc-installed-1920x1080.png",
+          "sha256": "f03dfac9220525ab1cd2a0fda544ec030235c2f972c70072d0e178783ac4e70a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "live-5.0.0-2d8a/welcome-07-install.png",
+          "sha256": "1618d7acaec2f5de17e5dd3aae8fe83166e82825feb21fe55db4048fb453cdb1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "live-5.0.0-2d8a/welcome-07b-install-grok-ready.png",
+          "sha256": "da9c74d323a26c0de9d8bc7a283cac326f9d7e400df48cf0fd5fa2e04de13cdf",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/grok_integrity.sh",
+          "sha256": "37c5dc4016bb5114dd05281da625208db1908e707e4d9a6c0cee7f059b9a8482",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "qa-harness-5.0.0-2d8a/guest-identity.txt",
+          "sha256": "d336b5615211cd5fe16befdb02ff1a2aef64c3926f34b0c8fe409fb93ba90195",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "WAIVED (account boundary). PROVEN on the FINAL ISO 2d8a72e0 live session (VM grok2d8a, QEMU/KVM, 4 vCPU/6 GiB, live user 'shadow', agent network online), no X/Grok account used: INSTALL - through the real Welcome flow (Ignition Core -> wizard -> Choose optional agents: Grok Bot only -> Installing official Grok Bot) the pinned official grok-bot 0.61.0 .deb downloaded from downloads.cursor.com, SHA-256 3616c006...76ef and 103690092 bytes verified against the release pin, installed ('Grok Bot is ready.'). INTEGRITY - status state ready, verified=true, verification shadowfetch-release-pin-and-dpkg; doctor rc 0; dpkg --verify grok-bot rc 0; /opt/Grok Bot/grok-bot root 755; installation.json credentials_stored_by_shadowfetch false; vendor APT source downloads.cursor.com registered. NATIVE LAUNCH - shadowfetch-grok-bot open rc 0 starts /opt/Grok Bot/grok-bot (pid 3059) on Wayland to the native 'Sign in' screen; KWin lists the 'Grok Bot' window; no KWallet/keyring prompt process; gnome-keyring owns org.freedesktop.secrets with the login collection unlocked. CALLBACK REGISTRATION - grok-bot.desktop MimeType x-scheme-handler/grokbot;sand; mimeinfo.cache, xdg-mime and gio name grok-bot.desktop the default; xdg-open grokbot://shadowfetch-qa-handler-test dispatched via kfmclient/kioclient5 to '/opt/Grok Bot/grok-bot grokbot://...', and the single running instance (same main PID 3059) took it, no second main process. CONTROL CENTER - the Grok Bot page (Grok Bot - Setup & launch entry) shows FEATURED TEAMMATE, 'Native app 0.61.0 verified on this computer', Installed + Open Grok Bot. NOT PROVEN: sign-in, the observed account boundary and any Grok Bot task, which need an eligible X/Grok (Cursor/SuperGrok) account and plan that QA does not hold.",
+      "waiver": {
+        "approver": "release owner",
+        "reason": "Sign-in and the account boundary need an eligible X/Grok account and plan; install, integrity, native launch to the sign-in screen, the grokbot:// handler and the Control Center Grok Bot page were proven on the final ISO 2d8a72e0."
+      }
     },
     {
       "id": "GROK-VISUAL-01",
@@ -146,9 +1230,50 @@
       "area": "grok",
       "title": "Prominent actual Grok Bot screenshot plus featured installer and desktop entry",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "waived",
+      "evidence": [
+        {
+          "kind": "screenshot",
+          "path": "grok-5.0.0-2d8a/grok-bot-native-signin-1920x1080.png",
+          "sha256": "12a8725015f754926c754d761b26e9fac6e41a238c41f545d0f5004b40b6a413",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "grok-5.0.0-2d8a/grok-bot-cc-installed-1920x1080.png",
+          "sha256": "f03dfac9220525ab1cd2a0fda544ec030235c2f972c70072d0e178783ac4e70a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "grok-5.0.0-2d8a/grok-bot-desktop-entry-1920x1080.png",
+          "sha256": "be6434e1838f4c1b98acc267fed3be64a3742d0d4d2837ca1d805dacd96955d7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "live-5.0.0-2d8a/welcome-06-agentsetup.png",
+          "sha256": "f3c5b1163ff8a8302b740dfb47d725da123dd6530a09625c491f6673b1cc17be",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "live-5.0.0-2d8a/welcome-06b-agentsetup-grok-only.png",
+          "sha256": "78006fa5d0cf5a71818819944c886b8e62fbedb843353e471181659da5ce2ece",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "live-5.0.0-2d8a/welcome-07b-install-grok-ready.png",
+          "sha256": "da9c74d323a26c0de9d8bc7a283cac326f9d7e400df48cf0fd5fa2e04de13cdf",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "WAIVED (account boundary). PROVEN on the FINAL ISO 2d8a72e0 live session (VM grok2d8a): prominent ACTUAL Grok Bot screenshot - the official native app's own window at its 'Sign in' screen (1920x1080, real Wayland window, no mock); featured installer - Welcome's 'Choose optional agents' offers exactly Grok Bot / Hermes / OpenClaw with the agent-network radio, its install page downloads, verifies and installs the official package ('Grok Bot is ready.'), and Mission Control's Grok Bot page features it (FEATURED TEAMMATE, 'Native app 0.61.0 verified on this computer', Installed + Open Grok Bot); desktop entries - the application launcher lists 'Grok Bot - Grok Bot desktop agent' (vendor grok-bot.desktop) and 'Grok Bot \u00b7 Setup & launch - Official Cloud Teammate' (Shadowfetch entry), plus the running window. NOT PROVEN: any screenshot of Grok Bot signed in or doing work, which needs an eligible X/Grok account and plan that QA does not hold.",
+      "waiver": {
+        "approver": "release owner",
+        "reason": "A signed-in Grok Bot screenshot needs an eligible X/Grok account and plan; the native app, featured installer and desktop entries were captured on the final ISO 2d8a72e0."
+      }
     },
     {
       "id": "RESOURCE-01",
@@ -156,9 +1281,70 @@
       "area": "resource",
       "title": "Resource admission limits and desktop responsiveness during mission/media workloads",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/measurements.log",
+          "sha256": "3354db18b5fe33e39b47b94aede258bef93c5e9c33c8c9060a6c69839812fc98",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/summary.json",
+          "sha256": "af78bd9d4d73c02c589e2c6dce49104c8535c4cc8aa5dab771c5d19d951766b9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/resource_probe.py",
+          "sha256": "9575fc03c1dce1c4a28c67ab4b29eb5743f6463e4129e8f645e6c4c748b7d56e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/sf-resource-5.0.0/states.jsonl",
+          "sha256": "9f5d3f56564d7ea94fc0a76f4a0cb4b0f25d566d9394901fc72a55f087137a6f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/sf-resource-5.0.0/scopes.jsonl",
+          "sha256": "db8581330e8cd48f9ab2cf17ef260cc5a172effc446ca779db7209e2505dddd9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/sf-resource-5.0.0/ui.jsonl",
+          "sha256": "6bbc39470b24b573709e9f2efc0fb4675c11203f8b0b022956abc69702e72448",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/sf-resource-5.0.0/probe-loop.jsonl",
+          "sha256": "172eee872c7507644bc3a56fb2e9d53c2ab3d706ff266b0d0a237e7741761d17",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/sf-resource-5.0.0/unconstrained-ffmpeg.txt",
+          "sha256": "4d4cd2bab026c02a11b37327ef8dab12616f9eeeb90d58f5bd0ddbdc945f5d74",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/sf-resource-5.0.0/receipt-limits.txt",
+          "sha256": "4581b73553779608a9416c3a53fbc44405f7873cb2c0c14f05a6239326bc1540",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "resource-5.0.0-2d8a/sf-resource-5.0.0-attempt1-sameworkspace/states.jsonl",
+          "sha256": "159edeae4725318c873bec34edbe070019f3b1b1308c28fd910ad71df7f4f25a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Focused run on FINAL ISO 2d8a72e0 (installed BIOS clone of ledger install-20260930T193402Z, 4 vCPU/8 GiB, user qa, Plasma Wayland, ShadowCode open), 2026-09-30 22:42-22:48 UTC, host quiet (load 2.2, one VM). Workload: 4 real offline-media missions (60 s 1080p MJPEG clip -> H.264/AAC MP4, decode-verified) queued within 0.5 s on the installed shadowfetch-missions.service worker, one workspace each; all 4 reached waiting-review. Thresholds set before the run (resource_probe.py). ADMISSION: 89 state samples, max 1 mission running, 67 samples with missions queued behind a running one; max 1 concurrent Firebreak sandbox scope; capabilities max_parallel 1; a second worker exited rc0 in 0.15 s without running anything (worker.lock); per-workspace review gate held 3 same-workspace missions queued with 0 running for 368 s while the first awaited review (attempt1). LIMITS: worker service cgroup cpu.max 200%, memory.high 3G, memory.max 4G, pids.max 128; all 9 sandbox scopes cpu.max 200000/100000, memory.max 3 GiB, memory.swap.max 0, pids.max 96 in every 0.5 s sample; CPU quota binding: encode scopes ran at 1.986-1.995 cores lifetime mean vs 3.67 cores for the same encode unsandboxed; memory.peak max 533 MiB, pids.peak 24, oom/oom_kill/max events 0 (memory and pids caps configured, not reached). One 0.5 s sample read 2.152 cores vs the 2.10 per-sample threshold: sampler timestamp jitter, lifetime means <= 2.015 and cpu.max unchanged (stated in measurements.log). RESPONSIVENESS while missions ran: KWin D-Bus round trip n=228 p50 3.8 ms p95 8.5 ms max 13.2 ms (threshold p95 <= 1 s, max <= 3 s); plasmashell p95 8.2 ms max 15.1 ms; 0 failed calls; ShadowCode window present in all samples; installed-CLI latency_probe 110 calls p95 0.156 s max 0.264 s, 0 errors (threshold p95 <= 2 s, max <= 15 s). Desktop responsiveness measured as D-Bus round trips to KWin/plasmashell and CLI latency, not synthetic input-to-frame latency. Mission/media load only (guest load ~2); for the full combined stress load see STRESS-01 evidence stress-5.0.0-2d8a."
     },
     {
       "id": "RECOVERY-01",
@@ -166,9 +1352,82 @@
       "area": "recovery",
       "title": "Project diff/undo and supported system rollback verified after injected failures",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-base-provenance.json",
+          "sha256": "e2184fb005e094bb1d855656da6b05c8fa5dc4bb9c1ce89fdd8f8bac3b800f71",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-system-report.json",
+          "sha256": "4a2a1d9c824d26f3c66babf1c8e4b263cc2cdef4663cd4fb7617f047d4d4889e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-implementation.json",
+          "sha256": "d233be6ca01206e7e87511d1804e7812381ec54de16ff8b2494a30731a930b66",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-workspace-before.txt",
+          "sha256": "2394def88a1a0e99b65a1b934187549109ecf85f3ad2c078bd26dc636b46493f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-checkpoint.log",
+          "sha256": "8d7c0670e815401d27194b568b6c3986ec91c1e3d13475d7fd35fa7edd6ceac4",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-workspace-damaged.txt",
+          "sha256": "825fc76fb6a6360256120f146ad0d8fb86d4fb2bfb8b54a798749d6cade45045",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-diff.log",
+          "sha256": "641d06c950fcb4fca7819e0530e58e855290b2a1dd7b3e9285e118310b0db68f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-undo.log",
+          "sha256": "dd3d83f6a50a524082a382568b3242541240d8a84e46b3b0b429df5b8a7ee781",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-workspace-after.txt",
+          "sha256": "2394def88a1a0e99b65a1b934187549109ecf85f3ad2c078bd26dc636b46493f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-desktop.png",
+          "sha256": "43742e93a382ff80d6740b9be88039f249b4d7d4ab1fbaf16750308c4ae4c828",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/project-qemu.log",
+          "sha256": "fc4b13553b349b4b9dbcb2d4e6599c20568b58db0b5d8d0348e3856704df3f86",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "vm-acceptance/recovery-project-20260930T195923Z-2d8a72e044e8/recovery-project-transcript.log",
+          "sha256": "f2ed763d213035cbcc7e20cbf39994539a5dce619398111ab012494b7cd63184",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Recorded by tools/acceptance/vm_acceptance.py run --case recovery-project (run recovery-project-20260930T195923Z-2d8a72e044e8, receipt 973afaeef384f497, harness 52c702996ba78dfc) against shadowfetch-5.0.0-amd64.iso sha256 2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21. 10 checks evaluated against the running machine."
     },
     {
       "id": "STRESS-01",
@@ -176,9 +1435,98 @@
       "area": "stress",
       "title": "At least 45 minutes concurrent CPU/memory/storage/container/mission/UI stress with clean audits",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "waived",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run1-20260930T214006Z-FAIL/result.json",
+          "sha256": "6575e07189c2439c3fe0c5f9ecf7dba83a958943a2066bc2ef13ce42640d8b0e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run1-20260930T214006Z-FAIL/summary.json",
+          "sha256": "7900a8e718efec97b38cddd21d01ab62b8e2712c28a30c98d3c83fd4fcae11c5",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run1-20260930T214006Z-FAIL/run.log",
+          "sha256": "095ff28e9fcca4b36cefa1558d699e2dd498f2a395a3d94e1150f2a5087da64e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run1-20260930T214006Z-FAIL/journal-errors.txt",
+          "sha256": "19c4e28b2f54ea8f217db4e622b0a5c758efa7b77ce2dc0394b6d159568c0b2e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run1-20260930T214006Z-FAIL/coredumps-since-start.txt",
+          "sha256": "e2407dad5480fe176681b503a643685b72e70da34e81a34efea3aef9c6dabb21",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run1-20260930T214006Z-FAIL/host-load-during-run.log",
+          "sha256": "ec56ca775f6fb658a4925c8221c28660ff24a537e68ffe3dd7ba40a4760bb287",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run1-20260930T214006Z-FAIL/guest-evidence.tgz",
+          "sha256": "d55e1e93688741467806dae89591d316d63052cb93f85307239518cb3ad556b6",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run2-20260930T230033Z-FAIL/result.json",
+          "sha256": "7831e01e47d78e4d3352b62de667808032e093a154cc66583ba42ae5a2633ce3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run2-20260930T230033Z-FAIL/summary.json",
+          "sha256": "7799999fe462c8c92f58b92d8f9b7494bd6df26a8d8eb5c6660a482b7227a1ca",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run2-20260930T230033Z-FAIL/run.log",
+          "sha256": "ef30b459b51b5a2e31ccce4c6da9e19006f8bb27be3d9221ef285f7b268d3c31",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run2-20260930T230033Z-FAIL/journal-errors.txt",
+          "sha256": "19c4e28b2f54ea8f217db4e622b0a5c758efa7b77ce2dc0394b6d159568c0b2e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run2-20260930T230033Z-FAIL/coredumps-since-start.txt",
+          "sha256": "e2407dad5480fe176681b503a643685b72e70da34e81a34efea3aef9c6dabb21",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run2-20260930T230033Z-FAIL/host-load-during-run.log",
+          "sha256": "295d41a387e1187e752eb4454718b2af65a081b987366217f28697ae5bb6656a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "stress-5.0.0-2d8a/run2-20260930T230033Z-FAIL/guest-evidence.tgz",
+          "sha256": "cc4332c9429178bb16eed66364195c03304e2126291625a23c4c8bc2155318d8",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Two full 2700 s runs on a clone of the 2d8a72e0 BIOS install (user qa), ShadowCode open the whole time. Clean in both: stress-ng rc 0; service classifier 0 faults; no coredumps, kernel faults, OOM kills, thermal events or swap (kernel-oom-faults-thermal.txt is empty, so it is not attached); no failed system/user units; dpkg and btrfs clean; ShadowCode active with its window in all 44 samples and stopped cleanly; CLI latency probe 227/224 cycles, 0 errors, p95 1.05/1.09 s, max 10.5/11.8 s (limit 15 s); min MemAvailable 2277/2324 MiB. Failed in both: mission loop (rc 1) - 'shadowfetch-missions --json show' and 'cancel' returned 'database is busy' at +54 s/+70 s while the worker finalised its first media step (38 s under disk stress), and the stress helper treats busy as fatal; container loop (rc 1) - cycle 3 'podman run --rm' produced the correct checksum but the client did not exit within 120 s, 3 of 22 cycles. The host also carried unrelated load during run 2 (mean 3, peak 7.7 other cores). Not proven: a full mission and container workload loop under 45 min stress on this ISO.",
+      "waiver": {
+        "approver": "release owner",
+        "reason": "Release owner chose to ship 5.0.0 on ISO 2d8a72e0 and deliver fixes in 5.0.1 (2026-09-30). Under 45 min of combined CPU/memory/disk stress the system stayed healthy (no crashes, OOM kills, failed units or thermal events; ShadowCode up throughout), but two workload loops stopped early: mission CLI calls hit 'database is busy' after the 10 s lock budget while the worker finalised a step under disk stress, and one 'podman run --rm' client did not exit within 120 s. Root-cause fixes are scheduled for 5.0.1."
+      }
     },
     {
       "id": "VISUAL-01",
@@ -186,9 +1534,250 @@
       "area": "visual",
       "title": "ShadowCode desktop, Welcome, Mission Control, Grok Bot, installer and under-load screenshots at both resolutions",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/desktop-1366x768.png",
+          "sha256": "86fa43ddbc185c11697f23c53bf2319aecffd620bd52795be62801d9594a3543",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/desktop-1920x1080.png",
+          "sha256": "2956f90e3bf760b1ffb39e448a890c36850b895df24854b755129b550275d0df",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-1366x768.png",
+          "sha256": "83d1ac12ef25c80de0be2f2d5b7363ffaff1197a00e5671c73eedfce73cbaf0a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-1920x1080.png",
+          "sha256": "0641bb9cb5278d5e5076f3cc57a252ed3817acca8e484e86ba39fe6e67bd96e5",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-help-1366x768.png",
+          "sha256": "87d7638f8fd7f55d335b71e1476cd4d0f622a7f03876318584a91ef8b5d70c66",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-help-1920x1080.png",
+          "sha256": "14c3b3b7ad3a8339fb337f56ec897996dd50f8c1e4326ed483011a3f17f41808",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-help-live-1366x768.png",
+          "sha256": "897c36cd073e68d309ad16d3c588672a696e4ea71275bced9586c0bab803f0f2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/firebreak-konsole-live-1366x768.png",
+          "sha256": "8d4904bf289ca069a0d33b4cbc754c2d74d98526d81b87bf3d4e381dd0ad5840",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/grok-bot-1366x768.png",
+          "sha256": "9a09e3b1f4688df0d9fb25ef7320b462cb6f5ffb4dfd063ffbe65a8cc376722b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/grok-bot-1920x1080.png",
+          "sha256": "0b06d8287c5a57bd0c2ff571aac4e74689eccdf9b4a7eec7081f6943888703f7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/guide-passport-installed-1366x768.png",
+          "sha256": "867f255a0dc3dc6c31e2e3531bdfd9e360a8b643f029961e1d8446e466288c02",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/guide-passport-installed-1920x1080.png",
+          "sha256": "64817d90e95671b6e1b415d6ddac8bea0a67629c28b5b027d866d054cfd1588e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/guide-passport-installed-scrolled-1920x1080.png",
+          "sha256": "0b65be9468f43b795d1e439f752e942a3989403761df2b8df0ac7594b3dfb600",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/guide-passport-live-1920x1080.png",
+          "sha256": "e67373a0b558913104fb4424dbaef49c068d0c78c8915668e1d085c6a20e80e1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/guide-passport-report-saved-1366x768.png",
+          "sha256": "336c5b0242a1a18a9739c7d30eb4d50c51c046cc417921aa29f9a8325bc5eaba",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/guide-passport-save-dialog-1366x768.png",
+          "sha256": "f4366ac3503218590eb6e6df2fe4b1852d411f144d1d079d82db8f39600fe00d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/installer-keyboard-list-selection-1920x1080.png",
+          "sha256": "300613ee6f4f202aa08abc1426cb4d14f0fc97820de3ece21495882ba8865288",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/installer-slide1-1920x1080.png",
+          "sha256": "1576abfd3c40e81d3e246ddc2d3795576db68dee26758d5408a50eb8f5fd5f9e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/installer-slide2-1920x1080.png",
+          "sha256": "ef0a9241f4c115e94ac8d9f4d708f8fdb089bd52ee8cec45a033d3acadbf7ac1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/installer-slide3-1920x1080.png",
+          "sha256": "0e65a522c0f2c54ab6126386794e73609369546b531ce5a04c4217d284a1b763",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/installer-welcome-1366x768.png",
+          "sha256": "86e0d4066cf61dd971920170a45c0a2a6b4b9643f4fd3fb273c869435acb6654",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/installer-welcome-1920x1080.png",
+          "sha256": "1118593b0799b3caa7d93d51298fe09362babe0b80b700288c9823d653d2b7e1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/mission-control-1366x768.png",
+          "sha256": "e2035abfaddc2c60ddbe83c99626923887e0956ddb6abac3693674a46fd046a9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/mission-control-1920x1080.png",
+          "sha256": "f84ccb49481ee3fc5e2205af6b545066395e4b36d3bfe02931864a3464129b11",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/shadowcode-1366x768.png",
+          "sha256": "094b274d8ec0feabb93e75869ad5ad18abc81eed9600efc8f4910ec0aa8be191",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/shadowcode-1920x1080.png",
+          "sha256": "0f4de5cf9d847b6a069514ebeb30224461d75ad11f4ecca36335db2d4d8139d2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/shadowcode-first-run-1920x1080.png",
+          "sha256": "2e7dba256c598c62bb13e24e7a76896613e90583a81a5092e10d0330fb05618e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/shadowcode-unmaximized-1366x768.png",
+          "sha256": "13c2610edc76bfde9f9076591c85e4dc99d24135ecbce479da48fdf1ec2a9ae5",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/underload-1366x768.png",
+          "sha256": "084a5537b0d3108f35feaf4414fea524842b7fc19143b00050daa3dcffb9dab5",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/underload-1920x1080.png",
+          "sha256": "ed3de6b177a1997dbc210e5f75cdcedac5e7c70e5a07e215a08b36ed77e73535",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-1366x768.png",
+          "sha256": "6b942658c5bda2b5fa4d11011e3fe465c3fab66219c6045f5478ab08334142f3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-1920x1080.png",
+          "sha256": "c124f42b5da8040d8908774a202a097ddd3c68aff563e280992114ae1e60d809",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-agents-radio-checkbox-1920x1080.png",
+          "sha256": "e81af2bf5401f509e21dee6ead1cc2625c3c22163fe000ee41c03482c38e969c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-allset-no-inbar-percent-1920x1080.png",
+          "sha256": "178ee01c42738bcf03143d402b9ab7cd4ace34fa8f627d5a1c96a061c83e724b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-ignition-installed-1366x768.png",
+          "sha256": "bd2cb0d0e822fd1b779d13c0e580b1e713413aa30039d16cd5698255961f92cc",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-ignition-installed-1920x1080.png",
+          "sha256": "c7cc34ea3f8abef95c68724961abe0683127a2a5a3a2abfabad6fc0c28d58236",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-ignition-live-1366x768.png",
+          "sha256": "95ef50f5dbd9ab795b3745f681d53a264413ed253c3c2e06f43adf35a33bc565",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-ignition-live-1920x1080.png",
+          "sha256": "c25888414e9fc1f146ae97daf467c02a9498e7631c0e18ab458c41f802e22cec",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-profile-checkbox-1920x1080.png",
+          "sha256": "8f1f7eb0d09f5140ee20cda3aa563517b780f522fa4063a64557f4a07b633a45",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "screenshot",
+          "path": "visual-5.0.0-2d8a72e0/welcome-shadowcode-handoff-1920x1080.png",
+          "sha256": "b1166645777b8e1fbeb56ffda50baa81a8b1a8f60bf017dbd570fca3f3a2ee4f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Screenshot matrix from FINAL ISO 2d8a72e0 (built from 9587a7c), same method as a83d7d8a, at BOTH 1920x1080 and true 1366x768. One fresh throwaway BIOS install (install_image.py wrapped to cap guests at 4 vCPU/6 GB; generic demo account, hostname shadowfetch; harness verdict OK, first boot running, dpkg audit clean), cloned as two copy-on-write overlays so each resolution starts from a pristine first-run account, plus separate live-ISO VMs (never more than 2 at once; all throwaway disks deleted). Cursor hidden with blank_cursor.sh. 1920 frames are QMP screendumps; 1366x768 frames are in-guest spectacle captures (VM EDID 1366x768). Per resolution: ShadowCode edition desktop, Welcome 'Your computer. Your agents.', Ignition 'Choose your setup' (live and installed), Mission Control (System check passed, MISSION CONTROL / 5.0), Guide / System Passport, Control Center Grok Bot page, ShadowCode 1.0.0 main window, Calamares welcome, Firebreak Konsole, under load (3 sha256sum workers on 3 of 4 vCPUs, htop over Mission Control). 1920 only: app-profile checkbox, AgentSetup (Online/Offline radio + three agent checkboxes), All set. page, ShadowCode hand-off page, ShadowCode first-run trust dialog, three distinct Calamares slides from a real install, live and installed GRUB menus (native 1024x768). NEW ON THIS ISO: Guide / System Passport renders a full report (Boot, Graphics, Network, Audio, Drivers, Memory, Storage, Recovery, System health) with no crash, from the Mission Control sidebar, from Welcome 'Check this computer' on the landing page and from Ignition 'Check this computer', live and installed; 'Save redacted report' writes Shadowfetch-System-Passport.html whose text carries no host, account, IP or MAC (checked). Ignition copy now reads 'Offline right now? Your pick is saved and offered the moment you connect.' ('Chose offline?' gone) at both resolutions. Firebreak launcher (gtk-launch shadowfetch-firebreak) opens Konsole showing 'shadowfetch-firebreak --help' then a live demo@shadowfetch shell that stays open (live and installed, both resolutions). Menu entry runs 'shadowfetch-welcome --force' (autostart unchanged); shadowfetch-control --help lists shadowcode and optional-agents. FIXES RE-CONFIRMED: Calamares progress bar gold with dark readable % text (9%/36% zooms) and list selection gold (keyboard layout lists, sidebar step), no Breeze blue; Control Center Software sidebar update badge a readable gold pill ('44'); Ignition title 'Choose your setup'; Welcome 'All set.' bar has no in-bar percentage. Cosmetic, non-blocking, pre-existing: ShadowCode 1.0.0 opens un-maximised larger than the 1366x768 work area even on a FRESH account (composer and status bar hidden under the panel until maximised; shadowcode-unmaximized-1366x768.png; captured maximised) -- the a83d note attributed this to a prior 1920 session, it is in fact the default size; in the Firebreak window the login shell's fastfetch banner scrolls the --help text above the fold (help is in scrollback; firebreak-konsole-help-*.png scrolled up). Calamares slideshow frames after ~10% are dimmed by the live session's idle dimming (harness artefact). Every PNG OCR-checked with publish_shots.py rules (8 privacy terms loaded): no personal identifiers, e-mails, tokens or host paths. Not covered here: native Grok Bot install/sign-in screen (unchanged since a83d; GROK-VISUAL-01 waived), signed-in Grok Bot. Supplementary images kept in the evidence directory but not bundled (the bundle accepts only full-frame captures of at least 1280x720): visual-5.0.0-2d8a72e0/cc-sidebar-update-badge-zoom.png (880x240); visual-5.0.0-2d8a72e0/grub-installed-1024x768.png (1024x768); visual-5.0.0-2d8a72e0/grub-live-1024x768.png (1024x768); visual-5.0.0-2d8a72e0/installer-progress-gold-zoom-dimmed-late.png (1660x140); visual-5.0.0-2d8a72e0/installer-progress-gold-zoom.png (1660x140); visual-5.0.0-2d8a72e0/welcome-allset-bar-zoom.png (1800x160)."
     },
     {
       "id": "EVIDENCE-01",
@@ -196,9 +1785,58 @@
       "area": "evidence",
       "title": "Exact ISO checksum/signature, SBOM, manifests, QA bundle and reviewer letter",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/shadowfetch-5.0.0-amd64.iso.sha256",
+          "sha256": "c6b3d5647d10ce246e0d5cfce9900a17f15c17ea4f38c17a24db41e9653f92f3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/shadowfetch-5.0.0-amd64.iso.asc",
+          "sha256": "f6812593b07573eaf0d4d6af14d7dc27fce5a6056389d847287b509c0b07aaa8",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/sbom-5.0.0.cdx.json",
+          "sha256": "552ce02cf0198244e643b62941c38b1ba2416e547fbfdd8d0c7a6a0cd71f22d9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/packages-5.0.0.manifest",
+          "sha256": "4ff041494df0538dd041335fc823e0983c483223b33f94633b611c3154c1988b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/dossier-5.0.0.md",
+          "sha256": "20ab5ce6db0ce90eb9d3d058f26bebbfe5ba29ae4fe7abd6dc0c932711064476",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/release-facts-5.0.0.json",
+          "sha256": "3a011d0876cc923854bfafc35b429e7b5307273ac330f158225c1c7714aa56ca",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/evidence-bundle-5.0.0.contents",
+          "sha256": "5314299daf00bbecc28cb8c131abf8edf0368dbd355739126927b2ed60b99216",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        },
+        {
+          "kind": "log",
+          "path": "release-evidence-5.0.0/acceptance-manifest-5.0.0.json",
+          "sha256": "c53575107f45feba976d517c1bd23861458d081dcaf4181b3ee3299344e43ffc",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Release evidence for ISO 2d8a72e0, all generated from THIS ISO by tools/release/evidence.py (SBOM CycloneDX 3359 components; 19 binary / 16 source Shadowfetch packages). Reviewer bundle work/release-5.0.0/evidence-bundle-5.0.0.tar.gz sha256 f7a95161fc787fe9ef3680c9550850b42e174f8860de51e818c8a54f3b13f260 (280 members: acceptance.prepublication.json, approved-inputs.json (92 full-frame PNGs explicitly approved at their digests, all OCR privacy-checked by the visual lanes), every acceptance evidence file, the generated release docs, the detached ISO signature, the named QA source tools, SHA256SUMS, bundle metadata, and qa/5.0.0/evidence-redactions.md). Before packaging, 18 text evidence files had the publisher's home directory replaced with ~ and one harness receipt had the build hostname replaced with <build-host>; nothing else changed; originals are kept privately and evidence-redactions.md lists original and published SHA-256 for each. The extracted bundle (490 files incl. nested archives) was scanned against the local privacy terms and the build hostname: 0 hits. iso.sha256 verifies (sha256sum -c OK) and iso.asc is a Good signature from 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1."
     },
     {
       "id": "PUB-01",
@@ -206,10 +1844,17 @@
       "area": "pub",
       "title": "GitHub, website, signed downloads/APT and screenshots expose the same verified 5.0 release",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "pub-5.0.0/pub-01-checks.log",
+          "sha256": "2c96a83547c417ed61d38395856263572fbb0b91e3960bb1f695516a465a9b6c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21"
+        }
+      ],
+      "notes": "Published 2026-09-30 (checks 2026-10-01T01:16Z). Download server: shadowfetch-5.0.0-amd64.iso HTTP 200, 4085778432 bytes, .sha256 = 2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21 (publisher streamed the ISO back and re-hashed it: R2_RELEASE_BYTES_VERIFIED; then R2_CURRENT_POINTER_WRITTEN). APT: live InRelease byte-identical to the built repo (Date 2026-09-30 19:14:18 UTC, Valid-Until 2027-03-29), Packages lists shadow-code 1.0.0 and the 5.0.0-1 Shadowfetch packages. GitHub: v5.0.0 is the latest release (not draft/prerelease) with 11 assets; its iso.sha256 asset carries the same digest; main and release/5.0.0 at 03f6cb3. Website shadowfetchlinux.org (worker version d07ae719): /, /download, /releases/5.0.0, /verify, /known-issues return 200 and show 5.0.0; releases.json latest = 5.0.0 2026-09-30 with the same SHA-256 and the R2 download URL."
     }
   ],
-  "candidate_note": "Release candidate c64c3493 (4085794816 bytes) built from 29041e1 (tree dc2b02b) with ShadowCode 1.0.0, signed by 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1; package gate and ISO gate (including the build-secret leak check) passed. Earlier candidates dfea3c9b and c8ea7ef0 are superseded; their VM evidence informed fixes but is not recorded here. Every case is pending until run on this image."
+  "candidate_note": "Release ISO 2d8a72e0 (4085778432 bytes) built from 9587a7c (tree 2986e02) with ShadowCode 1.0.0, signed by 8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1. Earlier candidates c8ea7ef0, dfea3c9b, c64c3493, 2abd1f6f and a83d7d8a are superseded; their VM evidence informed fixes but is not recorded here."
 }
