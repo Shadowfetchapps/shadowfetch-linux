@@ -263,7 +263,7 @@ qualified, not what is installed.
 | `shadowfetch-fireline` | Firebreak and the MCP server report 5.0.1; no functional change |
 | `shadowfetch-themes` | SDDM theme metadata reports 5.0.1; no visual change |
 | `shadowfetch-drkonqi-pickup` | CMake project version 5.0.1; no functional change |
-| `shadowfetch-meta` | Rebuild; still requires `shadow-code (>= 1.0.0)` |
+| `shadowfetch-meta` | Rebuild; `shadowfetch-desktop` requires `shadow-code (>= 1.0.1)` (ShadowCode 1.0.1 is pinned) |
 | `shadowfetch-fireproof` | Updates itself without killing dpkg (no stop from its install scripts, `KillMode=mixed`, needrestart leaves `fireproofd` alone, restart after the update); refuses to offer an update on top of an interrupted one and shows the repair command; never removes packages as a side effect of an update (holds back the upgrades that would, and says why); mirror check ignores the port |
 | `shadowfetch-ember`, `-firewatchd`, `-hwscan`, `-menus`, `-phoenix`, `-welcome` | Rebuild only: `shadowfetch-desktop` requires every Shadowfetch package at the same version |
 
