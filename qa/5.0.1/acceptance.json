@@ -26,9 +26,34 @@
       "area": "src",
       "title": "Source, behavioral tests, linters and secret scans",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "final/source-gate.log",
+          "sha256": "8b67a2c6097254a076b3c7357dff80852be871a0a76b36edb66305d89f0cc472",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/make-test-summary.txt",
+          "sha256": "15b71d392b8476919881f6d3004db44fa6e7e9b018d94bf4a6f0711ae080ad2b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/make-test.log",
+          "sha256": "48f36173b619543ca44112e3a7fd6bce21bff391095f82eaec139af000ff8a0a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        }
+      ],
+      "notes": "make source-gate (umask 022) on release/5.0.1 HEAD a1a10ec, 2026-10-01: SOURCE_GATE_PASSED, exit 0, 108 PASS lines (behavioral/unit suites and attacks, git whitespace, Python parse, ShellCheck, desktop-file validation, JSON/XML, gitleaks tree and history, provider manifests, retired-runtime scan, optional-agent allowlist). Commits after a1a10ec touch only qa/5.0.1/acceptance.json and RELEASE-5.0.1.md. make test (umask 022) on d8ee37d (82d4cd1 and a1a10ec change only RELEASE-5.0.1.md and the manifest): exit 0, 13 unittest suites, 2,898 tests, all OK (7 skipped), including the two test_shadowcode linkage tests fixed in d8ee37d. Logs redacted for host paths (host home as ~, builder user as <builder>)."
     },
     {
       "id": "PKG-01",
@@ -36,9 +61,50 @@
       "area": "pkg",
       "title": "Exact binary and corresponding-source package inventory, signed APT and clean installation",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "final/package-gate.log",
+          "sha256": "38947f38b44293b463226088c554d9c74c8bf7ed986d452f308d2450b7394f6e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/repo-digests.txt",
+          "sha256": "da3da4ce852a5ce98cb094de6a8897f42b0bc90560104783f44b110e00366abc",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/package-build-and-gate.log",
+          "sha256": "9b3d77058bf56c59291f2ba9bd6cc07615550dc47ffa8649b22dfbdc21869930",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/debs-vs-previous-build.txt",
+          "sha256": "62905355574c5fdb8fa40dec1895e597e1a64368614aa626da8153987abef7c8",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/build-dir-cleanup.txt",
+          "sha256": "a8edcd2e2ba8305786e5000302de26f2b6f2ed3e070204d6109e0c4abda84a9a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        }
+      ],
+      "notes": "make packages && make repo && make package-gate (umask 022) in the authorized tree on release/5.0.1 (packages/ unchanged since 3ef3ef8): PACKAGE_GATE_PASSED, exit 0 -- signed index (19 binary, 16 source, Valid-Until 2027-03-30, key 8F13CE15...0CA1), lintian, corresponding source extraction (16), ShadowCode 1.0.1 publisher signature and runtime sources, Debian 13 dependency solve and install. Packages fd0b98c2..., Sources db12ba1a..., InRelease 2be292bd...; all 19 pool .debs byte-identical to build/. The first package-gate attempt refused 'duplicate binary package artifact' because build/ still held the 5.0.0-1 .debs; those were moved (not deleted) to work/release-5.0.0/build-artifacts-5.0.0/ and the gate re-run (package-build-and-gate.log is the refused first run, package-gate.log the passing one). Not byte-identical to the earlier worktree build (fireproof 60b42b31... there, 58a68fe1... here): every shadowfetch-* .deb differs because archive members carry this tree's source-file mtimes; the two earlier .debs still on disk (-branding, -missions) have the same files, bytes, modes and sizes. shadow-code 1.0.1 and grub-btrfs 4.14-2 are byte-identical. Manifest digests updated in a1a10ec before recording."
     },
     {
       "id": "ISO-01",
@@ -86,9 +152,410 @@
       "area": "upgrade",
       "title": "Existing 5.0 systems (published ISO, updated from the published APT suite) upgrade to 5.0.1 with preserved user data and working recovery",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "upgrade-final/SUMMARY-upgrade-final.txt",
+          "sha256": "bf7431dc126d4f167061d2a7a9902d39f5a63eb2fb542725fa4848982c12cd55",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/checks.txt",
+          "sha256": "69045d2fe3852fa00d3f0c28457df1696f4a832fab59c66982d29c94db4e85e9",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/run.log",
+          "sha256": "f37e0424718f341412fed365a2407c48dac8cbf3f959d0cb01f1a3c4e85c89bb",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/served-repo-check.txt",
+          "sha256": "0297d406791ebc00052c3a810e6f39ee3951f481c1f90a85c59677dee6f62be3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/base-ledger-entry.json",
+          "sha256": "99b9268a30e871b39698c7a075066f17ba2181bb47d0fd763bbdae6fd16e2b07",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/base-disk-before.txt",
+          "sha256": "defc5dc815a4d0a0087f8063faac6543496ed696906bde5f1a3a2e2ed3d120bd",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/base-disk-after.txt",
+          "sha256": "defc5dc815a4d0a0087f8063faac6543496ed696906bde5f1a3a2e2ed3d120bd",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/upgrade-source-switch.txt",
+          "sha256": "e36f9138d2c9f3ca79d852063134c1a6c0fabb14920c1d6d0e63cce933178dd1",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/upgrade-apt-update.log",
+          "sha256": "b762c39558a8d49a4604a331ab77e7a0ad8d4ac84eeb7f6ef30da9099126bb03",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/upgrade-fireproof-check.txt",
+          "sha256": "bfce45698315cccb975a26bc62fbad31759d7ee1cbd86493d705ccb5cc893b54",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/upgrade-simulate.txt",
+          "sha256": "f730ee2cd948b77f66180f62b96a372b76e5dd9506b994bd9482b8fc9b204630",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/upgrade-apt-full-upgrade.log",
+          "sha256": "681763b6f64fe05a8ae3741ac8313251d25d451078f07f76419e520796e77ee2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/upgrade-dpkg.log",
+          "sha256": "3b3263431a6c7e8b875c9996a1a3bb4653837bbaf7ae6bb4dce77b63e5bd236a",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/upgrade-apt-history.log",
+          "sha256": "7d779f639d1f0765262a19862e493e1b05d9e144542bdb719c1a4708b40a18ea",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/before-identity.txt",
+          "sha256": "9a54c0e6e49ec55be4a301ddb46e5a41c596319f4941ff46486ac46192621a61",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-identity.txt",
+          "sha256": "623ea17804ca2e75f6ed411c9ee75d30c8c1a185d6062beb6f9d33d6fe9433d2",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/before-first-party.tsv",
+          "sha256": "bbdef83917d107b6a48fa47ea6097921994fa1bdfde54ee5d8c97bb30ffc11bb",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-first-party.tsv",
+          "sha256": "36b33612696df03f15ee8e7a9b5b5bfb56871a04aacc4ec5551a7ffcefaff2d5",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/before-all-packages.tsv",
+          "sha256": "b1e429e814ba40257d1e73f09ce2cac429c8cbab7fb8a0d27ff5054f51bd91dc",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-all-packages.tsv",
+          "sha256": "aeea7f04056c5576c926f0db6590a72c3d7c225de64bd0df23c0a60a67fee3aa",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-dpkg-audit.txt",
+          "sha256": "3f74a2240b9528a3c49e40b7f1ea972074490899c788f3246682d592f7f56fb6",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/before-doctor.json",
+          "sha256": "7c430b0d47342f89eabe8fbda360975b685d982f12720752d7865a48d4db4e28",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-doctor.json",
+          "sha256": "0f490ce94fb291c52babea697b9dc70c28a1314eb1d17b3a158065c2e3daac5c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/before-user-data.sha256",
+          "sha256": "256f08790e3a03336fb08e5049efd8c5fb7aab9845cbfd9d5cc969325171912e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-user-data.sha256",
+          "sha256": "256f08790e3a03336fb08e5049efd8c5fb7aab9845cbfd9d5cc969325171912e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/baseline-shadowcode-settings.txt",
+          "sha256": "9e7a5544fb8fb00837885591bdf9360afa3e5d4f654059328dd6f696dd5b35e3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/before-missions-list.json",
+          "sha256": "fc9c33329faea8761fc37e99b010834c58e3574818575b587234a77961da54a4",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-missions-list.json",
+          "sha256": "1d90a9a30ec06082cd0129978cd781bd7bff64cbc5562eadbe7a9b6c7a075014",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-missions-audit.txt",
+          "sha256": "cdea4d5764ce274618a7f7b060cc02df9014f43441e414b196ce48f7f33a65a7",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-shadowcode-version.txt",
+          "sha256": "ddb6cf5c35026f46493e76771e3b92d96b5c480b96c0cf9431c8042c963e6e93",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/after-discover-notifier.txt",
+          "sha256": "76af800a6b8e858e5056e1538be6bb803bfea3d8498474838980818af8e7d108",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/gui/journal-since-gui.txt",
+          "sha256": "7b878b7b09f27e21330fcc62272f8838a7f96db177364915d11985260f693af3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/gui/mission-control-process.txt",
+          "sha256": "44bcb59549990cc7057afa6333ec8075fe27ff697af4c8f0937213766268c29b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/gui/shadowfetch-guide-process.txt",
+          "sha256": "b0dd7cf42bcb3ae0d8482f9054633381e0bae83005ee5cd7f2948499d407382b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/gui/shadowfetch-welcome-process.txt",
+          "sha256": "a5c704e0f22e6ab6a401af334b76781fb83008cb4a241704d880ea0294667309",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-final/gui/11-mission-control-opened.png",
+          "sha256": "bcfcdd0999345ac3d3b9a3bea71f2c153c10916053eafbc67ff933f26274b387",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-final/gui/21-shadowfetch-guide-opened.png",
+          "sha256": "f462e7b2705fbbd26a36985f4e302226b88c5c15408841f8e279a43261c2ea5f",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-final/gui/31-shadowfetch-welcome-opened.png",
+          "sha256": "e2b8ed321f12a3b81a536e0d09cdc6cc8d76a309762d258b02fb7f40ede90364",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/scwindow.json",
+          "sha256": "7e0514ec67267137398543ad082032152a698b19b0f90081a438a2d2b79fba6d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/fireproof-test-setup.txt",
+          "sha256": "7d62b6f40f25785831d271af297a370e3a9d3015daff90f0047de3d0c603e658",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/fireproof-check.txt",
+          "sha256": "496479b8b8cf2eb66b179436c82f3eba57d3f9fb2ceeb019b2f618750b552373",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/qa-fp-update.log",
+          "sha256": "ac596f55982e40d29498dcad1c09f6e78162b8a51a72970b1437e6f7556b600c",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/fireproof-after-state.txt",
+          "sha256": "9f273155b216897d21e3431212517dde17032114838146333d731ee0bda36682",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/final-state.txt",
+          "sha256": "9f273155b216897d21e3431212517dde17032114838146333d731ee0bda36682",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/final-fireproof-check.txt",
+          "sha256": "496479b8b8cf2eb66b179436c82f3eba57d3f9fb2ceeb019b2f618750b552373",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-final/shots/06-5.0.0-shadowcode-project-open.png",
+          "sha256": "0c410099be085c90d46e09aa8093b9f70b83d6bfc09eb3e4504fb49389b26474",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-final/shots/10-5.0.1-first-login-after-upgrade.png",
+          "sha256": "b115a9b4ee199e81813f0014d4b38b0ba69c51801734b6a470546163cff546b3",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "screenshot",
+          "path": "upgrade-final/shots/90-after-final-reboot.png",
+          "sha256": "a05088090bba8373ccfee7630479ab06cf187122f23f64f6babb11665b264b05",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/driver/extras.sh",
+          "sha256": "14f1841f23bd3eb1fdf4f627a5fae79c0c781b254a5a0c68fdb3659a3230b716",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/driver/sc_window.py",
+          "sha256": "e411ba5ed2cda2fb78699708997614f1ba5a9ec37ae60a744d4055dcf5ed3059",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        }
+      ],
+      "notes": "Shipped 5.0.0 BIOS install (vm-acceptance install-20260930T193402Z, ledger seq 47 PASS, ISO 2d8a72e0; user qa) -> 5.0.1 against THIS repository (InRelease 2be292bd..., Packages fd0b98c2..., Sources db12ba1a...), served read-only to a throwaway overlay (base sha256 and mtime unchanged; one VM, 4 vCPU/6 GB, deleted after). Documented 'sudo apt update && sudo apt full-upgrade' with signed-by kept (signature checking on): 71 upgraded, 0 new, 0 removed, exit 0; reboot. upgrade_checks.py 19/19: 5.0.1 version file and os-release; 16 shadowfetch-* at 5.0.1-1 (all published packages that were installed; shadowfetch-nvidia, the 17th published binary, is not installed on this VM; image-only shadowfetch-archive-keyring stays 5.0.0), shadow-code 1.0.1, grub-btrfs 4.14-2; 0 removals; dpkg --audit clean; 0 failed system/user units; doctor 0 FAIL and nothing new flagged; Mission Control busy read / saved Stop, same-second order and review-gate hold live (the busy probe fails on the 5.0.0 engine); 25 mission regression tests OK on the installed engine (2 strace-dependent ones skipped in the guest); Discover notifier drop-in; 24 user files and ShadowCode config.yaml byte-identical; both missions made on 5.0.0 kept with an intact audit chain. Mission Control, Guide and Welcome open from the menu on 5.0.1, 0 tracebacks. ShadowCode 1.0.1 window 1380x920 at all 3 launches (KWin frame). Afterwards, as the desktop user: fireproof check exit 0 (0 upgrade, 0 new, 0 removal) and fireproof update -y exit 0 'Nothing to update.' (nothing was pending, so no transaction ran), no removals; final reboot 0 failed units, audit clean. Test setup: SDDM autologin, a polkit rule for org.shadowfetch.fireproof.update standing in for the admin password, ShadowCode settings seeded through its window. Full account: upgrade-final/SUMMARY-upgrade-final.txt."
     },
     {
       "id": "SHADOWCODE-01",
@@ -106,9 +573,112 @@
       "area": "mission",
       "title": "Real code, cited document and media missions complete with validated artifacts",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "waived",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/mission-501/result.json",
+          "sha256": "9cc6b2d8d741fdae3588a4b1a4f5faf10f70f2bc81a4d3081ea7ebd70632a2a5",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/mission-501/report.md",
+          "sha256": "c7913d4c8c485bef4ebaceef1d3229ce0e25e03063efa2f05e0a7294f5853a61",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/mission-acceptance.stdout",
+          "sha256": "b02815b80af00161b22e4266ca8465a4f74e8024e40cc8b83350036f7189dd02",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/qa-model-relay.log",
+          "sha256": "b06048c0235c4f9d3fce2daf9ccf30c777c2476dd545d5b63648116ecf34f6a8",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/relay-start.txt",
+          "sha256": "e3171a988b0fec48fd599947c5047dd28b1bddf61c3646c8edbe812fad12fa28",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/engine-identity.txt",
+          "sha256": "ce3a696618560f96416fa97229266db2569b05aa44c59224c9abaf237c80c604",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/order-5.0.1.json",
+          "sha256": "68f3658502e32650adc322d00136489b381d652c895dcecae85f3901fe9df7ac",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/hold-5.0.1.json",
+          "sha256": "6f53eedb666a5fa6de561092467759a54f87f34843764714b68e4f612f01031e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/busy-5.0.1.json",
+          "sha256": "6afb6a4a95a5aa909821adfec4e2674b705b1ed3df87aa548fc2f14a1b826a70",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/regressions-5.0.1/regressions.log",
+          "sha256": "d4b05bed8e2e7e3ae947110b3fba72579ec7f18a52df6f746db3ce0914bee106",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/make-test-summary.txt",
+          "sha256": "15b71d392b8476919881f6d3004db44fa6e7e9b018d94bf4a6f0711ae080ad2b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/SUMMARY-upgrade-final.txt",
+          "sha256": "bf7431dc126d4f167061d2a7a9902d39f5a63eb2fb542725fa4848982c12cd55",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        }
+      ],
+      "notes": "WAIVED (code sub-part only; the release owner's 5.0.0 limit). PROVEN on the installed 5.0.1 engine and the production worker service, in the VM upgraded from the shipped 5.0.0 install against this repository: mission_acceptance.py 15/15 (the 5.0.0 harness, unchanged). (a) MEDIA: offline-media mission (real ffmpeg, network none) to review; receipt artifact sizes and SHA-256 re-verified; output independently probed as 48 kHz PCM WAV and fully decoded; source untouched; accepted. (b) CITED DOCUMENT: localmodel sourced_report with real inference through a labelled QA relay exposing one user-supplied local model (Qwen3-4B-Instruct Q6_K, no account) at the provider socket (2 chat calls); citations re-validated in range, source register hashes equal the files, sources untouched, sandbox network none, no credentials, sole read grant the socket directory; accepted. Plus the 5.0.1 Mission Control fixes on the installed engine: same-second missions ran in creation order (order-5.0.1.json), a queued mission reports its review-gate hold in show, list and Mission Control (hold-5.0.1.json, upgrade-final/gui), the busy-database probe, and the 25 regression tests OK (2 skipped: no strace in the guest); make test missions suite 1,112 OK. NOT PROVEN: (c) CODE: the localmodel code mission ran a real turn, left calc.py unchanged and failed on the real unit test (observations.code_localmodel); Codex and Claude were not exercised (paid account).",
+      "waiver": {
+        "approver": "release owner",
+        "reason": "5.0.1 re-ran MISSION-01 on its own installed engine: the media and cited-report missions passed 15/15 against these packages. Only the code mission is unproven, for the reason the release owner accepted for 5.0.0 and that still holds: no keyless provider can edit a workspace (localmodel is chat-only, and its observed code mission failed its test), and Codex or Claude need a paid account that release QA does not use.",
+        "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+        "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+      }
     },
     {
       "id": "DURABLE-01",
@@ -116,9 +686,114 @@
       "area": "durable",
       "title": "Cancellation, retry, interrupted service recovery and no duplicated side effects",
       "required": true,
-      "status": "pending",
-      "evidence": [],
-      "notes": ""
+      "status": "pass",
+      "evidence": [
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/durable-worker-501/result.json",
+          "sha256": "7ac6974bfda4c2969a2f4fd0111b378df60837c5e8a20f3b4b23a52c7e6a9272",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/durable-worker.stdout",
+          "sha256": "744e58c5fadf7f1a8ea72667feb9a6c01a786a6b68f9a5bb430ae78b93a3db98",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/durable-service-501/result.json",
+          "sha256": "13e1719962696bb350c312b63c62867f70e81c654a7af983dbe70be281c29d18",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/durable-service.stdout",
+          "sha256": "851e4abb57dfc16b6fa21e14a3f0d2ae49f5d5e7629302395d1c8e654bbd716d",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/harness-5.0.1/engine-identity.txt",
+          "sha256": "ce3a696618560f96416fa97229266db2569b05aa44c59224c9abaf237c80c604",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/busy-5.0.1.json",
+          "sha256": "6afb6a4a95a5aa909821adfec4e2674b705b1ed3df87aa548fc2f14a1b826a70",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/busy-5.0.0.json",
+          "sha256": "9000e71a45e34eaad6577471070df3fc73deb98b50f5ca20f38886264c770567",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/regressions-5.0.1/regressions.log",
+          "sha256": "d4b05bed8e2e7e3ae947110b3fba72579ec7f18a52df6f746db3ce0914bee106",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/regressions-5.0.1/regressions-env.txt",
+          "sha256": "e65f879c7a1f0c9c24a5e1137f820ddffef7eb927c0c0917052c8b2ee1310dce",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/regressions-5.0.1/engine-sha256.txt",
+          "sha256": "14e5f69591eaa10e5d591a886018731b0f99f73c6f489dbcba88fe2ede5c988e",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/missions/regressions-5.0.0/regressions.log",
+          "sha256": "95bf5309b77a6335948154f7e14fe118e42e182b15b41dae8fcfc30ce357e141",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "final/make-test-summary.txt",
+          "sha256": "15b71d392b8476919881f6d3004db44fa6e7e9b018d94bf4a6f0711ae080ad2b",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        },
+        {
+          "kind": "log",
+          "path": "upgrade-final/SUMMARY-upgrade-final.txt",
+          "sha256": "bf7431dc126d4f167061d2a7a9902d39f5a63eb2fb542725fa4848982c12cd55",
+          "artifact_sha256": "2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21",
+          "apt_packages_sha256": "fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf",
+          "apt_sources_sha256": "db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d"
+        }
+      ],
+      "notes": "Against the INSTALLED 5.0.1 engine (shadowfetch-missions 5.0.1-1) and the production user worker service, in the VM upgraded from the shipped 5.0.0 install for UPGRADE-01 (same repository, Packages fd0b98c2...). (1) durable_worker_acceptance.py 9/9: production unit kernel limits (pids.max 128, memory.max 4 GiB, cpu.max 200%); a private real worker SIGKILLed inside checkpoint preparation is recorded failed, never replayed, source byte-identical, no output; a required-checkpoint storage failure refuses execution with a failed receipt; per-scope firebreak limits. (2) durable_service.py 15/15: the production shadowfetch-missions.service SIGKILLed during a real sandboxed media export, systemd restart, the interrupted mission failed and not replayed, the sandboxed process did not outlive it to publish output, an explicit retry ran exactly once more and published exactly one result, undo restored. (3) Cancellation under load: the busy-database probe on 5.0.1 saved and answered Stop in 2.1 s inside the lock wait, show/list answered while a write lock was held, and the worker recorded the saved Stop exactly once; the same probe on the 5.0.0 engine failed (Stop 10.1 s, lost). (4) The 25 5.0.1 mission regression tests on the installed engine: OK (23 ran, 2 strace-dependent skipped in the guest); against the 5.0.0 engine 8 failures and 14 errors. (5) make test: the missions suite (1,112 tests, OK, 6 skipped) including test_cancellation, test_worker_loop, test_worker_wakeup, test_provenance_and_interruption, test_review_lock, test_state_machine, test_audit_chain and the four 5.0.1 regression modules. The harness scripts are the 5.0.0 ones, unchanged (copies in upgrade-final/driver/, not recorded here because they are 5.0.0 evidence); every result here is a new run."
     },
     {
       "id": "SCOPE-01",

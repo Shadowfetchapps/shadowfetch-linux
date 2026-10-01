@@ -466,17 +466,45 @@ Measured on this tree, not on an image:
   still installed, 0 failed units after a reboot. libapt's classic
   dist-upgrade (what the 4.1 and 5.0.0 Fireproof plan with) still proposes
   16 removals on the same system.
-- `source_gate` and acceptance: not run. There is no `iso_gate`: 5.0.1 ships
-  no image.
+- Final qualification in the publishing tree (2026-10-01, umask 022):
+  - `make test` passes: 2,898 unittest cases in 13 suites, all OK (7
+    skipped), including the two `test_shadowcode` linkage tests, which now
+    take the shipping release from the pin's `ships_in`.
+  - `make source-gate`: SOURCE_GATE_PASSED.
+  - `make packages && make repo && make package-gate`: PACKAGE_GATE_PASSED,
+    19 binary packages (17 `shadowfetch-*`, `shadow-code` 1.0.1,
+    `grub-btrfs` 4.14-2) and 16 source packages, signed index valid until
+    2027-03-30. `packages/` is unchanged since the no-removals fix, but this
+    tree's source files carry different mtimes, so every `shadowfetch-*`
+    .deb differs in bytes from the earlier build (same files and contents).
+    Index digests, recorded in `qa/5.0.1/acceptance.json`, replace every
+    earlier 5.0.1 digest: Packages
+    `fd0b98c288b63dcbfaf6751adc2abbd51fb0bd1abd7954f1cb215db6e7ce10cf`,
+    Sources `db12ba1a15a59a1c8de8032c656831e0b2047c9693ffc0eb009d62f9cf9e578d`,
+    InRelease `2be292bd8008d3459481845a6433fc9d81ebca3001a94bab71f0b900f07fc279`.
+  - Upgrade proof on that repository, from the shipped 5.0.0 install:
+    `sudo apt update && sudo apt full-upgrade` (signature checking on),
+    reboot, all 19 checks pass: 16 `shadowfetch-*` at 5.0.1-1 (every
+    published one that was installed; `shadowfetch-nvidia` is not installed
+    on that machine), ShadowCode 1.0.1, nothing removed, no failed units,
+    user files, ShadowCode settings and 5.0.0 missions kept, the Mission
+    Control fixes live. ShadowCode 1.0.1 opened at the same size three times.
+    `fireproof check` and `fireproof update` as the desktop user exit 0 and
+    remove nothing.
+  - Acceptance recorded: SRC-01, PKG-01, UPGRADE-01 and DURABLE-01 pass;
+    MISSION-01 is waived for the code mission only (media and cited-report
+    missions pass on the 5.0.1 engine; a code mission needs a paid account).
+    The publisher's `--apt-only` plan passes. There is no `iso_gate`: 5.0.1
+    ships no image.
 
 Still to do before 5.0.1 is published:
 
 1. Done: ShadowCode 1.0.1 is published and pinned.
-2. Build the packages and the signed repository with umask 022, and pass
-   `source_gate` and `package_gate`. There is no ISO, so no `iso_gate`.
-3. Run and record the APT-only acceptance subset in
-   `qa/5.0.1/acceptance.json` (SRC-01, PKG-01, UPGRADE-01, DURABLE-01,
-   MISSION-01) against that repository. Its `artifact` block names the 5.0.0
-   base image and the digests of the repository's Packages and Sources
-   indices; a rebuilt repository changes both digests, and every case
-   recorded against the old ones has to be recorded again.
+2. Done: packages and the signed repository built with umask 022;
+   `source_gate` and `package_gate` pass.
+3. Done: the APT-only acceptance subset is recorded in
+   `qa/5.0.1/acceptance.json` against that repository. Rebuilding the
+   repository changes both index digests, and every case would then have to
+   be recorded again.
+4. Publish with `python3 tools/publish_release_4_0_0.py --apt-only --apply`
+   from this tree.
