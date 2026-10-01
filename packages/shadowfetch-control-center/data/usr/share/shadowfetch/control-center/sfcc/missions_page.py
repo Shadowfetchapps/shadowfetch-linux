@@ -30,7 +30,23 @@ TEMPLATES = {
 
 
 def mission_summary(mission):
-    return f"{STATES.get(mission.get('state'), str(mission.get('state', 'Unknown')))}  ·  {KINDS.get(mission.get('kind'), mission.get('kind', 'Mission'))}"
+    summary = f"{STATES.get(mission.get('state'), str(mission.get('state', 'Unknown')))}  ·  {KINDS.get(mission.get('kind'), mission.get('kind', 'Mission'))}"
+    hold = mission_hold(mission)
+    if hold:
+        summary += "  ·  " + str(hold.get("summary") or "held")
+    return summary
+
+
+def mission_hold(mission):
+    """The engine's reason a queued mission is not running yet, or None.
+
+    Read from the mission the engine returned (`hold`, derived there from the
+    same rows its worker gates on) and rendered as given. The desktop does not
+    work out for itself whether a mission is held: a second opinion here could
+    disagree with the worker that actually decides.
+    """
+    hold = mission.get("hold") if isinstance(mission, dict) else None
+    return hold if isinstance(hold, dict) and hold.get("message") else None
 
 
 # What the engine publishes for each record set and the fields worth showing.
@@ -89,6 +105,9 @@ def overview_status_lines(mission):
                 "This mission's changes were undone and the workspace was restored "
                 "from its checkpoint. Nothing here needs your attention."]
     lines = []
+    hold = mission_hold(mission)
+    if hold:
+        lines += ["", "Waiting", str(hold["message"])]
     if mission.get("error"):
         lines += ["", "Needs attention", str(mission["error"])]
     if state == "waiting-review":
@@ -818,7 +837,8 @@ class MissionsPage(QWidget):
                 continue
             item = QListWidgetItem(f"{mission.get('title', 'Untitled mission')}\n{mission_summary(mission)}")
             item.setData(Qt.ItemDataRole.UserRole, mission["id"])
-            item.setToolTip(str(mission.get("workspace", "")))
+            hold = mission_hold(mission)
+            item.setToolTip(str(mission.get("workspace", "")) + ("\n" + str(hold["message"]) if hold else ""))
             self.queue.addItem(item)
             visible.append(item)
             if mission["id"] == selected:

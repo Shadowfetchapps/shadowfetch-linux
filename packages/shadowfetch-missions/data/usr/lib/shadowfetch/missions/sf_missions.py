@@ -344,6 +344,12 @@ CANCEL_SAVED_MESSAGE = ("Stop requested. Mission Control's database is busy, so 
                         "the request was saved; the mission will not start, or "
                         "stops at its next check, and the stop is recorded in its "
                         "history as soon as the database is free.")
+# Why a queued mission is not running yet. DERIVED from the rows on every read
+# rather than written down: the condition comes and goes with other missions'
+# states, an event per worker pass would flood the chain (and wake the worker
+# on its own write), and a stored reason would go stale the moment the blocking
+# review is decided.
+HOLD_REVIEW_GATE = "review-gate"
 TEXT_TYPES = {".txt", ".md", ".rst", ".csv", ".json", ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".go", ".rs", ".c", ".h", ".sh", ".toml", ".yaml", ".yml"}
 PRIVATE_NAMES = {".git", ".env", ".ssh", ".aws", ".config", ".local", "node_modules", ".venv", "venv", "__pycache__", "mission-output"}
 VALIDATION_CONFIG_NAMES = {"conftest.py", "pytest.ini", "tox.ini", "karma.conf.js", ".mocharc.json", ".mocharc.yml", ".mocharc.yaml", ".mocharc.js", ".mocharc.cjs"}
@@ -379,6 +385,21 @@ def no_checkpoint_on_close(db):
     if setconfig is not None and flag is not None:
         setconfig(flag, True)
 
+
+def review_gate_hold(blocker):
+    """The hold a mission awaiting review puts on a queued one in its workspace.
+
+    Built from the blocking row, so the reason names the mission a person has
+    to act on. The rule itself is run_mission()'s: a result is reviewed before
+    another mission may change the same project, so Undo stays meaningful.
+    """
+    title = blocker["title"]
+    return {"reason": HOLD_REVIEW_GATE, "mission": blocker["id"], "title": title,
+            "summary": f"held until you review \"{title}\"",
+            "message": (f"Waiting for your review of \"{title}\" ({blocker['id']}) "
+                        "in the same project. Accept or undo that result and this "
+                        "mission starts: one result is reviewed before another "
+                        "mission may change the project.")}
 
 # ------------------------------------------------------------ task states ---
 # Tasks are modelled separately from missions on purpose: a task is a step the
@@ -2879,10 +2900,26 @@ class Store:
     def _derive(self, db, missions):
         """Add the facts a reader needs that are DERIVED, never stored.
 
+        hold: why a queued mission is not running -- today the same-workspace
+        review gate run_mission() enforces, read from the same snapshot as the
+        rows. A held mission used to sit in "Queued" with no reason anywhere,
+        indistinguishable from a stuck worker (5.0.0 RESOURCE-01).
+
         cancel_pending: a stop request is saved and not yet recorded; see
         CANCEL_REQUEST_PREFIX. cancel_requested stays the recorded fact.
         """
+        blockers = {}
+        if any(m["state"] == MissionState.QUEUED for m in missions):
+            for row in db.execute(
+                    "SELECT id,title,workspace FROM missions WHERE state=? "
+                    "ORDER BY created_at,rowid", (MissionState.WAITING_REVIEW,)):
+                blockers.setdefault(row["workspace"], row)
         for mission in missions:
+            blocker = (blockers.get(mission["workspace"])
+                       if mission["state"] == MissionState.QUEUED else None)
+            mission["hold"] = (review_gate_hold(blocker)
+                               if blocker is not None and blocker["id"] != mission["id"]
+                               else None)
             path = self._cancel_request_path(mission["id"])
             mission["cancel_pending"] = bool(
                 mission["state"] in ACTIVE and not mission["cancel_requested"]
@@ -5180,7 +5217,10 @@ def run_mission(store, mid):
         require_approval(store, mission)
         # Two missions may target the same workspace, but a result must be reviewed
         # before another can mutate it, preserving a meaningful Undo boundary.
-        if any(m["id"] != mid and m["workspace"] == mission["workspace"] for m in store.list(states=("waiting-review",))):
+        # The hold is derived by Store._derive() from the same rows every reader
+        # sees, so `show` and `list` say why a held mission is waiting.
+        hold = mission.get("hold")
+        if hold and hold.get("reason") == HOLD_REVIEW_GATE:
             raise MissionError("Review the previous mission for this workspace before running another")
         # The Executor is built BEFORE the state moves. Constructing it can
         # fail -- a workspace that no longer resolves, a directory that cannot be

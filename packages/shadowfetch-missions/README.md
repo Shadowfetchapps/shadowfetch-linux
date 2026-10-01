@@ -73,7 +73,10 @@ State progresses `queued → running → waiting-review → completed`. Errors b
 `failed`; cancellation becomes `cancelled`; successful restoration becomes
 `undone`. A restarted worker records interrupted work as failed and never replays
 it automatically. Queued missions run oldest first; missions created in the same
-second run in the order they were created.
+second run in the order they were created. A queued mission whose project
+already has a result waiting for review is held until that review is decided;
+`show` and `list` report this in a derived `hold` object (`reason`, the blocking
+`mission` and `title`, and `summary`/`message` text).
 
 Reads never wait on a writer: connections never checkpoint on close, so no
 process takes the exclusive file lock SQLite uses for that. When `cancel` cannot
