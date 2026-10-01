@@ -16,8 +16,8 @@
     "signing_fingerprint": "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1",
     "evidence_bundle_path": "evidence-bundle-5.0.1.tar.gz",
     "evidence_bundle_sha256": null,
-    "apt_packages_sha256": "a3114df3766bd24d123d3f5ddc882ec18434d9abd21dca4ceaa6b9ad15aa2e16",
-    "apt_sources_sha256": "32496955b659f7c16e10b2bfb08616c394d6b4a128f687eda020f1cd79de4452"
+    "apt_packages_sha256": "9953f138b9dd55a29b5297e426a7666fb39cb097d123fdbc134620fd69e6ac1d",
+    "apt_sources_sha256": "ccea3f0dbfe6040996528a6d8291bed0ceef7041d9d0266140f8e9d6de576ed6"
   },
   "cases": [
     {

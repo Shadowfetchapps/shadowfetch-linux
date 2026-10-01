@@ -71,6 +71,42 @@ way.
   mirror's host name. A mirror URL with a port (`http://host:3142/`) was
   looked up as `host:3142` and reported as not resolving.
 
+## Fireproof never removes packages as a side effect of an update
+
+**Found in 5.0.1 QA.** While Debian testing is in the middle of a library
+transition, some upgrades can only be installed by removing packages that
+still use the old library. In QA, on a system that came from 4.1, Fireproof
+planned 14 to 16 removals during the libavcodec/mlt transition, among them
+`shadowfetch-desktop`, `shadowfetch-creative-base`, Krita and Kdenlive. On
+the same system `apt full-upgrade` held 12 packages back and removed nothing.
+
+**Cause.** Fireproof planned the update with python3-apt's dist-upgrade.
+That is libapt's classic resolver, which removes packages to install
+upgrades. `apt` 3 uses a different solver, which holds those upgrades back.
+
+**Fix** (`shadowfetch-fireproof`):
+
+- When the full update would remove a package, Fireproof keeps that package
+  and holds back only the upgrades that needed it removed. Nothing is
+  removed. The rest of the update goes ahead.
+- `fireproof check`, `fireproof update` and the Fireproof page list the
+  held-back packages, the packages that would have been removed, and why:
+
+  > Debian testing is in the middle of a library transition. Installing 12
+  > updates now would remove 16 installed packages (...), so Fireproof holds
+  > them back and removes nothing. They will update once the transition is
+  > complete in Debian testing; you do not need to do anything.
+
+  Held-back updates are not counted on the update badge.
+- The only removals an update can make are the ones Shadowfetch itself asks
+  for: a package that an incoming `shadowfetch-*` package `Conflicts` with
+  or `Breaks`, and that was installed automatically. `shadowfetch-desktop`,
+  `shadowfetch-creative-base` and any package you installed yourself are
+  never removed by an update.
+- The commit re-checks the same plan under the package lock, after analyze,
+  and refuses a plan that would remove a protected package. Analyze still
+  changes nothing, and the update is still wrapped in a Phoenix Point.
+
 ## "database is busy" from Mission Control under heavy disk load
 
 **5.0.0 known issue.** While a mission finished a step on a heavily loaded
@@ -228,7 +264,7 @@ qualified, not what is installed.
 | `shadowfetch-themes` | SDDM theme metadata reports 5.0.1; no visual change |
 | `shadowfetch-drkonqi-pickup` | CMake project version 5.0.1; no functional change |
 | `shadowfetch-meta` | Rebuild; still requires `shadow-code (>= 1.0.0)` |
-| `shadowfetch-fireproof` | Updates itself without killing dpkg (no stop from its install scripts, `KillMode=mixed`, needrestart leaves `fireproofd` alone, restart after the update); refuses to offer an update on top of an interrupted one and shows the repair command; mirror check ignores the port |
+| `shadowfetch-fireproof` | Updates itself without killing dpkg (no stop from its install scripts, `KillMode=mixed`, needrestart leaves `fireproofd` alone, restart after the update); refuses to offer an update on top of an interrupted one and shows the repair command; never removes packages as a side effect of an update (holds back the upgrades that would, and says why); mirror check ignores the port |
 | `shadowfetch-ember`, `-firewatchd`, `-hwscan`, `-menus`, `-phoenix`, `-welcome` | Rebuild only: `shadowfetch-desktop` requires every Shadowfetch package at the same version |
 
 Each package's `debian/changelog` has the details.
@@ -243,9 +279,15 @@ Each package's `debian/changelog` has the details.
 sudo apt update && sudo apt full-upgrade
 ```
 
-Use these two commands, not `fireproof update`, to install 5.0.1. From 5.0.1
-on, `fireproof update` is the update command again, including for Fireproof's
-own updates.
+Use these two commands, not `fireproof update` or Control Center's Update
+button, to install 5.0.1. If apt lists packages as "kept back", that is
+expected while Debian testing is in the middle of a transition: apt holds
+them and removes nothing. Then log out and back in once (or restart).
+
+From 5.0.1 on, `fireproof update` is the update command again, including for
+Fireproof's own updates, and it never removes packages: while Debian testing
+is in a transition, it holds back the upgrades that would remove packages,
+lists them, and installs the rest.
 
 **Why apt this once.** 5.0.1 fixes `fireproof update` updating Fireproof (see
 above), but on a 5.0.0 or 4.1 system this one update would still be run by
@@ -263,6 +305,11 @@ longer does. What the old version still controls is the update itself:
   configured. It offers a normal update on top.
 - It keeps running its old code until the update has finished and the
   deferred restart replaces it.
+- It plans the update with the resolver that removes packages during a
+  Debian testing transition (see
+  [above](#fireproof-never-removes-packages-as-a-side-effect-of-an-update)).
+  In QA, 4.1's `fireproof update` removed `shadowfetch-desktop`,
+  `shadowfetch-creative-base`, Krita and Kdenlive on the way to 5.0.0.
 
 With apt, dpkg runs in your terminal, not inside `fireproofd`, so none of
 this applies. 5.0.1's install script then restarts the idle daemon on the new
@@ -277,12 +324,22 @@ recommended path for this update.)
 and was most likely interrupted:
 
 ```bash
-sudo dpkg --configure -a && sudo apt -f install
+sudo dpkg --configure -a
+sudo apt full-upgrade
+sudo apt install shadowfetch-desktop shadowfetch-creative-base
 ```
 
+The last command puts back the desktop metapackages (and with them Krita and
+Kdenlive) if the interrupted update removed them. If they are still
+installed, it does nothing. Then restart.
+
 If apt says the package lock is held by `fireproofd`, the old daemon is
-still waiting out its one-hour stop timeout. Wait for it to release the lock,
-then run the repair.
+still waiting out its one-hour stop timeout, and a normal restart is refused
+while it waits. Free the lock with
+`sudo systemctl kill --signal=KILL fireproofd.service` (or restart with
+`sudo systemctl reboot -i`), then run the repair. This sequence was tested
+in QA on 4.1 systems that `fireproof update` had left interrupted on the way
+to 5.0.0.
 
 ## After updating from 5.0.0
 
@@ -330,7 +387,17 @@ used the removed commands, and connect your services in ShadowCode.
   diagnostic VM run with a prototype of the fix. The APT-only acceptance cases
   (SRC-01, PKG-01, UPGRADE-01, DURABLE-01, MISSION-01) still have to be run and
   recorded against the repository that is published, and UPGRADE-01 re-run
-  with `fireproof update` on the final packages.
+  with `fireproof update` on the final packages. The Fireproof no-removals
+  fix is proven on the 4.1 base against the final repository (see
+  [Release state](#release-state)).
+- **Package retirements and manually installed packages.** Fireproof only
+  removes a package that an incoming `shadowfetch-*` package `Conflicts`
+  with or `Breaks` if it was installed automatically. Most Shadowfetch
+  packages on an installed system are marked as manually installed (11 of
+  17 on the 4.1 system QA used), so a future release that retires one of them
+  by `Conflicts` would see Fireproof hold that update back. Retire packages
+  with a transitional package, or ask users to update with apt for that
+  release.
 - **Carried from 5.0.0, unchanged:** the security advisory about the shared
   DKMS module-signing key on systems installed from 4.x ISOs
   (`shadowfetch-doctor` still flags it), OpenClaw's security record, Hermes
@@ -371,6 +438,34 @@ Measured on this tree, not on an image:
   recorded in `qa/5.0.1/acceptance.json`: Packages
   `b4216844b3c958c4ef91293753bc40d931e1495c8b50ba92fb25d5c7732459d8`,
   Sources `6351de1fe4b69ae361e56bdc30dc0832b310ae6f1b101a0c96594432474189f6`.
+- After the Fireproof no-removals fix (2026-10-01, umask 022): the
+  `shadowfetch-fireproof` suite passes (189 tests, 23 of them new in
+  `tests/test_no_side_effect_removals.py`). `make test` passes every suite
+  except `tools/tests`, where two `test_shadowcode` linkage tests fail
+  because `tools/release/shadowcode.toml` `ships_in` names only 5.0.1 since
+  the ShadowCode 1.0.1 bump (7cfed12) while the tests expect 5.0.0; that is
+  unrelated to this fix and still open. The adversarial suites pass. `make
+  packages && make repo && make package-gate` gives PACKAGE_GATE_PASSED;
+  only `shadowfetch-fireproof_5.0.1-1_all.deb` changed (`60b42b31...`), the
+  other 18 packages are byte-identical. Signed index valid until
+  2027-03-30. Index digests, recorded in `qa/5.0.1/acceptance.json`:
+  Packages `9953f138b9dd55a29b5297e426a7666fb39cb097d123fdbc134620fd69e6ac1d`,
+  Sources `ccea3f0dbfe6040996528a6d8291bed0ceef7041d9d0266140f8e9d6de576ed6`,
+  InRelease `70590e1e8d60f39c72ad3ad0340281ebd8c39eea68eb8499d09bf24d76fb89c8`.
+  These replace every earlier 5.0.1 digest.
+- Proven in a VM on the 4.1 upgrade base against that served, signed
+  repository: `sudo apt update && sudo apt full-upgrade` to 5.0.1 (36
+  upgraded, 1 new, 0 removed, 12 kept back), reboot, then `fireproof check`
+  and `fireproof update` as the desktop user against the live Debian
+  testing archive. Fireproof proposed 0 removals and listed the same 12
+  held-back packages as apt, with the message; exit 0. With a QA-only dummy
+  update added, `fireproof update` installed it through the full protocol
+  (Phoenix Point labelled, verify battery all OK), held back the dummy that
+  needs the transition, removed nothing, exit 0. `dpkg --audit` clean,
+  `shadowfetch-desktop`, `shadowfetch-creative-base`, Krita and Kdenlive
+  still installed, 0 failed units after a reboot. libapt's classic
+  dist-upgrade (what the 4.1 and 5.0.0 Fireproof plan with) still proposes
+  16 removals on the same system.
 - `source_gate` and acceptance: not run. There is no `iso_gate`: 5.0.1 ships
   no image.
 
