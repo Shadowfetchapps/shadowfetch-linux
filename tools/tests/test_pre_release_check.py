@@ -106,6 +106,20 @@ class PreReleaseCheckTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("no corresponding source in main/source: shadow-code", result.stderr)
 
+    def test_a_token_file_is_named_relative_to_a_root_with_glob_characters(self) -> None:
+        """$ROOT is stripped as a literal prefix, not matched as a pattern."""
+        root = self.root / "release[x]"
+        (root / "sub").mkdir(parents=True)
+        (root / "sub" / ".write-token.txt").write_text("token\n", encoding="utf-8")
+        result = subprocess.run(
+            ["bash", str(SCRIPT)],
+            env={**os.environ, "ROOT": str(root)},
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("present in release tree: sub/.write-token.txt\n", result.stderr)
+
     def test_tracked_wrangler_state_still_fails(self) -> None:
         subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
         cache = self.root / ".wrangler" / "state.json"

@@ -52,7 +52,7 @@ else
 fi
 
 while IFS= read -r token_file; do
-  add_failure "local write token file present in release tree: ${token_file#$ROOT/}"
+  add_failure "local write token file present in release tree: ${token_file#"$ROOT"/}"
 done < <(
   find "$ROOT" \
     \( -path "$ROOT/.git" -o -path "$ROOT/live-build/chroot" -o -path "$ROOT/live-build/cache" \) -prune \
