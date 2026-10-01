@@ -860,6 +860,43 @@ class AptOnlyPublishTests(Fixture):
         quietly(publisher.publish_apt_only, bucket, self.plan)
         self.assertEqual([], bucket.writes)
 
+    def test_a_stop_after_an_index_was_replaced_says_apt_is_broken_until_a_rerun(self):
+        """Indices are replaced in place and there is no Acquire-By-Hash, so new
+        indices behind the old InRelease fail `apt update` everywhere. The run
+        says so when it happens, and a re-run finishes the job."""
+        bucket = Bucket()
+        corrupted = DISTS + "main/source/Sources"
+        bucket.corrupt.add(corrupted)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaisesRegex(ValueError, "R2 bytes do not match the release file: " + corrupted):
+            quietly(publisher.publish_apt_only, bucket, self.plan)
+        self.assertNotIn(DISTS + "InRelease", bucket.writes)
+        self.assertIn("APT_INDICES_INCONSISTENT replaced=" + DISTS + "main/binary-amd64/Packages,", stderr.getvalue())
+        self.assertIn("re-run --apply now", stderr.getvalue())
+        bucket.corrupt.clear()
+        bucket.writes.clear()
+        quietly(publisher.publish_apt_only, bucket, self.plan)
+        self.assertEqual(DISTS + "InRelease", bucket.writes[-1])
+        self.assertNotIn(DISTS + "main/binary-amd64/Packages", bucket.writes, "already proven, so not written again")
+        self.assertEqual(corrupted, bucket.writes[0], "recorded as the right digest, holding the wrong bytes: written again")
+        self.assertEqual((self.dists / "main/source/Sources").read_bytes(), bucket.objects[corrupted][0])
+
+    def test_a_permanent_object_holding_the_wrong_bytes_is_refused_not_replaced(self):
+        pooled = next(item for item in self.plan if item.key.startswith("apt/pool/"))
+        damaged = pooled.path.read_bytes()[:-1] + b"?"
+        bucket = Bucket({pooled.key: (damaged, {"sha256": pooled.sha256})})
+        with self.assertRaisesRegex(ValueError, "R2 bytes do not match the release file: " + pooled.key):
+            quietly(publisher.publish_apt_only, bucket, self.plan)
+        self.assertEqual(damaged, bucket.objects[pooled.key][0])
+
+    def test_a_stop_before_any_index_was_replaced_says_nothing_about_indices(self):
+        bucket = Bucket()
+        bucket.corrupt.add(next(item.key for item in self.plan if item.key.startswith("apt/pool/")))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(ValueError):
+            quietly(publisher.publish_apt_only, bucket, self.plan)
+        self.assertNotIn("APT_INDICES_INCONSISTENT", stderr.getvalue())
+
     def test_a_plan_that_strays_outside_the_repository_is_refused_before_the_network(self):
         stray = publisher.Object(self.root / "repo/shadowfetch.gpg.asc", "releases/CURRENT.json", "a" * 64, 1, True)
         bucket = Mock()

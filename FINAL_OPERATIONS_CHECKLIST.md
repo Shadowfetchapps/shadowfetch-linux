@@ -319,6 +319,20 @@ environment and never written down. A worktree anywhere else can plan but
 cannot apply. Bring the release branch, `build/`, `repo/` and the QA evidence
 to the authorized tree first.
 
+**If `--apply` stops partway.** Index files are replaced in place, and the
+repository has no `Acquire-By-Hash`. A run that stops after any `apt/dists/`
+upload therefore leaves new index files behind the old `InRelease`, and
+`apt update` fails with a Hash Sum mismatch on every installed system until
+`InRelease` is written. The publisher prints `APT_INDICES_INCONSISTENT`, with
+the keys it replaced, when this happens. **Fix the cause and re-run
+`--apply` at once.** Re-runs are idempotent: every object already proven is
+left alone. An index whose recorded digest matches but whose bytes do not
+(a failed read-back) is written again. A permanent object in that state is
+refused instead, because the publisher may not replace it. Longer term,
+publishing the indices under `by-hash/` with `Acquire-By-Hash: yes` would
+make `InRelease` the only file replaced in place. reprepro does not write
+that layout, so it is not done yet.
+
 **Afterwards:** check that the public `/linux/apt/dists/<codename>/InRelease`
 is byte-identical to `repo/dists/<codename>/InRelease`, and that
 `/linux/releases.json` still names the previous ISO. Then, on an installed

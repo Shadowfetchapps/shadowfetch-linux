@@ -977,17 +977,47 @@ def publish_apt_only(client, objects):
     and InRelease names no index, that the bucket was not shown to hold.
     Nothing is deleted, and an immutable object that differs refuses the whole
     plan before the first upload (existing_matches).
+
+    An index whose recorded digest matches but whose bytes do not -- what a
+    stopped run leaves when its read-back failed -- is written again, so a
+    re-run repairs it rather than refusing at the same object forever. A
+    permanent object in that state is refused: it is not this tool's to replace.
     """
     check_apt_only_scope(objects)
     config = transfer_config()
     matches = {item.key: existing_matches(client, item) for item in objects}
-    for item in objects:
-        if matches[item.key]:
-            print("UNCHANGED " + item.key, flush=True)
-        else:
-            upload_object(client, item, config)
-        if remote_digest(client, item.key) != item.sha256:
-            raise ValueError("R2 bytes do not match the release file: " + item.key)
+    replaced = []
+    try:
+        for item in objects:
+            if matches[item.key]:
+                print("UNCHANGED " + item.key, flush=True)
+                proven = remote_digest(client, item.key) == item.sha256
+                if not proven and item.mutable:
+                    print(f"REPLACING {item.key}: its recorded digest is not its bytes", flush=True)
+                    replaced.append(item.key)
+                    upload_object(client, item, config)
+                    proven = remote_digest(client, item.key) == item.sha256
+            else:
+                if item.mutable:
+                    replaced.append(item.key)
+                upload_object(client, item, config)
+                proven = remote_digest(client, item.key) == item.sha256
+            if not proven:
+                raise ValueError("R2 bytes do not match the release file: " + item.key)
+    except BaseException:
+        if replaced:
+            # Index files are replaced in place and the repository has no
+            # Acquire-By-Hash, so new indices behind the old InRelease are a
+            # Hash Sum mismatch for every installed system until a re-run
+            # writes InRelease. Said here, at the moment it is true.
+            print(
+                "APT_INDICES_INCONSISTENT replaced=" + ",".join(replaced) + "\n"
+                "  The bucket now serves index files the published InRelease does not list,\n"
+                "  so `apt update` fails on every installed system until InRelease is written.\n"
+                "  Fix the cause and re-run --apply now: a re-run is idempotent and skips every\n"
+                "  object already proven (FINAL_OPERATIONS_CHECKLIST.md, Packages-only point update).",
+                file=sys.stderr, flush=True)
+        raise
     print(f"R2_APT_BYTES_VERIFIED objects={len(objects)}", flush=True)
     print("R2_APT_ONLY_PUBLISHED no ISO, evidence or releases/CURRENT.json was written", flush=True)
 
