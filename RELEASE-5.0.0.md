@@ -7,7 +7,7 @@ keeping it means 4.1 systems receive 5.0 from the suite they already track).
 Signing fingerprint unchanged:
 `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
-Status: **NOT RELEASED.** The release image below is built, gated and
+Status: **Released 2026-09-30.** The release image below is built, gated and
 accepted (see [Acceptance](#acceptance)). The release owner chose to ship this
 image and deliver the remaining fixes in the 5.0.1 update (see
 [Known issues](#known-issues)). Published 2026-09-30: the ISO, its checksum and signature are served from
