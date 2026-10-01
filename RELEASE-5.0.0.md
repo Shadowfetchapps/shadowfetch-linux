@@ -1,9 +1,8 @@
 # Shadowfetch Linux 5.0.0 — ShadowCode
 
 Edition: **ShadowCode**. Subtitle: **"One Harness. All Models."** Codename:
-Umbra; the APT suite stays `umbra` (provisional in
-`tools/release/versions/5.0.0.toml` until the first 5.0 package is published;
-keeping it means 4.1 systems receive 5.0 from the suite they already track).
+Umbra; the APT suite stays `umbra` (keeping it means 4.1 systems receive 5.0
+from the suite they already track).
 Signing fingerprint unchanged:
 `8F13 CE15 35EE 1F4A 2916 A1F7 3C5C 900B 7BE8 0CA1`.
 
@@ -407,8 +406,8 @@ it, so use the workaround.
   SHADOWCODE-01's soak memory check and STRESS-01's mission and container
   loops; see [Acceptance](#acceptance) for what each waiver does and does not
   cover.
-- **The APT suite is provisional.** `umbra` is carried from 4.x; it must be
-  confirmed before the first 5.0 package is published.
+- **The APT suite is still named `umbra`.** It is carried from 4.x, so 4.x
+  sources lists keep working unchanged.
 - ShadowCode needs glibc 2.39 or newer and Vulkan for GPU inference; without a
   Vulkan GPU its local runtime falls back to the CPU.
 - **ShadowCode's first run can open light on the dark desktop** and saves
@@ -471,8 +470,8 @@ Continue only if both the signature and the checksum verify. The expected
 SHA-256 is `2d8a72e044e8061bd616b2b4668425cc4d4ec0480a98975f961c0e58cba95e21`.
 A GPG warning about personal key trust is not a failed signature. The SBOM
 (`sbom-5.0.0.cdx.json`), package manifest (`packages-5.0.0.manifest`) and QA
-evidence bundle (`evidence-bundle-5.0.0.tar.gz`) will be attached to the
-v5.0.0 GitHub release: https://github.com/Shadowfetchapps/shadowfetch-linux/releases/tag/v5.0.0
+evidence bundle (`evidence-bundle-5.0.0.tar.gz`) are on the download server and
+attached to the v5.0.0 GitHub release: https://github.com/Shadowfetchapps/shadowfetch-linux/releases/tag/v5.0.0
 (SHA-256: SBOM `552ce02cf0198244e643b62941c38b1ba2416e547fbfdd8d0c7a6a0cd71f22d9`, package manifest `4ff041494df0538dd041335fc823e0983c483223b33f94633b611c3154c1988b`,
 evidence bundle `f7a95161fc787fe9ef3680c9550850b42e174f8860de51e818c8a54f3b13f260`).
 
