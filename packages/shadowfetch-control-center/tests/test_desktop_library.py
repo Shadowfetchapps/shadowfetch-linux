@@ -31,6 +31,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -331,7 +332,11 @@ class SystemSummaryDoesNotInventGoodNews(unittest.TestCase):
         self.assertEqual("Status unavailable", state)
 
     def test_no_failed_units_is_reported_as_such(self):
-        with patch.object(desktop, "failed_units", return_value=[]):
+        # The summary also flags a root filesystem at 90% or more; pin the disk
+        # so the build host's own free space cannot decide this test.
+        half_full = SimpleNamespace(total=100, used=50, free=50)
+        with patch.object(desktop, "failed_units", return_value=[]), \
+                patch("shutil.disk_usage", return_value=half_full):
             state, detail = desktop.system_summary()
         self.assertEqual("System check passed", state)
         self.assertIn("No failed system units", detail)

@@ -639,6 +639,9 @@ def archive_commit_id(path: Path) -> str:
     unpacked = subprocess.run(["/usr/bin/gzip", "-dc", str(path)], capture_output=True)
     if unpacked.returncode != 0:
         return ""
+    # cwd="/": git 2.43's get-tar-commit-id fails when the current directory's
+    # path is long (about 128 characters), which made the result depend on
+    # where the caller happened to be standing.
     result = subprocess.run([GIT, "get-tar-commit-id"], input=unpacked.stdout,
-                            capture_output=True, env=trusted_env())
+                            capture_output=True, env=trusted_env(), cwd="/")
     return result.stdout.decode().strip() if result.returncode == 0 else ""
