@@ -32,10 +32,19 @@ mission_pid=0
 out="${1:-/var/tmp/shadowfetch-qa-$release-$run_id}"
 [[ ! -e "$out/result.json" && ! -e "$out/timing.txt" ]] || { echo "Refusing to overwrite earlier QA evidence" >&2; exit 2; }
 image="docker.io/library/alpine:3.22"
-# 5.0.0 QA copy of tools/qa_4_0_0/stress_45m.sh. The ONLY changes: the pinned
-# Alpine image ID may be overridden (QA_ALPINE_IMAGE_ID) when docker.io has moved
-# the 3.22 tag since the 4.x pin -- the override is written into result.json --
-# and latency_probe.py beside this file is the 5.0 variant (see its header).
+# 5.0.0 QA copy of tools/qa_4_0_0/stress_45m.sh. The ONLY workload changes: the
+# pinned Alpine image ID may be overridden (QA_ALPINE_IMAGE_ID) when docker.io
+# has moved the 3.22 tag since the 4.x pin -- the override is written into
+# result.json -- and latency_probe.py beside this file is the 5.0 variant (see
+# its header). The load itself (stress-ng profile, container cycle, mission
+# cycle, probes) is the 4.x one.
+# 5.0.1 harness fixes, profile production-default900s-v3 (judging and bounds
+# only, see the two helpers' headers): mission_stress.py asks again when
+# Mission Control answers "database is busy" and stops its worker without
+# crashing; container_stress.py judges a cycle's checksum separately from its
+# podman client's --rm exit, records slow phases as observations and fails a
+# cycle only on a wrong result or a hang. The outer bounds below follow the
+# helpers' own bounds; they only stop a helper that ignores them.
 expected_image_id="${QA_ALPINE_IMAGE_ID:-b66e0ce64844f5c6435b0c4bfd965558199ab0f53270846861c979cb1ac29365}"
 
 mkdir -p "$out"
@@ -93,7 +102,7 @@ plans_rc=$?
 load_started="$(date +%s)"
 load_started_monotonic="$(python3 -c 'import time; print(time.monotonic())')"
 printf 'load_started_epoch=%s\n' "$load_started" >> "$out/timing.txt"
-printf 'load_started_monotonic=%s\nqa_profile=production-default900s-v2\n' "$load_started_monotonic" >> "$out/timing.txt"
+printf 'load_started_monotonic=%s\nqa_profile=production-default900s-v3\n' "$load_started_monotonic" >> "$out/timing.txt"
 setsid "${AS_USER[@]}" stress-ng \
     --cpu "${QA_STRESS_CPUS:-3}" --cpu-method all \
     --vm 1 --vm-bytes "${QA_STRESS_VM_BYTES:-3G}" --vm-keep \
@@ -104,12 +113,17 @@ setsid "${AS_USER[@]}" stress-ng \
     > "$out/stress-ng.log" 2>&1 &
 stress_pid=$!
 
-container_outer_seconds=$((duration + 420))
+# container_stress.py: the last cycle may start at the end of the window and
+# use 600 s per phase (workload, then --rm cleanup) plus bounded state probes
+# and terminations, then two final 300 s operations (exact-name rm, listing).
+container_outer_seconds=$((duration + 2400))
 container_result="$qa_home/.local/state/shadowfetch/qa-container-$run_id.json"
 setsid "${AS_USER[@]}" timeout --signal=TERM --kill-after=15s "${container_outer_seconds}s" python3 "$helper_dir/container_stress.py" --duration "$duration" --load-start-monotonic "$load_started_monotonic" --image "$image_id" --run-id "$run_id" --output "$container_result" > "$out/container-loop.log" 2>&1 &
 container_pid=$!
 
-mission_outer_seconds=$((duration + 1020 + 120 + 15))
+# mission_stress.py: the last 1020 s cycle, 120 s cancellation cleanup, then
+# the worker stop (60 s after SIGTERM, 60 s after SIGKILL).
+mission_outer_seconds=$((duration + 1020 + 120 + 60 + 60 + 15))
 setsid "${AS_USER[@]}" timeout --signal=TERM --kill-after=15s "${mission_outer_seconds}s" python3 "$helper_dir/mission_stress.py" --duration "$duration" --load-start-monotonic "$load_started_monotonic" --run-id "$run_id" --output "$qa_home/.local/state/shadowfetch/qa-stress-$run_id" > "$out/mission-loop.log" 2>&1 &
 mission_pid=$!
 setsid "${AS_USER[@]}" python3 "$helper_dir/latency_probe.py" --duration "$duration" > "$out/probe-loop.jsonl" 2> "$out/probe-loop.err" &
@@ -200,7 +214,7 @@ done
 cat > "$out/result.json" <<EOF
 {
   "release": "$release",
-  "qa_profile": "production-default900s-v2",
+  "qa_profile": "production-default900s-v3",
   "boot_id": "$boot_id",
   "start": "$start_iso",
   "end": "$end_iso",
