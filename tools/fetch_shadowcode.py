@@ -253,24 +253,7 @@ def stage_sources(pin: shadowcode.Pin, runtime: Path, destination: Path,
         sums.append(f"{shadowcode.sha256_file(published_archive)}  {archive.name}\n")
     if sums:
         (target / shadowcode.SOURCE_SUMS).write_text("".join(sums), encoding="utf-8")
-    (target / "README").write_text(
-        f"ShadowCode {pin.version} ({pin.tag}, commit {pin.commit})\n"
-        "\n"
-        f"{pin.runtime_sources.filename} is the corresponding source of the\n"
-        "AppImage runtime upstream publishes with this release, verified against\n"
-        "the Ed25519-signed RELEASE-AUTH beside it (vendor/shadowcode/README.md\n"
-        "in the Shadowfetch source tree says how). It is republished here because\n"
-        "Shadowfetch redistributes the release; it is NOT the source of the\n"
-        f"{pin.package} .deb.\n"
-        "\n"
-        f"The .deb's source is the other archives here: {shadowcode.REPOSITORY} at the\n"
-        "commit above, and the llama.cpp and SPIRV-Headers commits the signed\n"
-        "RELEASE-MANIFEST.json names. Each is `git archive` of that exact commit;\n"
-        "`gzip -dc <file> | git get-tar-commit-id` prints the commit it holds.\n"
-        "Rust and npm dependencies are pinned by the Cargo.lock and ui lockfile in\n"
-        "the ShadowCode archive, whose hashes the signed manifest records.\n",
-        encoding="utf-8",
-    )
+    (target / shadowcode.SOURCE_README).write_text(shadowcode.source_readme(pin), encoding="utf-8")
     print(f"STAGED sources {target}")
     return target
 
