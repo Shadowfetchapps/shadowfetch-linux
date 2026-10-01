@@ -254,13 +254,39 @@ upload.
    It is the gate for an ISO release and is unchanged.
 2. `tools/pre_release_check.sh` passes, with a 7-day minimum on `Valid-Until`
    and complete corresponding source, including `pool/third-party-source/`.
+   The publisher points it at `repo/` and the release's codename itself, so
+   `REPO_DIR` or `CODENAME` exported in your shell are ignored. It reads
+   `Valid-Until` only from the signed text, and refuses an `InRelease` that
+   is anything other than exactly one clearsigned message.
 3. `repo/shadowfetch.gpg.asc` is the release key. Both `InRelease` and
-   `Release.gpg` verify under it, the signed text lists every index file
-   exactly with matching bytes, and `Release` is that same text.
+   `Release.gpg` verify under it. `InRelease` begins with the clearsigned
+   header and ends with the signature, with nothing outside them: gpgv
+   accepts unsigned text there, but apt does not. In the text gpgv says is
+   signed, `Date` is not in the future and `Valid-Until` is at least 7 days
+   away. That text lists every index file exactly, with matching bytes, and
+   `Release` is that same text. Every compressed index (`.gz`, `.xz`, `.bz2`)
+   decompresses to the plain index beside it, which is the file every check
+   reads (apt downloads the compressed one). A compression nothing here can
+   read (`.zst`, `.lz4`) is refused. Nothing exists under `repo/dists/`
+   outside `dists/<codename>/`. Everything under `repo/dists/` is uploaded,
+   and only that directory is signed.
 4. The binary index names exactly the release data's packages at exactly its
    versions, and the source index names exactly its sources. Every pool file is
-   one the indices name, with those bytes (`third-party-source/` excepted, see
-   2), and every `.deb` in the pool is byte-identical to the one in `build/`.
+   one the indices name, with those bytes, and every `.deb` in the pool is
+   byte-identical to the one in `build/`. `pool/third-party-source/` is the
+   one exception, and each of its files is still checked. It must sit at
+   `<package>/<version>/<file>` for a package and version the binary index
+   lists. `tools/fetch_shadowcode.py` removes other versions when it stages a
+   new pin. It must also be one of these:
+   * named in that directory's `SOURCE-SHA256SUMS` with those bytes;
+   * for ShadowCode, a signed asset of the pin (the `.deb` or the
+     runtime-sources tarball) that passes the upstream verifier;
+   * a signed metadata file (`RELEASE-AUTH`, `RELEASE-AUTH.sig`, `SHA256SUMS`,
+     `RELEASE-MANIFEST.json`) byte-identical to `vendor/shadowcode/<version>/`;
+   * the `README` the fetch tool writes.
+
+   A partial download, a second version directory or anything else is
+   refused, because it would be uploaded as a permanent object.
 
 **Running it:**
 

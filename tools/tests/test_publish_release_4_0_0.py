@@ -1,10 +1,12 @@
 import contextlib
 import dataclasses
+import datetime
 import gzip
 import hashlib
 import importlib.util
 import io
 import json
+import lzma
 from pathlib import Path
 import sys
 import tempfile
@@ -93,12 +95,22 @@ def build_full_tree(root):
     write(root / f"qa/{V}/acceptance.json", json.dumps({"artifact": artifact}))
     return signed
 
-def build_repository(root, release=RELEASE, version_override=None):
+def http_date(moment):
+    return moment.strftime("%a, %d %b %Y %H:%M:%S UTC")
+
+NOW = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+DATED = f"Date: {http_date(NOW - datetime.timedelta(hours=1))}\nValid-Until: {http_date(NOW + datetime.timedelta(days=180))}\n"
+SHADOWCODE = publisher.shadowcode.PACKAGE
+
+def build_repository(root, release=RELEASE, version_override=None, dates=DATED,
+                     compressions=(".gz",), extra_indices=None):
     """repo/ and build/ as `make repo` leaves them, derived from the release data.
 
     Returns the text a signature over InRelease would cover. Nothing here is
     signed: signature verification is gpgv's job and is exercised on the real
     repository; these tests are about what is published, and in which order.
+    `dates` is the Date/Valid-Until block of that text; `extra_indices` adds
+    or replaces files under dists/<codename>/ before it is "signed".
     """
     version_override = version_override or {}
     repo, build = root / "repo", root / "build"
@@ -120,24 +132,25 @@ def build_repository(root, release=RELEASE, version_override=None):
         write(repo / directory / f"{name}_{version}.dsc", data)
         sources.append(f"Package: {name}\nVersion: {version}\nDirectory: {directory}\nChecksums-Sha256: \n {sha(data)} {len(data)} {name}_{version}.dsc\n")
     archive = b"third-party source archive\n"
-    write(repo / "pool/third-party-source/shadow-code/1.0.0/source.tar.gz", archive)
-    write(repo / "pool/third-party-source/shadow-code/1.0.0/SOURCE-SHA256SUMS", f"{sha(archive)}  source.tar.gz\n")
+    third_party = repo / "pool/third-party-source" / SHADOWCODE / version_override.get(SHADOWCODE, release.binary_versions[SHADOWCODE])
+    write(third_party / "source.tar.gz", archive)
+    write(third_party / "SOURCE-SHA256SUMS", f"{sha(archive)}  source.tar.gz\n")
     dists = repo / "dists" / release.codename
     packages = "\n".join(records).encode()
     source_index = "\n".join(sources).encode()
+    compress = {".gz": lambda data: gzip.compress(data, mtime=0), ".xz": lzma.compress}
     indices = {
-        "main/binary-amd64/Packages": packages,
-        "main/binary-amd64/Packages.gz": gzip.compress(packages, mtime=0),
         "main/binary-amd64/Release": b"Component: main\nArchitecture: amd64\n",
-        "main/source/Sources": source_index,
-        "main/source/Sources.gz": gzip.compress(source_index, mtime=0),
         "main/source/Release": b"Component: main\nArchitecture: source\n",
     }
+    for name, data in (("main/binary-amd64/Packages", packages), ("main/source/Sources", source_index)):
+        indices[name] = data
+        indices.update({name + suffix: compress[suffix](data) for suffix in compressions})
+    indices.update(extra_indices or {})
     for name, data in indices.items():
         write(dists / name, data)
     signed = (
-        f"Origin: Shadowfetch\nCodename: {release.codename}\n"
-        "Valid-Until: Mon, 29 Mar 2027 19:14:18 UTC\nSHA256:\n"
+        f"Origin: Shadowfetch\nCodename: {release.codename}\n{dates}SHA256:\n"
         + "".join(f" {sha(data)} {len(data)} {name}\n" for name, data in sorted(indices.items()))
     )
     write(dists / "Release", signed)
@@ -325,6 +338,15 @@ class ModeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "never writes"):
                 publisher.main(["--apt-only", "--published", "2026-10-01T00:00:00Z"])
 
+    def test_the_expiry_check_examines_this_repository_whatever_the_shell_exports(self):
+        exported = {"REPO_DIR": "/elsewhere/repo", "CODENAME": "elsewhere", "REPO_MIN_VALID_FOR_SECONDS": "1"}
+        with mock.patch.dict(publisher.os.environ, exported), mock.patch.object(publisher.subprocess, "run") as run:
+            publisher.pre_release_check()
+        environment = run.call_args.kwargs["env"]
+        self.assertEqual(str(publisher.ROOT / "repo"), environment["REPO_DIR"])
+        self.assertEqual(RELEASE.codename, environment["CODENAME"])
+        self.assertEqual(str(7 * 86400), environment["REPO_MIN_VALID_FOR_SECONDS"])
+
     def test_the_floor_cannot_be_removed_only_extended(self):
         self.assertEqual(publisher.APT_ONLY_FLOOR, publisher.apt_only_cases(with_data(apt_only={"acceptance": []})))
         self.assertEqual(
@@ -413,6 +435,160 @@ class AptOnlyPlanTests(Fixture):
         with self.assertRaisesRegex(ValueError, "the signed index is for"):
             self.plan(self.signed.replace(f"Codename: {CODENAME}", "Codename: elsewhere"))
 
+    # -- what the signature covers, and only that ----------------------------
+
+    def test_unsigned_text_around_the_clearsigned_message_is_refused(self):
+        """gpgv reports a good signature over a clearsigned message with
+        unsigned lines before its header or after its signature; apt refuses
+        such a file. Here the signed text has expired and an unsigned line
+        claims otherwise -- the line pre_release_check.sh's grep used to read."""
+        expired = "Date: Sun, 31 Dec 2023 00:00:00 UTC\nValid-Until: Mon, 01 Jan 2024 00:00:00 UTC\n"
+        signed = build_repository(self.root, dates=expired)
+        inrelease = (self.dists / "InRelease").read_text()
+        claim = f"Valid-Until: {http_date(NOW + datetime.timedelta(days=180))}\n"
+        for where, text in (("begin with", claim + inrelease), ("end with", inrelease + claim)):
+            with self.subTest(where):
+                write(self.dists / "InRelease", text)
+                with self.assertRaises(ValueError) as refused:
+                    self.plan(signed)
+                self.assertIn(f"InRelease does not {where}", str(refused.exception))
+                self.assertIn("Valid-Until is Mon, 01 Jan 2024 00:00:00 UTC (expired)", str(refused.exception))
+
+    def test_two_clearsigned_messages_in_one_inrelease_are_refused(self):
+        inrelease = (self.dists / "InRelease").read_text()
+        write(self.dists / "InRelease", inrelease + inrelease)
+        with self.assertRaisesRegex(ValueError, "holds 2 '-----BEGIN PGP SIGNED MESSAGE-----' lines, not one"):
+            self.plan()
+
+    def test_valid_until_comes_from_the_signed_text_and_must_last_a_week(self):
+        cases = {
+            "expired": (NOW - datetime.timedelta(days=1), r"\(expired\)"),
+            "three days": (NOW + datetime.timedelta(days=3), r"\(2 days remaining\); publishing needs 7 days"),
+        }
+        for name, (until, message) in cases.items():
+            with self.subTest(name):
+                signed = build_repository(self.root, dates=f"Date: {http_date(NOW - datetime.timedelta(days=30))}\nValid-Until: {http_date(until)}\n")
+                with self.assertRaisesRegex(ValueError, message):
+                    self.plan(signed)
+        self.plan(build_repository(self.root, dates=f"Date: {http_date(NOW)}\nValid-Until: {http_date(NOW + datetime.timedelta(days=8))}\n"))
+
+    def test_signed_dates_apt_would_refuse_are_refused(self):
+        later = NOW + datetime.timedelta(days=180)
+        cases = {
+            "no Valid-Until": (f"Date: {http_date(NOW)}\n", "has no Valid-Until"),
+            "no Date": (f"Valid-Until: {http_date(later)}\n", "has no Date"),
+            "unreadable": (f"Date: yesterday\nValid-Until: {http_date(later)}\n", "unreadable Date: yesterday"),
+            "future Date": (f"Date: {http_date(NOW + datetime.timedelta(days=1))}\nValid-Until: {http_date(later)}\n", "is in the future"),
+        }
+        for name, (dates, message) in cases.items():
+            with self.subTest(name), self.assertRaisesRegex(ValueError, message):
+                self.plan(build_repository(self.root, dates=dates))
+
+    def test_a_dists_file_outside_the_signed_suite_is_refused(self):
+        """repository_objects uploads all of repo/dists; only dists/<codename>/
+        is signed, so anything beside it would go up unchecked and replace
+        what the bucket holds at that key."""
+        write(self.root / "repo/dists/README", "not signed\n")
+        write(self.root / "repo/dists/stable/InRelease", "not this suite\n")
+        with self.assertRaisesRegex(ValueError, f"outside the signed suite dists/{CODENAME}/: dists/README, dists/stable/InRelease"):
+            self.plan()
+
+    def test_a_compressed_index_that_is_not_its_plain_index_is_refused(self):
+        """Signed, so apt would accept it -- and download it in place of the
+        Packages file every check here reads."""
+        stale = gzip.compress(b"Package: shadowfetch-missions\nVersion: 5.0.0-1\nFilename: pool/main/s/gone.deb\n", mtime=0)
+        signed = build_repository(self.root, extra_indices={"main/binary-amd64/Packages.gz": stale})
+        with self.assertRaisesRegex(ValueError, "main/binary-amd64/Packages.gz: does not decompress to Packages"):
+            self.plan(signed)
+        signed = build_repository(self.root, extra_indices={"main/source/Sources.gz": b"not gzip at all"})
+        with self.assertRaisesRegex(ValueError, "main/source/Sources.gz: does not decompress"):
+            self.plan(signed)
+
+    def test_every_compressed_form_is_compared_and_one_that_cannot_be_is_refused(self):
+        self.plan(build_repository(self.root, compressions=(".gz", ".xz")))
+        signed = build_repository(self.root, extra_indices={"main/binary-amd64/Packages.zst": b"(zstd frame)"})
+        with self.assertRaisesRegex(ValueError, "Packages.zst: no decompressor"):
+            self.plan(signed)
+        signed = build_repository(self.root, extra_indices={"main/binary-amd64/Contents.gz": gzip.compress(b"x", mtime=0)})
+        with self.assertRaisesRegex(ValueError, "Contents.gz: there is no uncompressed Contents beside it"):
+            self.plan(signed)
+
+
+class ThirdPartySourceTests(Fixture):
+    """pool/third-party-source/ goes up as permanent objects; each file must
+    be source of a package being published, and verified."""
+    def setUp(self):
+        super().setUp()
+        self.signed = build_repository(self.root)
+        self.pin = publisher.shadowcode.load_pin()
+        self.folder = self.root / "repo/pool/third-party-source" / SHADOWCODE / RELEASE.binary_versions[SHADOWCODE]
+
+    def plan(self):
+        return publisher.apt_only_plan(self.root, self.signed, APT_ONLY_RELEASE)
+
+    def test_the_fixture_tree_is_accepted(self):
+        keys = [item.key for item in self.plan()]
+        self.assertIn(f"apt/pool/third-party-source/{SHADOWCODE}/{self.folder.name}/source.tar.gz", keys)
+
+    def test_another_version_directory_is_refused(self):
+        write(self.root / f"repo/pool/third-party-source/{SHADOWCODE}/0.9.9/anything.bin", "stray\n")
+        with self.assertRaisesRegex(ValueError, f"{SHADOWCODE}/0.9.9/anything.bin: the binary index lists no {SHADOWCODE} 0.9.9"):
+            self.plan()
+
+    def test_a_package_the_index_does_not_list_is_refused(self):
+        write(self.root / "repo/pool/third-party-source/unlisted/1.0/source.tar.gz", "stray\n")
+        with self.assertRaisesRegex(ValueError, "the binary index lists no unlisted 1.0"):
+            self.plan()
+
+    def test_a_partial_download_is_refused(self):
+        write(self.folder / "source.tar.gz.partial", "half an archive\n")
+        with self.assertRaisesRegex(ValueError, "source.tar.gz.partial: named in neither SOURCE-SHA256SUMS nor the signed release metadata"):
+            self.plan()
+
+    def test_a_file_outside_a_package_version_directory_is_refused(self):
+        write(self.root / "repo/pool/third-party-source/README", "loose\n")
+        write(self.folder / "nested/source.tar.gz", "deeper\n")
+        with self.assertRaises(ValueError) as refused:
+            self.plan()
+        self.assertIn("pool/third-party-source/README: not at pool/third-party-source/<package>/<version>/<file>", str(refused.exception))
+        self.assertIn("nested/source.tar.gz: not at", str(refused.exception))
+
+    def test_an_archive_that_is_not_its_listed_bytes_is_refused(self):
+        write(self.folder / "source.tar.gz", "replaced after it was summed\n")
+        with self.assertRaisesRegex(ValueError, "source.tar.gz: missing or not the bytes SOURCE-SHA256SUMS names"):
+            self.plan()
+
+    def test_a_symbolic_link_is_refused(self):
+        (self.folder / "link.tar.gz").symlink_to(self.folder / "source.tar.gz")
+        with self.assertRaisesRegex(ValueError, "symbolic-link release file: .*link.tar.gz"):
+            self.plan()
+        repo = self.root / "repo"
+        records = publisher.gate.parse_deb822((self.dists / "main/binary-amd64/Packages").read_text())
+        self.assertIn(f"pool/third-party-source/{SHADOWCODE}/{self.folder.name}/link.tar.gz: a symbolic link, not a file",
+                      publisher.third_party_source_errors(repo, records))
+
+    def test_signed_metadata_and_the_readme_are_accepted_only_as_vendored_and_staged(self):
+        for name in publisher.shadowcode.METADATA_FILES:
+            write(self.folder / name, (self.pin.vendor_dir / name).read_bytes())
+        write(self.folder / "README", publisher.shadowcode.source_readme(self.pin))
+        self.plan()
+        write(self.folder / "RELEASE-MANIFEST.json", (self.pin.vendor_dir / "RELEASE-MANIFEST.json").read_bytes() + b" ")
+        write(self.folder / "README", publisher.shadowcode.source_readme(self.pin) + "edited\n")
+        with self.assertRaises(ValueError) as refused:
+            self.plan()
+        self.assertIn("RELEASE-MANIFEST.json: not the signed metadata vendored at", str(refused.exception))
+        self.assertIn("README: not the README tools/fetch_shadowcode.py stages", str(refused.exception))
+
+    def test_a_signed_asset_is_accepted_only_through_the_upstream_verifier(self):
+        runtime = write(self.folder / self.pin.runtime_sources.filename, "runtime sources\n")
+        with mock.patch.object(publisher.shadowcode, "verify_pinned_artifact", return_value="VERIFIED") as verifier:
+            self.plan()
+        verifier.assert_called_once_with(self.pin, runtime, "runtime-sources")
+        refusal = publisher.shadowcode.ShadowCodeError("upstream verifier refused it: bad signature")
+        with mock.patch.object(publisher.shadowcode, "verify_pinned_artifact", side_effect=refusal), \
+                self.assertRaisesRegex(ValueError, f"{self.pin.runtime_sources.filename}: upstream verifier refused it"):
+            self.plan()
+
 
 class AptOnlyScopeTests(unittest.TestCase):
     def objects(self, *keys):
@@ -421,6 +597,11 @@ class AptOnlyScopeTests(unittest.TestCase):
     def test_nothing_outside_the_repository_may_be_written(self):
         for key in ("releases/CURRENT.json", "releases/" + publisher.ISO, f"releases/evidence-bundle-{V}.tar.gz"):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "may not write"):
+                publisher.check_apt_only_scope(self.objects("apt/pool/a.deb", key, *SIGNED_TRIO))
+
+    def test_only_the_signed_suite_may_be_written_under_dists(self):
+        for key in ("apt/dists/README", "apt/dists/stable/InRelease", f"apt/dists/{CODENAME}-proposed/Release"):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "may not write " + key):
                 publisher.check_apt_only_scope(self.objects("apt/pool/a.deb", key, *SIGNED_TRIO))
 
     def test_only_index_files_may_be_replaced(self):

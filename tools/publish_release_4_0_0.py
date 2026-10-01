@@ -18,11 +18,15 @@ apt_only_plan).
 """
 from __future__ import annotations
 import argparse
+import bz2
 from dataclasses import dataclass
 import datetime
+import email.utils
+import gzip
 import hashlib
 import importlib.util
 import json
+import lzma
 import mimetypes
 import os
 from pathlib import Path
@@ -55,6 +59,9 @@ FINGERPRINT = "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1"
 # renaming it would silently falsify all five.
 sys.path.insert(0, str(ROOT / "tools/release"))
 import gate  # noqa: E402
+# The ShadowCode pin and its signed-release verifier: what decides whether a
+# file under pool/third-party-source/ is the signed upstream bytes.
+import shadowcode  # noqa: E402
 RELEASE = gate.load_release(None)
 VERSION = RELEASE.version
 # The pointer's schema, its validation and its key live with the worker that
@@ -96,6 +103,19 @@ DELIVERIES = (DELIVERY_ISO, APT_ONLY)
 # an ISO release passes -- is neither used nor changed by this mode: an ISO
 # release still needs every required case.
 APT_ONLY_FLOOR = ("SRC-01", "PKG-01", "UPGRADE-01")
+# How long the signed index must stay valid when it is published: the same
+# floor pre_release_check.sh is given, read from the text the signature covers.
+MIN_VALID_FOR = datetime.timedelta(days=7)
+# Corresponding source of a prebuilt package, published beside the pool rather
+# than in main/source (vendor/shadowcode/README.md).
+THIRD_PARTY_SOURCE = "pool/third-party-source"
+CLEARSIGN_BEGIN = "-----BEGIN PGP SIGNED MESSAGE-----"
+SIGNATURE_BEGIN = "-----BEGIN PGP SIGNATURE-----"
+SIGNATURE_END = "-----END PGP SIGNATURE-----"
+# Compressed forms apt may download in place of an index. Each must decompress
+# to the uncompressed file beside it, which is the one every check here reads.
+DECOMPRESSORS = {".gz": gzip.open, ".xz": lzma.open, ".lzma": lzma.open, ".bz2": bz2.open}
+UNREADABLE_COMPRESSIONS = (".zst", ".lz4")
 
 @dataclass(frozen=True)
 class Object:
@@ -534,14 +554,116 @@ def repository_errors(repo, release=None):
                     errors.append(f"{path.relative_to(repo)}: missing from the pool or not the bytes the source index names")
     # Everything else in the pool would be uploaded as a permanent object that
     # no index names. pool/third-party-source/ is the one deliberate exception:
-    # it is the corresponding source of a prebuilt package (ShadowCode), checked
-    # by pre_release_check.sh against its SOURCE-SHA256SUMS.
+    # it is the corresponding source of a prebuilt package (ShadowCode), and
+    # every file in it is checked on its own terms below.
     stray = sorted(
         relative for relative in (path.relative_to(repo).as_posix() for path in (repo / "pool").rglob("*") if path.is_file())
-        if relative not in indexed and not relative.startswith("pool/third-party-source/"))
+        if relative not in indexed and not relative.startswith(THIRD_PARTY_SOURCE + "/"))
     if stray:
         errors.append(f"pool files no index names: {', '.join(stray)}")
+    errors.extend(third_party_source_errors(repo, binary))
     return errors
+
+def third_party_source_errors(repo, binary_records):
+    """Every file under pool/third-party-source/ is checked source of a package
+    being published.
+
+    Uploaded as permanent objects, so nothing goes up here on the strength of
+    its directory name. A file is accepted only at <package>/<version>/<file>
+    for a (Package, Version) the binary index lists -- the fetch tool removes
+    other versions when it stages a new pin -- and only when something has
+    verified it: named in that directory's SOURCE-SHA256SUMS with those bytes,
+    or, for ShadowCode, one of the pin's signed assets passing the upstream
+    verifier, one of its signed metadata files byte-identical to the vendored
+    copy that verifier authenticates, or the README the fetch tool writes.
+    A partial download, a stray version directory or anything else is refused.
+    """
+    top = repo / THIRD_PARTY_SOURCE
+    if not top.exists():
+        return []
+    listed = {(record.get("Package"), record.get("Version")) for record in binary_records}
+    errors, directories = [], {}
+    for path in sorted(top.rglob("*")):
+        relative = path.relative_to(repo).as_posix()
+        if path.is_symlink():
+            errors.append(f"{relative}: a symbolic link, not a file")
+            continue
+        if path.is_dir():
+            continue
+        parts = path.relative_to(top).parts
+        if len(parts) != 3:
+            errors.append(f"{relative}: not at {THIRD_PARTY_SOURCE}/<package>/<version>/<file>")
+            continue
+        name, version, filename = parts
+        if (name, version) not in listed:
+            errors.append(f"{relative}: the binary index lists no {name} {version}, so this is the source of nothing being published")
+            continue
+        directories.setdefault((name, version), set()).add(filename)
+    for (name, version), files in sorted(directories.items()):
+        verified, problems = verified_third_party_files(top / name / version, name, version)
+        errors.extend(problems)
+        errors.extend(
+            f"{THIRD_PARTY_SOURCE}/{name}/{version}/{filename}: named in neither {shadowcode.SOURCE_SUMS} nor the signed release metadata, so nothing has verified it"
+            for filename in sorted(files - verified))
+    return errors
+
+def verified_third_party_files(directory, name, version):
+    """The files in one <package>/<version>/ directory that a check vouches for."""
+    label = f"{THIRD_PARTY_SOURCE}/{name}/{version}"
+    verified, errors = set(), []
+    sums = directory / shadowcode.SOURCE_SUMS
+    if sums.is_file():
+        sound = True
+        for line in sums.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = re.fullmatch(r"([0-9a-f]{64})  ([^/\s][^/]*)", line)
+            if not match:
+                errors.append(f"{label}/{shadowcode.SOURCE_SUMS}: unreadable line {line[:80]!r}")
+                sound = False
+                continue
+            path = directory / match.group(2)
+            if path.is_symlink() or not path.is_file() or digest(path) != match.group(1):
+                errors.append(f"{label}/{match.group(2)}: missing or not the bytes {shadowcode.SOURCE_SUMS} names")
+                sound = False
+            else:
+                verified.add(match.group(2))
+        if sound:
+            verified.add(shadowcode.SOURCE_SUMS)
+    if name == shadowcode.PACKAGE:
+        verified |= signed_shadowcode_files(directory, version, label, errors)
+    return verified, errors
+
+def signed_shadowcode_files(directory, version, label, errors):
+    """ShadowCode's signed release files, verified the way every consumer does."""
+    pin = shadowcode.load_pin()
+    if version != pin.version:
+        errors.append(f"{label}: the ShadowCode pin is {pin.version}, not {version}")
+        return set()
+    verified = set()
+    for name in shadowcode.METADATA_FILES:
+        path, vendored = directory / name, pin.vendor_dir / name
+        if not path.is_file():
+            continue
+        if vendored.is_file() and path.read_bytes() == vendored.read_bytes():
+            verified.add(name)
+        else:
+            errors.append(f"{label}/{name}: not the signed metadata vendored at vendor/shadowcode/{version}/{name}")
+    for role, asset in (("deb", pin.deb), ("runtime-sources", pin.runtime_sources)):
+        path = directory / asset.filename
+        if not path.is_file():
+            continue
+        try:
+            shadowcode.verify_pinned_artifact(pin, path, role)
+        except shadowcode.ShadowCodeError as error:
+            errors.append(f"{label}/{asset.filename}: {error}")
+        else:
+            verified.add(asset.filename)
+    readme = directory / shadowcode.SOURCE_README
+    if readme.is_file():
+        if readme.read_bytes() == shadowcode.source_readme(pin).encode("utf-8"):
+            verified.add(shadowcode.SOURCE_README)
+        else:
+            errors.append(f"{label}/{shadowcode.SOURCE_README}: not the README tools/fetch_shadowcode.py stages for {version}")
+    return verified
 
 def pool_build_errors(repo, build):
     """Every .deb in the pool is byte-identical to the one this tree built."""
@@ -557,18 +679,21 @@ def pool_build_errors(repo, build):
             errors.append(f"{deb.relative_to(repo)} differs from build/{deb.name}")
     return errors
 
-def signed_index_errors(dists, signed_text, codename):
+def signed_index_errors(dists, signed_text, codename, now=None):
     """The verified InRelease covers every index file exactly, and Release says the same.
 
     apt rejects an index whose bytes differ from what InRelease lists (Hash Sum
     mismatch), so a stale or hand-edited file in dists/ would break `apt update`
     on every installed system -- for an APT-only update, the whole release.
-    Nothing unsigned is uploaded beside it either.
+    Nothing unsigned is uploaded beside it either: InRelease is exactly one
+    clearsigned message, and its dates are read from the text the signature
+    covers, never from the file around it.
     """
-    errors = []
+    errors = inrelease_framing_errors(dists / "InRelease", codename)
     fields = dict(line.split(": ", 1) for line in signed_text.splitlines() if ": " in line and not line.startswith(" "))
     if fields.get("Codename") != codename:
         errors.append(f"the signed index is for {fields.get('Codename')!r}, not {codename!r}")
+    errors.extend(signed_date_errors(fields, codename, now))
     listed, section = {}, None
     for line in signed_text.splitlines():
         if not line.startswith(" "):
@@ -589,7 +714,110 @@ def signed_index_errors(dists, signed_text, codename):
     release_file = dists / "Release"
     if not release_file.is_file() or release_file.read_text(encoding="utf-8") != signed_text:
         errors.append(f"dists/{codename}/Release is not the text InRelease signs")
+    errors.extend(compressed_index_errors(dists, codename))
     return errors
+
+def inrelease_framing_errors(path, codename):
+    """InRelease is one clearsigned message and nothing else.
+
+    gpgv verifies a clearsigned message with unsigned text before its header
+    (or after its signature) and reports a good signature; apt refuses such a
+    file. Text outside the signature is also what a line-oriented reader --
+    pre_release_check.sh's Valid-Until grep -- would have believed.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as error:
+        return [f"dists/{codename}/InRelease is unreadable: {error}"]
+    errors = []
+    if not lines or lines[0] != CLEARSIGN_BEGIN:
+        errors.append(f"dists/{codename}/InRelease does not begin with {CLEARSIGN_BEGIN!r}: text before it is not covered by the signature")
+    if not lines or lines[-1] != SIGNATURE_END:
+        errors.append(f"dists/{codename}/InRelease does not end with {SIGNATURE_END!r}: text after it is not covered by the signature")
+    for marker in (CLEARSIGN_BEGIN, SIGNATURE_BEGIN, SIGNATURE_END):
+        if lines.count(marker) != 1:
+            errors.append(f"dists/{codename}/InRelease holds {lines.count(marker)} {marker!r} lines, not one")
+    return errors
+
+def _rfc1123(value):
+    try:
+        moment = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=datetime.timezone.utc)
+
+def signed_date_errors(fields, codename, now=None):
+    """Date and Valid-Until, as the signature covers them, are ones apt accepts
+    now and will go on accepting for MIN_VALID_FOR."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    errors, moments = [], {}
+    for name in ("Date", "Valid-Until"):
+        raw = fields.get(name)
+        moments[name] = _rfc1123(raw) if raw else None
+        if moments[name] is None:
+            errors.append(f"the signed index for {codename} has {'no' if raw is None else 'an unreadable'} {name}{'' if raw is None else ': ' + raw}")
+    date, valid_until = moments["Date"], moments["Valid-Until"]
+    if date is not None and date > now:
+        errors.append(f"the signed index's Date {fields['Date']} is in the future; apt refuses it as not valid yet")
+    if valid_until is not None:
+        if date is not None and valid_until <= date:
+            errors.append(f"the signed index's Valid-Until {fields['Valid-Until']} is not after its Date {fields['Date']}")
+        if valid_until - now < MIN_VALID_FOR:
+            state = "expired" if valid_until <= now else f"{(valid_until - now).days} days remaining"
+            errors.append(
+                f"the signed index's Valid-Until is {fields['Valid-Until']} ({state}); publishing needs "
+                f"{MIN_VALID_FOR.days} days. Re-sign it (make refresh-index) and re-run")
+    return errors
+
+def compressed_index_errors(dists, codename):
+    """Every compressed index is the uncompressed one beside it.
+
+    apt downloads Packages.gz or Sources.gz in place of the plain file whenever
+    the signed index lists it, while every check here -- versions, pool bytes,
+    the acceptance digests -- reads the plain file. A stale or hand-made
+    compressed copy would put something no check read in front of every
+    installed system.
+    """
+    errors = []
+    for path in sorted(dists.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = f"dists/{codename}/{path.relative_to(dists).as_posix()}"
+        if path.suffix in UNREADABLE_COMPRESSIONS:
+            errors.append(f"{relative}: no decompressor here to compare it with its uncompressed index, so apt would read an index nothing checked")
+            continue
+        opener = DECOMPRESSORS.get(path.suffix)
+        if opener is None:
+            continue
+        plain = path.with_suffix("")
+        if not plain.is_file():
+            errors.append(f"{relative}: there is no uncompressed {plain.name} beside it, which is the index every check reads")
+            continue
+        expected = plain.read_bytes()
+        try:
+            with opener(path, "rb") as stream:
+                data = stream.read(len(expected) + 1)
+        except (OSError, EOFError, lzma.LZMAError, ValueError) as error:
+            errors.append(f"{relative}: does not decompress ({error})")
+            continue
+        if data != expected:
+            errors.append(f"{relative}: does not decompress to {plain.name}, the index every check reads")
+    return errors
+
+def dists_scope_errors(repo, codename):
+    """Nothing under repo/dists but dists/<codename>/, which the signature covers.
+
+    repository_objects uploads all of repo/dists, and an index file outside
+    the signed suite would be published -- and would replace whatever the
+    bucket holds at that key -- with nothing having checked it.
+    """
+    dists = repo / "dists"
+    outside = sorted(
+        path.relative_to(repo).as_posix() for path in dists.rglob("*")
+        if (path.is_file() or path.is_symlink()) and codename != path.relative_to(dists).parts[0])
+    if outside:
+        return [f"files under repo/dists outside the signed suite dists/{codename}/: {', '.join(outside)}"]
+    return []
 
 def check_apt_only_scope(objects, codename=None):
     """What an APT-only publication may write, and in which order. Raises.
@@ -608,9 +836,11 @@ def check_apt_only_scope(objects, codename=None):
             stage = 1
         elif item.key in terminal:
             stage = 3
-        elif item.key.startswith("apt/dists/"):
+        elif item.key.startswith(f"apt/dists/{codename}/"):
             stage = 2
         else:
+            # Including apt/dists/ outside the signed suite: an index there is
+            # one no signature covers, replacing what the bucket holds.
             raise ValueError(f"An APT-only publication may not write {item.key}")
         if item.mutable != item.key.startswith("apt/dists/"):
             raise ValueError(f"Only APT index files may be replaced; {item.key} is marked {'mutable' if item.mutable else 'immutable'}")
@@ -634,6 +864,7 @@ def apt_only_plan(root, signed_text, release=None):
     errors = [
         *repository_errors(repo, release),
         *pool_build_errors(repo, root / "build"),
+        *dists_scope_errors(repo, release.codename),
         *signed_index_errors(repo / "dists" / release.codename, signed_text, release.codename),
     ]
     if errors:
@@ -676,7 +907,12 @@ def credentialed_client():
     return boto3.client("s3", endpoint_url=endpoint, region_name="auto")
 
 def pre_release_check():
-    subprocess.run([str(ROOT / "tools/pre_release_check.sh")], check=True, env=dict(os.environ, ROOT=str(ROOT), REPO_MIN_VALID_FOR_SECONDS=str(7 * 86400)))
+    # REPO_DIR and CODENAME are set, not inherited: exported in the operator's
+    # shell, either would point the check at a repository other than the one
+    # being published.
+    subprocess.run([str(ROOT / "tools/pre_release_check.sh")], check=True, env=dict(
+        os.environ, ROOT=str(ROOT), REPO_DIR=str(ROOT / "repo"), CODENAME=RELEASE.codename,
+        REPO_MIN_VALID_FOR_SECONDS=str(int(MIN_VALID_FOR.total_seconds()))))
 
 def main_apt_only(args):
     if args.published is not None:
