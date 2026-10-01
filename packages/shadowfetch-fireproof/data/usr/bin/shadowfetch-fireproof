@@ -329,6 +329,12 @@ class FireproofPage(QWidget):
             # the page says why and gives the repair, and Update stays off.
             self.summary_label.setText(interrupted["message"])
             self.update_button.setEnabled(False)
+        elif c["total"] == 0 and (a.get("held_back") or {}).get("packages"):
+            self.summary_label.setText(
+                "Nothing to install now: %d updates are held back so that "
+                "nothing is removed."
+                % len(a["held_back"]["packages"]))
+            self.update_button.setEnabled(False)
         elif c["total"] == 0:
             self.summary_label.setText(
                 "Your system is up to date against the current package "
@@ -355,6 +361,8 @@ class FireproofPage(QWidget):
         if b.get("same_set_rollback"):
             banners.append("This is the same update that was rolled back on "
                            "%s." % b["same_set_rollback"]["date"])
+        if b.get("held_back"):
+            banners.append(b["held_back"])
         if not b.get("phoenix_available"):
             banners.append("No Phoenix Point — rollback unavailable "
                            "(Phoenix Points require the Btrfs filesystem, "
@@ -362,10 +370,18 @@ class FireproofPage(QWidget):
         self.banner_label.setText("\n".join(banners))
         self.banner_label.setVisible(bool(banners))
 
+        held_back = (a.get("held_back") or {}).get("packages") or []
+        held_lines = []
         if a["holds"]:
-            self.holds_label.setText(
+            held_lines.append(
                 "Held: " + ", ".join("%s (pinned, will not update)" % h["name"]
                                      for h in a["holds"]))
+        if held_back:
+            held_lines.append(
+                "Held back until the Debian transition completes: "
+                + ", ".join(h["name"] for h in held_back))
+        if held_lines:
+            self.holds_label.setText("\n".join(held_lines))
             self.holds_label.show()
         else:
             self.holds_label.hide()

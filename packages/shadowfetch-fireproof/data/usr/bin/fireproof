@@ -8,6 +8,7 @@ reachable from here without a desktop session.
 import json
 import subprocess
 import sys
+import textwrap
 import threading
 
 USAGE = """fireproof - Shadowfetch Fireproof safe updates.
@@ -25,8 +26,11 @@ USAGE
 
 WHAT IT DOES
   Talks to fireproofd (org.shadowfetch.Fireproof1 on the system bus).
-  Updates warn before removing anything, wrap themselves in a Phoenix
-  Point, and verify the system afterward.
+  Updates wrap themselves in a Phoenix Point and verify the system
+  afterward. An update never removes a package you did not ask to remove:
+  while Debian testing is in the middle of a library transition, the
+  upgrades that would remove packages are held back and listed, and they
+  update once the transition is complete.
 
   If an earlier update was interrupted (packages unpacked but not
   configured, or anything `dpkg --audit` reports), check and update offer
@@ -98,13 +102,17 @@ def print_analysis(a):
     if not b["phoenix_available"]:
         print("  %s!!%s No Phoenix Point - rollback unavailable on this "
               "filesystem or with apt snapshots disabled" % (RED, OFF))
+    removing = {p["name"] for p in a["removals"]}
     reds = [p for p in a["upgrades"] + a["installs"] + a["removals"] if p["red"]]
     if reds:
         print("\n  %sCritical packages in this update (red):%s" % (BOLD, OFF))
         for p in reds:
-            arrow = ("%s -> %s" % (p["installed"], p["candidate"])
-                     if p["installed"] and p["candidate"]
-                     else (p["candidate"] or "remove %s" % p["installed"]))
+            if p["name"] in removing:
+                arrow = "remove %s" % p["installed"]
+            elif p["installed"] and p["candidate"]:
+                arrow = "%s -> %s" % (p["installed"], p["candidate"])
+            else:
+                arrow = p["candidate"]
             print("    %s  (%s)" % (p["name"], arrow))
     if a["removals"]:
         print("\n  %sRemovals:%s" % (BOLD, OFF))
@@ -119,8 +127,26 @@ def print_analysis(a):
         for h in a["holds"]:
             print("    %s  (%s held; %s available)"
                   % (h["name"], h["installed"], h["candidate"]))
+    print_held_back(a)
     print("\n  Kept-back story: %s" % a["kept_back"]["story"])
     print("  Change-set hash: %s" % a["change_set_hash"])
+
+
+def print_held_back(a):
+    """Upgrades fireproofd held back because they would remove packages.
+
+    An analysis from a daemon older than 5.0.1 has no held_back key."""
+    held = (a.get("held_back") or {})
+    if not held.get("packages"):
+        return
+    print("\n  %sHeld back - nothing will be removed:%s" % (BOLD, OFF))
+    print("  " + "\n  ".join(textwrap.wrap(held["message"], 72)))
+    for h in held["packages"]:
+        print("    %s  (%s installed; %s held back)"
+              % (h["name"], h["installed"], h["candidate"]))
+    if held.get("avoided_removals"):
+        print("  Would have been removed: %s"
+              % ", ".join(r["name"] for r in held["avoided_removals"]))
 
 
 # Exit status of check/update when an earlier dpkg run must be finished first.

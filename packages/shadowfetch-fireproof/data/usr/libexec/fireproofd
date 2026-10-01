@@ -5,12 +5,20 @@ Fireproof's contract, all of it enforced in this one process:
 
   * ANALYZE IS SIDE-EFFECT FREE. Opening the analyze screen takes no apt
     lock and downloads nothing. The pending upgrade is simulated with
-    python3-apt on a read-only cache (same libapt-pkg as apt itself, so
-    the resolver answers identically to `apt full-upgrade`), a
-    safe-upgrade diff yields the kept-back story, holds surface as
+    python3-apt on a read-only cache (libapt-pkg's classic dist-upgrade
+    resolver, which is NOT the solver `apt full-upgrade` uses in apt 3),
+    a safe-upgrade diff yields the kept-back story, holds surface as
     "pinned, will not update", and library renames (libfoo1 -> libfoo1t64)
     collapse to one "same library, new name" line. NEWS is lazy: nothing
     is fetched at analyze time.
+
+  * AN UPDATE NEVER REMOVES WHAT THE PERSON DID NOT ASK TO REMOVE. When
+    the full resolution would remove a package (a Debian testing library
+    transition), plan_update() holds the affected upgrades back instead and
+    the analysis says which and why. The only removals allowed are
+    retirements an incoming shadowfetch-* package's own Conflicts/Breaks
+    require, of automatically installed packages, never
+    shadowfetch-desktop or shadowfetch-creative-base.
 
   * THE LOCK IS TAKEN ONLY AT COMMIT. When the user clicks Update we
     acquire /var/lib/dpkg/lock-frontend, re-run the simulation and
@@ -113,6 +121,25 @@ RED_NAMES = (
 MAJOR_DOWNLOAD_BYTES = 500 * 1000 * 1000
 MAJOR_PACKAGE_COUNT = 300
 MAJOR_REMOVAL_COUNT = 10
+
+# NO SIDE-EFFECT REMOVALS. An update never removes a package the person did
+# not ask to remove. Debian testing moves in library transitions: for a few
+# days some upgrades can only be installed by removing packages that still
+# need the old library. QA 5.0.1 watched Fireproof's full resolution plan to
+# remove krita, kdenlive, shadowfetch-desktop and shadowfetch-creative-base
+# (14-16 removals) where `apt full-upgrade` held 12 packages back and removed
+# nothing. plan_update() now holds those upgrades back instead.
+#
+# The one kind of removal an update may make is a RETIREMENT: a package that
+# an incoming shadowfetch-* package's own Conflicts or Breaks requires to go,
+# that was installed automatically, and that is not one of these:
+PROTECTED_PACKAGES = frozenset(("shadowfetch-desktop",
+                                "shadowfetch-creative-base"))
+RETIRING_PREFIX = "shadowfetch-"
+# Rounds of "keep the refused removals, hold back what then breaks". One is
+# normally enough; holding back can uncover another refused removal.
+MAX_HOLD_BACK_ROUNDS = 8
+HELD_BACK_REASON = "debian-transition"
 
 NVIDIA_LOCKSTEP = "550.163.01"
 
@@ -453,6 +480,187 @@ def change_set_hash(changes):
     return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
 
 
+def retirement_targets(changes):
+    """(name, version) of every installed version an incoming shadowfetch-*
+    package's own Conflicts or Breaks names: the removals Shadowfetch itself
+    asks for when it retires a package."""
+    targets = set()
+    for pkg in changes:
+        if (pkg.marked_delete or pkg.candidate is None
+                or not pkg.name.startswith(RETIRING_PREFIX)):
+            continue
+        for dep in pkg.candidate.get_dependencies("Conflicts", "Breaks"):
+            for alt in dep.or_dependencies:
+                for ver in alt.target_versions:
+                    targets.add((ver.package.name, ver.version))
+    return targets
+
+
+def removal_refusal(pkg, targets):
+    """Why Fireproof will not make this removal, or None when it may: only a
+    retirement, of a package installed automatically, that is not one of the
+    desktop metapackages."""
+    if pkg.name in PROTECTED_PACKAGES:
+        return "Shadowfetch metapackage, never removed by an update"
+    if not pkg.is_auto_installed:
+        return "installed by you, never removed by an update"
+    installed = pkg.installed.version if pkg.installed else None
+    if (pkg.name, installed) not in targets:
+        return "not retired by a Shadowfetch package"
+    return None
+
+
+def refused_removals(changes):
+    """[(pkg, reason)] for each removal in the change set Fireproof refuses."""
+    targets = retirement_targets(changes)
+    refused = []
+    for pkg in changes:
+        if pkg.marked_delete:
+            why = removal_refusal(pkg, targets)
+            if why:
+                refused.append((pkg, why))
+    return refused
+
+
+def _problem_resolver(cache):
+    return apt_pkg.ProblemResolver(cache._depcache)
+
+
+def _broken_count(cache):
+    return cache._depcache.broken_count
+
+
+def _drop_orphaned_installs(cache):
+    """Leave out new packages only the held-back upgrades wanted.
+
+    ResolveByKeep keeps back the broken upgrades, but the new packages
+    they pulled in are not broken themselves and stay marked: on the QA
+    5.0.1 system that was 25 new packages next to 0 upgrades. A new,
+    automatically chosen package that nothing in the plan needs any more is
+    garbage in libapt's own sense (MarkAndSweep, run when each action group
+    ends), so it is not installed -- as `apt full-upgrade` installs 0 new
+    packages there."""
+    while True:
+        orphans = [p for p in cache.get_changes()
+                   if p.marked_install and not p.installed
+                   and p.is_auto_removable]
+        if not orphans:
+            return
+        with cache.actiongroup():
+            for pkg in orphans:
+                pkg.mark_keep()
+
+
+def held_back_message(held, avoided):
+    """What the person is told when upgrades are held back."""
+    names = ", ".join(a["name"] for a in avoided[:8])
+    if len(avoided) > 8:
+        names += " and %d more" % (len(avoided) - 8)
+    one = len(held) == 1
+    if not held:
+        # Only new packages were left out; no installed package waits.
+        return ("Debian testing is in the middle of a library transition. "
+                "Part of this update would remove %d installed package%s "
+                "(%s), so Fireproof leaves it out and removes nothing. It "
+                "will arrive once the transition is complete in Debian "
+                "testing; you do not need to do anything."
+                % (len(avoided), "" if len(avoided) == 1 else "s", names))
+    return ("Debian testing is in the middle of a library transition. "
+            "Installing %d update%s now would remove %d installed package%s "
+            "(%s), so Fireproof holds %s back and removes nothing. %s will "
+            "update once the transition is complete in Debian testing; you "
+            "do not need to do anything."
+            % (len(held), "" if one else "s",
+               len(avoided), "" if len(avoided) == 1 else "s", names,
+               "it" if one else "them", "It" if one else "They"))
+
+
+def plan_update(cache):
+    """Mark the update Fireproof makes on `cache`, and describe what it held
+    back. Analyze and the commit both call this, so the change set the person
+    approves is the one re-checked under the lock.
+
+    1. The full resolution, as `apt full-upgrade`'s classic resolver would
+       (python3-apt's dist-upgrade).
+    2. If that removes anything removal_refusal() refuses: keep those
+       packages, protect them, and let libapt's ResolveByKeep hold back
+       exactly the upgrades and new packages that needed them gone. Repeat
+       while a round uncovers another refused removal.
+    3. If that still leaves a broken or refused plan, fall back to the safe
+       upgrade (`apt upgrade`), which never removes anything.
+
+    In memory only, like the rest of analyze: nothing is written until the
+    commit."""
+    cache.upgrade(dist_upgrade=True)
+    changes = cache.get_changes()
+    refused = refused_removals(changes)
+    if not refused:
+        return {"held_back": [], "avoided_removals": [], "fallback": None,
+                "message": None}
+
+    # Snapshot the full plan now: the package objects show the final marks
+    # once the plan is changed below.
+    full_upgrades = {p.name: (p.installed.version,
+                              p.candidate.version if p.candidate else None)
+                     for p in changes if p.installed and not p.marked_delete}
+    avoided = sorted(({"name": p.name,
+                       "installed": p.installed.version if p.installed else None,
+                       "reason": why} for p, why in refused),
+                     key=lambda a: a["name"])
+    avoided_names = {a["name"] for a in avoided}
+    fallback = "hold-back"
+    for _ in range(MAX_HOLD_BACK_ROUNDS):
+        if not refused:
+            break
+        with cache.actiongroup():
+            for pkg, _why in refused:
+                pkg.mark_keep()
+        resolver = _problem_resolver(cache)
+        for pkg, _why in refused:
+            resolver.protect(pkg._pkg)
+        resolver.resolve_by_keep()
+        refused = refused_removals(cache.get_changes())
+        for pkg, why in refused:
+            if pkg.name not in avoided_names:
+                avoided_names.add(pkg.name)
+                avoided.append({"name": pkg.name,
+                                "installed": pkg.installed.version
+                                if pkg.installed else None,
+                                "reason": why})
+        _drop_orphaned_installs(cache)
+    if refused or _broken_count(cache):
+        cache.clear()
+        cache.upgrade(dist_upgrade=False)
+        fallback = "safe-upgrade"
+    avoided.sort(key=lambda a: a["name"])
+
+    final = cache.get_changes()
+    if any(p.marked_delete and p.name in avoided_names for p in final):
+        raise RuntimeError("a refused removal survived update planning")
+    final_names = {p.name for p in final}
+    # Every installed package with a newer candidate that this plan leaves
+    # where it is (dpkg holds excepted: they are reported as holds), so the
+    # list matches what `apt full-upgrade` reports as kept back and the
+    # badge counts only what Update installs. The resolver's full plan does
+    # not touch every one of them, which is why the list is not just
+    # full_upgrades minus the final plan.
+    held_names = set(n for n in full_upgrades if n not in final_names)
+    for pkg in cache:
+        if (pkg.is_upgradable and pkg.name not in final_names
+                and pkg._pkg.selected_state != apt_pkg.SELSTATE_HOLD):
+            held_names.add(pkg.name)
+            full_upgrades.setdefault(pkg.name, (
+                pkg.installed.version,
+                pkg.candidate.version if pkg.candidate else None))
+    held = [{"name": name, "installed": full_upgrades[name][0],
+             "candidate": full_upgrades[name][1],
+             "reason": HELD_BACK_REASON}
+            for name in sorted(held_names)]
+    return {"held_back": held, "avoided_removals": avoided,
+            "fallback": fallback,
+            "message": held_back_message(held, avoided)}
+
+
 def build_analysis(state, cache=None, audit=None):
     """Simulate the pending upgrade read-only and describe it honestly.
 
@@ -487,8 +695,9 @@ def build_analysis(state, cache=None, audit=None):
     safe_names = {p.name for p in cache.get_changes()}
     cache.clear()
 
-    # The full path the Update button would take.
-    cache.upgrade(dist_upgrade=True)
+    # The plan the Update button would take: the full resolution, minus any
+    # upgrade that needs a removal Fireproof refuses (plan_update).
+    plan = plan_update(cache)
     changes = cache.get_changes()
 
     installs, upgrades, removals = [], [], []
@@ -521,9 +730,15 @@ def build_analysis(state, cache=None, audit=None):
     full_names = {p.name for p in changes}
     kept = sorted(n for n in full_names if n not in safe_names and n in
                   {p.name for p in changes if not p.marked_install})
-    kept_story = ("full path removes %d; safe path skips %d"
-                  % (len(removals) + len(renames),
-                     len(full_names - safe_names)))
+    held = plan["held_back"]
+    if held:
+        kept_story = ("%d held back so nothing is removed (a Debian "
+                      "transition is in progress); safe path skips %d"
+                      % (len(held), len(full_names - safe_names)))
+    else:
+        kept_story = ("plan removes %d; safe path skips %d"
+                      % (len(removals) + len(renames),
+                         len(full_names - safe_names)))
 
     kernels = sorted(p["name"] for p in installs + upgrades
                      if p["name"].startswith("linux-image-"))
@@ -559,7 +774,15 @@ def build_analysis(state, cache=None, audit=None):
             "story": kept_story,
             "packages": kept,
         },
+        # Upgrades held back because they would remove packages (plan_update).
+        "held_back": {
+            "packages": held,
+            "avoided_removals": plan["avoided_removals"],
+            "fallback": plan["fallback"],
+            "message": plan["message"],
+        },
         "banners": {
+            "held_back": plan["message"],
             "major_transition": (download_bytes > MAJOR_DOWNLOAD_BYTES
                                  or total > MAJOR_PACKAGE_COUNT
                                  or len(removals) > MAJOR_REMOVAL_COUNT),
@@ -576,7 +799,8 @@ def build_analysis(state, cache=None, audit=None):
             "default_dont_proceed": bool(
                 same_set or any(p["red"] for p in installs + upgrades + removals)),
         },
-        "update_count": upgradable,
+        # Held-back upgrades do not count: the badge offers what Update does.
+        "update_count": max(0, upgradable - len(held)),
         "notify_suppressed": bool(same_set),
         "interrupted": None,
     }
@@ -604,7 +828,10 @@ def interrupted_analysis(interrupted, holds, upgradable):
         "holds": holds,
         "kept_back": {"story": "not computed: a previous update was "
                                "interrupted", "packages": []},
+        "held_back": {"packages": [], "avoided_removals": [],
+                      "fallback": None, "message": None},
         "banners": {
+            "held_back": None,
             "major_transition": False,
             "kernel": None,
             "nvidia": None,
@@ -1213,8 +1440,12 @@ class Fireproof(dbus.service.Object):
                           "message": interrupted["message"],
                           "repair_command": REPAIR_COMMAND}
                 return
-            cache.upgrade(dist_upgrade=True)
+            # The same plan analyze showed: refused removals held back.
+            plan_update(cache)
             changes = cache.get_changes()
+            if refused_removals(changes):
+                raise RuntimeError("the update plan removes a package "
+                                   "Fireproof never removes")
             live_hash = change_set_hash(changes)
             if live_hash != expected_hash:
                 os.close(lock_fd)

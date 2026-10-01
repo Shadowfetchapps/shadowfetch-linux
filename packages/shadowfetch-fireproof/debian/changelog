@@ -31,6 +31,32 @@ shadowfetch-fireproof (5.0.1-1) umbra; urgency=medium
   * The verify battery's "Mirror still resolves" check looks up the mirror's
     host name, not host:port: a mirror with a port was reported as not
     resolving.
+  * An update never removes a package you did not ask to remove. Fireproof
+    planned with python3-apt's dist-upgrade (libapt's classic resolver,
+    not apt 3's solver), and during a Debian testing library transition
+    (libavcodec/mlt, QA 5.0.1) it planned 14-16 removals on a 4.1-origin
+    system, including shadowfetch-desktop, shadowfetch-creative-base,
+    krita and kdenlive, where `apt full-upgrade` held 12 packages back and
+    removed nothing.
+    - fireproofd plan_update(), used by analyze and by the commit under the
+      lock: when the full resolution removes a package, those packages are
+      kept and protected and libapt's ResolveByKeep holds back only the
+      upgrades that needed them gone; new packages that only those
+      upgrades wanted (libapt garbage) are left out too; if that does not
+      settle, the safe upgrade (no removals) is used. The commit refuses a
+      plan that still removes such a package.
+    - The only removals an update makes are retirements: required by an
+      incoming shadowfetch-* package's own Conflicts/Breaks, of a package
+      installed automatically. shadowfetch-desktop,
+      shadowfetch-creative-base and manually installed packages are never
+      removed.
+    - The analysis carries `held_back` (packages, the removals avoided, and
+      the message). `fireproof check`/`update` and the Fireproof page say
+      which updates are held back and why: a Debian transition in progress;
+      they update once it completes. Held-back updates do not count on the
+      update badge.
+    - A package being removed is shown as "remove <version>" in the red
+      list, not as an upgrade.
 
  -- Shadowfetch Project <signing@shadowfetch.com>  Thu, 01 Oct 2026 06:20:00 -0400
 
