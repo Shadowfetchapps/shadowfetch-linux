@@ -9,12 +9,19 @@ bytes have been streamed back and checked; the signed APT InRelease is last
 among the objects that precede it. Both orderings are the same rule: nothing
 that DIRECTS a reader is written before the thing it directs them to is present
 and proven.
+
+--apt-only publishes a point update that ships no ISO: the APT repository and
+nothing else -- never the ISO, its sidecars, the evidence files or
+releases/CURRENT.json. It is selected by `delivery = "apt-only"` in the release
+data or by the flag, and has its own preconditions (apt_only_acceptance,
+apt_only_plan).
 """
 from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import datetime
 import hashlib
+import importlib.util
 import json
 import mimetypes
 import os
@@ -48,7 +55,8 @@ FINGERPRINT = "8F13CE1535EE1F4A2916A1F73C5C900B7BE80CA1"
 # renaming it would silently falsify all five.
 sys.path.insert(0, str(ROOT / "tools/release"))
 import gate  # noqa: E402
-VERSION = gate.load_release(None).version
+RELEASE = gate.load_release(None)
+VERSION = RELEASE.version
 # The pointer's schema, its validation and its key live with the worker that
 # READS it. Importing that module rather than restating the document here is
 # the whole point: a writer with its own idea of the schema is how a reader
@@ -62,6 +70,32 @@ EVIDENCE = (
     f"release-facts-{VERSION}.json", f"release-evidence-{VERSION}.sha256",
     f"evidence-bundle-{VERSION}.tar.gz", f"evidence-bundle-{VERSION}.contents",
 )
+# The repository signing key, at the bucket root (the worker also serves it
+# under /linux/apt/). Immutable: an update signed by another key is not a
+# packages-only matter, and existing_matches refuses to replace it.
+REPOSITORY_KEY = "shadowfetch.gpg.asc"
+
+# -- packages-only (--apt-only) point updates ---------------------------------
+#
+# [release].delivery in the release data is "iso" -- the default, and what
+# every historical file means by saying nothing -- or "apt-only". An apt-only
+# release ships no image: installed systems take it with `sudo apt update;
+# fireproof update`, and the previous ISO stays the download.
+DELIVERY_ISO = "iso"
+APT_ONLY = "apt-only"
+DELIVERIES = (DELIVERY_ISO, APT_ONLY)
+# The acceptance FLOOR for an update that ships no image: the cases whose
+# subject is the packages themselves -- the source they were built from
+# (SRC-01), the exact signed binary and source inventory and a clean install of
+# it (PKG-01), and what an APT-only update IS, a published system taking it
+# (UPGRADE-01). The other cases are about an image this update does not
+# produce: ISO-01, INSTALL-01, VISUAL-01 and EVIDENCE-01 describe its bytes, its
+# installer and its screenshots. Release data may ADD cases
+# ([apt_only].acceptance) when an update touches what they measure; nothing can
+# take one of these three away. tools/release/acceptance.py verify -- the gate
+# an ISO release passes -- is neither used nor changed by this mode: an ISO
+# release still needs every required case.
+APT_ONLY_FLOOR = ("SRC-01", "PKG-01", "UPGRADE-01")
 
 @dataclass(frozen=True)
 class Object:
@@ -82,6 +116,32 @@ def object_for(path, key, mutable=False):
         raise ValueError("Object key escapes its release prefix")
     return Object(path, key, digest(path), path.stat().st_size, mutable)
 
+def repository_objects(root, codename=None):
+    """The APT repository in write order: key, pool, indices, signed index last.
+
+    Shared by both modes, so an ISO release and a packages-only update cannot
+    come to disagree about what "the repository" is or in which order it is
+    written.
+    """
+    codename = codename or RELEASE.codename
+    objects = [object_for(root / "repo/shadowfetch.gpg.asc", REPOSITORY_KEY)]
+    pool = root / "repo/pool"
+    pool_files = sorted(path for path in pool.rglob("*") if path.is_file())
+    if not pool_files:
+        raise ValueError("APT package/source pool is empty")
+    objects.extend(object_for(path, "apt/pool/" + path.relative_to(pool).as_posix()) for path in pool_files)
+    dists = root / "repo/dists"
+    metadata = [object_for(path, "apt/dists/" + path.relative_to(dists).as_posix(), True) for path in dists.rglob("*") if path.is_file()]
+    # Indices first, detached metadata next, atomic signed index last.
+    terminal = {f"apt/dists/{codename}/Release.gpg": 1, f"apt/dists/{codename}/Release": 2, f"apt/dists/{codename}/InRelease": 3}
+    def order(item):
+        return terminal.get(item.key, 0), item.key
+    metadata.sort(key=order)
+    if not metadata or metadata[-1].key != f"apt/dists/{codename}/InRelease":
+        raise ValueError("APT signed InRelease is absent")
+    objects.extend(metadata)
+    return objects
+
 def publication_plan(root):
     manifest = json.loads((root / f"qa/{VERSION}/acceptance.json").read_text())
     artifact = manifest.get("artifact", {})
@@ -95,22 +155,7 @@ def publication_plan(root):
     bundle = next(item for item in objects if item.path.name == f"evidence-bundle-{VERSION}.tar.gz")
     if bundle.sha256 != artifact.get("evidence_bundle_sha256"):
         raise ValueError("Evidence bundle differs from the accepted artifact")
-    objects.append(object_for(root / "repo/shadowfetch.gpg.asc", "shadowfetch.gpg.asc"))
-    pool = root / "repo/pool"
-    pool_files = sorted(path for path in pool.rglob("*") if path.is_file())
-    if not pool_files:
-        raise ValueError("APT package/source pool is empty")
-    objects.extend(object_for(path, "apt/pool/" + path.relative_to(pool).as_posix()) for path in pool_files)
-    dists = root / "repo/dists"
-    metadata = [object_for(path, "apt/dists/" + path.relative_to(dists).as_posix(), True) for path in dists.rglob("*") if path.is_file()]
-    # Indices first, detached metadata next, atomic signed index last.
-    def order(item):
-        terminal = {"apt/dists/umbra/Release.gpg": 1, "apt/dists/umbra/Release": 2, "apt/dists/umbra/InRelease": 3}
-        return terminal.get(item.key, 0), item.key
-    metadata.sort(key=order)
-    if not metadata or metadata[-1].key != "apt/dists/umbra/InRelease":
-        raise ValueError("APT signed InRelease is absent")
-    objects.extend(metadata)
+    objects.extend(repository_objects(root))
     if len({item.key for item in objects}) != len(objects):
         raise ValueError("Duplicate publication object key")
     return objects
@@ -162,27 +207,37 @@ def existing_matches(client, item):
         raise ValueError(f"Refusing to replace a different immutable object: {item.key}")
     return False
 
-def publish(client, objects, pointer=None):
+def transfer_config():
     from boto3.s3.transfer import TransferConfig
-    config = TransferConfig(multipart_threshold=64 * 1024**2, multipart_chunksize=64 * 1024**2, max_concurrency=4)
+    return TransferConfig(multipart_threshold=64 * 1024**2, multipart_chunksize=64 * 1024**2, max_concurrency=4)
+
+def media_type(item):
+    media = "application/x-iso9660-image" if item.path.name.endswith(".iso") else mimetypes.guess_type(item.path.name)[0] or "application/octet-stream"
+    if item.path.name.endswith(".asc"):
+        media = "application/pgp-signature" if item.path.name != "shadowfetch.gpg.asc" else "application/pgp-keys"
+    return media
+
+def upload_object(client, item, config):
+    """Upload one object, then read its size and recorded digest back."""
+    print(f"UPLOAD {item.key} {item.size} bytes", flush=True)
+    client.upload_file(str(item.path), BUCKET, item.key, Config=config, ExtraArgs={
+        "ContentType": media_type(item),
+        "CacheControl": "public, max-age=0, must-revalidate" if item.mutable else "public, max-age=3600",
+        "Metadata": {"release": VERSION, "sha256": item.sha256},
+    })
+    head = client.head_object(Bucket=BUCKET, Key=item.key)
+    if head["ContentLength"] != item.size or head.get("Metadata", {}).get("sha256") != item.sha256:
+        raise ValueError("Uploaded object readback failed: " + item.key)
+
+def publish(client, objects, pointer=None):
+    config = transfer_config()
     # Resolve collisions across the entire plan before the first upload.
     matches = {item.key: existing_matches(client, item) for item in objects}
     for item in objects:
         if matches[item.key]:
             print("UNCHANGED " + item.key, flush=True)
             continue
-        media_type = "application/x-iso9660-image" if item.path.name.endswith(".iso") else mimetypes.guess_type(item.path.name)[0] or "application/octet-stream"
-        if item.path.name.endswith(".asc"):
-            media_type = "application/pgp-signature" if item.path.name != "shadowfetch.gpg.asc" else "application/pgp-keys"
-        print(f"UPLOAD {item.key} {item.size} bytes", flush=True)
-        client.upload_file(str(item.path), BUCKET, item.key, Config=config, ExtraArgs={
-            "ContentType": media_type,
-            "CacheControl": "public, max-age=0, must-revalidate" if item.mutable else "public, max-age=3600",
-            "Metadata": {"release": VERSION, "sha256": item.sha256},
-        })
-        head = client.head_object(Bucket=BUCKET, Key=item.key)
-        if head["ContentLength"] != item.size or head.get("Metadata", {}).get("sha256") != item.sha256:
-            raise ValueError("Uploaded object readback failed: " + item.key)
+        upload_object(client, item, config)
     # Independently stream the large object back; metadata alone is not proof.
     iso = next(item for item in objects if item.path.name == ISO)
     if remote_digest(client, iso.key) != iso.sha256:
@@ -219,39 +274,396 @@ def trusted_env(**extra):
     return dict(os.environ, PATH=TRUSTED_SUBPROCESS_PATH, **extra)
 
 
-def verify_signatures(root):
+def release_keyring(root, directory):
+    """Dearmor repo/shadowfetch.gpg.asc into `directory`, once it is shown to
+    be the official release key."""
     key = root / "repo/shadowfetch.gpg.asc"
     fingerprints = subprocess.check_output([GPG, "--batch", "--with-colons", "--show-keys", str(key)], text=True, env=trusted_env())
     if FINGERPRINT not in [row.split(":")[9] for row in fingerprints.splitlines() if row.startswith("fpr:")]:
         raise ValueError("Repository key differs from the official release fingerprint")
+    keyring = Path(directory) / "release.gpg"
+    subprocess.run([GPG, "--batch", "--yes", "--dearmor", "--output", str(keyring), str(key)], check=True, env=trusted_env())
+    return keyring
+
+def verify_signatures(root):
     with tempfile.TemporaryDirectory(prefix="shadowfetch-publication-key-") as temporary:
-        keyring = Path(temporary) / "release.gpg"
-        subprocess.run([GPG, "--batch", "--yes", "--dearmor", "--output", str(keyring), str(key)], check=True, env=trusted_env())
+        keyring = release_keyring(root, temporary)
         subprocess.run([GPGV, "--keyring", str(keyring), str(root / (ISO + ".asc")), str(root / ISO)], check=True, env=trusted_env())
         subprocess.run([GPGV, "--keyring", str(keyring), str(root / "repo/dists/umbra/InRelease")], check=True, env=trusted_env())
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--apply", action="store_true")
-    parser.add_argument("--published", default=None,
-                        help="Publication timestamp for releases/CURRENT.json. "
-                             "Defaults to the ISO's own mtime, so re-running "
-                             "this rewrites nothing.")
-    args = parser.parse_args()
-    subprocess.run(
-        [sys.executable, str(ROOT / "tools/release/acceptance.py"),
-         "--version", VERSION, "verify"],
-        check=True,
-    )
-    subprocess.run([str(ROOT / "tools/pre_release_check.sh")], check=True, env=dict(os.environ, ROOT=str(ROOT), REPO_MIN_VALID_FOR_SECONDS=str(7 * 86400)))
-    subprocess.run([SHA256SUM, "--check", ISO + ".sha256"], cwd=ROOT, check=True, env=trusted_env())
-    verify_signatures(ROOT)
-    plan = publication_plan(ROOT)
-    iso = next(item for item in plan if item.path.name == ISO)
-    pointer = pointer_object(ROOT, iso, args.published)
-    if not args.apply:
-        print(json.dumps([{"key": item.key, "bytes": item.size, "sha256": item.sha256, "mutable": item.mutable} for item in [*plan, pointer]], indent=2))
-        return 0
+def verify_repository_signatures(root, codename=None):
+    """Both signed forms of the index verify under the release key.
+
+    Returns the text InRelease's signature covers, as gpgv emits it: what is
+    then compared with the files is what was signed, not whatever else the
+    InRelease file might also carry.
+    """
+    dists = root / "repo/dists" / (codename or RELEASE.codename)
+    with tempfile.TemporaryDirectory(prefix="shadowfetch-publication-key-") as temporary:
+        keyring = release_keyring(root, temporary)
+        signed = subprocess.run([GPGV, "--keyring", str(keyring), "--output", "-", str(dists / "InRelease")], check=True, env=trusted_env(), stdout=subprocess.PIPE).stdout
+        subprocess.run([GPGV, "--keyring", str(keyring), str(dists / "Release.gpg"), str(dists / "Release")], check=True, env=trusted_env())
+    return signed.decode("utf-8")
+
+# -- packages-only (--apt-only) ------------------------------------------------
+
+def delivery(release=None):
+    """How this release reaches users: "iso" unless the data says "apt-only"."""
+    release = release or RELEASE
+    value = release.release.get("delivery", DELIVERY_ISO)
+    if value not in DELIVERIES:
+        raise ValueError(f"{release.path.name}: [release].delivery is {value!r}; expected one of {', '.join(DELIVERIES)}")
+    return value
+
+def publication_mode(apt_only_flag, release=None):
+    """APT-only when the release data says so or the operator asked; else ISO.
+
+    Never inferred from what is on disk: a missing ISO in an ISO release is a
+    refusal (publication_plan), not a quiet fall back to packages only.
+    """
+    declared = delivery(release)  # validated even when the flag decides
+    return APT_ONLY if apt_only_flag or declared == APT_ONLY else DELIVERY_ISO
+
+def _version_key(version):
+    return tuple(int(part) for part in version.split("."))
+
+def apt_only_table(release=None):
+    release = release or RELEASE
+    table = release.document.get("apt_only", {})
+    if not isinstance(table, dict):
+        raise ValueError(f"{release.path.name}: [apt_only] must be a table")
+    return table
+
+def apt_only_cases(release=None):
+    """The floor, plus whatever the release data adds. Never fewer."""
+    extra = apt_only_table(release).get("acceptance", [])
+    if not isinstance(extra, list) or not all(isinstance(case, str) and case for case in extra):
+        raise ValueError("[apt_only].acceptance must be a list of case ids")
+    return tuple(dict.fromkeys([*APT_ONLY_FLOOR, *extra]))
+
+def base_release(release=None):
+    """The ISO release this update is applied on top of.
+
+    [apt_only].base_release names it; otherwise it is the newest earlier
+    release whose data says it shipped an image. That image is still the
+    download, so it is what an installed system taking this update started from.
+    """
+    release = release or RELEASE
+    directory = release.path.parent
+    named = apt_only_table(release).get("base_release")
+    if named is None:
+        earlier = [
+            version for version in gate.available_versions(directory)
+            if _version_key(version) < _version_key(release.version)
+            and delivery(gate.load_release(version, directory=directory)) == DELIVERY_ISO
+        ]
+        if not earlier:
+            raise ValueError(f"No earlier ISO release in {directory} for {release.version} to update")
+        named = max(earlier, key=_version_key)
+    base = gate.load_release(named, directory=directory)
+    if _version_key(base.version) >= _version_key(release.version) or delivery(base) != DELIVERY_ISO:
+        raise ValueError(f"Base release {base.version} is not an earlier ISO release")
+    return base
+
+def base_image_digest(root, base):
+    """The base image's digest, as that release's own accepted manifest records it."""
+    manifest = root / f"qa/{base.version}/acceptance.json"
+    value = (json.loads(manifest.read_text(encoding="utf-8")).get("artifact") or {}).get("iso_sha256")
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        raise ValueError(f"{manifest} records no artifact.iso_sha256 for the base image")
+    return value.lower()
+
+def release_acceptance():
+    """tools/release/acceptance.py -- its evidence floors, not a copy of them.
+
+    Loaded by path because `import acceptance` binds the VM harness PACKAGE
+    (tools/acceptance/): gate.py puts tools/ ahead of tools/release/.
+    """
+    name = "sf_release_acceptance"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, gate.RELEASE_DIR / "acceptance.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+def evidence_errors(acceptance, case, evidence_root, bound_to):
+    """One passing case's evidence: present, unchanged, usable, and bound."""
+    case_id = case["id"]
+    if not case["evidence"]:
+        return [f"{case_id}: passing case has no evidence"]
+    errors = []
+    for index, item in enumerate(case["evidence"]):
+        label = f"{case_id}.evidence[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label}: entry must be an object")
+            continue
+        kind, value, recorded = item.get("kind"), item.get("path"), item.get("sha256")
+        if kind not in acceptance.VALID_KINDS or not isinstance(value, str) or not value \
+                or not isinstance(recorded, str) or len(recorded) != 64:
+            errors.append(f"{label}: needs a valid kind, a path and a 64-character sha256")
+            continue
+        try:
+            path = acceptance.resolve_evidence(evidence_root, value)
+        except ValueError as error:
+            errors.append(f"{label}: {error}")
+            continue
+        if not path.is_file():
+            errors.append(f"{label}: missing file {path}")
+            continue
+        if acceptance.sha256_file(path) != recorded.lower():
+            errors.append(f"{label}: SHA-256 mismatch for {value}")
+        bound = item.get("artifact_sha256")
+        if not isinstance(bound, str) or bound.lower() != bound_to:
+            errors.append(f"{label}: recorded against {str(bound)[:16]}..., not the image this update is applied to ({bound_to[:16]}...)")
+        errors.extend(f"{label}: {error}" for error in acceptance.evidence_quality_errors(path, kind))
+        if kind == "screenshot":
+            try:
+                width, height = acceptance.png_size(path)
+            except ValueError as error:
+                errors.append(f"{label}: {error}")
+            else:
+                if width < 1280 or height < 720:
+                    errors.append(f"{label}: screenshot is {width}x{height}, below 1280x720")
+    return errors
+
+def apt_only_acceptance_errors(root, release=None):
+    """The packages-only acceptance subset of qa/<v>/acceptance.json.
+
+    Beyond the manifest being structurally valid for this release:
+      * every case in apt_only_cases() is present, still required and
+        prepublish, and is pass (with bound, unchanged, usable evidence) or
+        waived (with an approver and a reason);
+      * artifact.iso_sha256 is the BASE image -- the shipped ISO this update is
+        applied on top of, which stays the download -- and passing evidence is
+        bound to it, which is the digest the recorder stamps;
+      * artifact.apt_packages_sha256 and artifact.apt_sources_sha256 are the
+        digests of the binary and source indices being published, which pin
+        every .deb and source file by SHA-256: acceptance recorded against
+        another build of the packages does not describe these;
+      * no case anywhere in the manifest is recorded as `fail`. A case outside
+        the subset may be pending; a recorded failure is not "not required".
+    """
+    release = release or RELEASE
+    acceptance = release_acceptance()
+    manifest = root / f"qa/{release.version}/acceptance.json"
+    try:
+        data = acceptance.load_manifest(manifest)
+    except (OSError, ValueError) as error:
+        return [f"{manifest}: {error}"]
+    errors = acceptance.validate_manifest(data, release)
+    if errors:
+        return errors
+    artifact = data["artifact"] if isinstance(data.get("artifact"), dict) else {}
+    base = base_release(release)
+    bound_to = base_image_digest(root, base)
+    declared = str(artifact.get("iso_sha256") or "").lower()
+    if declared != bound_to:
+        errors.append(f"artifact.iso_sha256 must name {base.iso_name} ({bound_to[:16]}...), the image this update is applied to; it names {declared[:16] or 'nothing'}")
+    dists = root / "repo/dists" / release.codename
+    for field, index in (("apt_packages_sha256", "main/binary-amd64/Packages"), ("apt_sources_sha256", "main/source/Sources")):
+        path = dists / index
+        if not path.is_file():
+            errors.append(f"{path} is missing")
+        elif artifact.get(field) != digest(path):
+            errors.append(f"artifact.{field} is {artifact.get(field)!r} but the {index} being published is {digest(path)}: the subset was not accepted against these packages")
+    evidence_root = acceptance.evidence_root_for(manifest, data)
+    cases = {case["id"]: case for case in data["cases"]}
+    for case_id in apt_only_cases(release):
+        case = cases.get(case_id)
+        if case is None:
+            errors.append(f"{case_id}: absent from {manifest.name}")
+            continue
+        if case["required"] is not True or case["phase"] != "prepublish":
+            errors.append(f"{case_id}: must stay a required prepublish case")
+        if case["status"] == "pass":
+            errors.extend(evidence_errors(acceptance, case, evidence_root, bound_to))
+        elif case["status"] != "waived":
+            errors.append(f"{case_id}: required status is {case['status']}, not pass or waived")
+    errors.extend(f"{case['id']}: recorded as fail" for case in data["cases"] if case["status"] == "fail")
+    return errors
+
+def apt_only_acceptance(root, release=None):
+    release = release or RELEASE
+    errors = apt_only_acceptance_errors(root, release)
+    if errors:
+        raise ValueError("APT-only acceptance refused:\n  - " + "\n  - ".join(errors))
+    required = apt_only_cases(release)
+    data = json.loads((root / f"qa/{release.version}/acceptance.json").read_text(encoding="utf-8"))
+    for case in data["cases"]:
+        state = "REQUIRED" if case["id"] in required else "NOT_REQUIRED"
+        print(f"{state} {case['id']} {case['status']}", flush=True)
+    print(f"APT_ONLY_ACCEPTANCE_PASSED required={','.join(required)}", flush=True)
+
+def repository_errors(repo, release=None):
+    """The indices name exactly this release's packages, and the pool holds them."""
+    release = release or RELEASE
+    dists = repo / "dists" / release.codename
+    packages, sources = dists / "main/binary-amd64/Packages", dists / "main/source/Sources"
+    if not packages.is_file() or not sources.is_file():
+        return [f"missing {packages} or {sources}"]
+    errors = []
+    binary = gate.parse_deb822(packages.read_text(encoding="utf-8"))
+    published = {record.get("Package"): record.get("Version") for record in binary}
+    expected = release.binary_versions
+    if len(published) != len(binary):
+        errors.append("the binary index lists a package more than once")
+    for name in sorted(set(published) | set(expected), key=str):
+        if published.get(name) != expected.get(name):
+            errors.append(f"{name}: the binary index has {published.get(name)}, the release data says {expected.get(name)}")
+    for record in binary:
+        pooled = repo / record.get("Filename", "")
+        if not pooled.is_file() or digest(pooled) != record.get("SHA256") or pooled.stat().st_size != int(record.get("Size", -1)):
+            errors.append(f"{record.get('Filename')}: missing from the pool or not the bytes the binary index names")
+    third_party = release.document["packages"].get("third_party", {})
+    source_records = gate.parse_deb822(sources.read_text(encoding="utf-8"))
+    names = {record.get("Package") for record in source_records}
+    if names != release.source_packages:
+        errors.append(f"source index mismatch: missing={sorted(release.source_packages - names)}, extra={sorted(names - release.source_packages, key=str)}")
+    indexed = {record.get("Filename") for record in binary}
+    for record in source_records:
+        want = third_party.get(record.get("Package"), f"{release.version}-{release.revision}")
+        if record.get("Version") != want:
+            errors.append(f"source {record.get('Package')}: the source index has {record.get('Version')}, the release data says {want}")
+        for line in record.get("Checksums-Sha256", "").splitlines():
+            fields = line.split()
+            if len(fields) == 3:
+                path = repo / record.get("Directory", "") / fields[2]
+                indexed.add(path.relative_to(repo).as_posix())
+                if not path.is_file() or digest(path) != fields[0]:
+                    errors.append(f"{path.relative_to(repo)}: missing from the pool or not the bytes the source index names")
+    # Everything else in the pool would be uploaded as a permanent object that
+    # no index names. pool/third-party-source/ is the one deliberate exception:
+    # it is the corresponding source of a prebuilt package (ShadowCode), checked
+    # by pre_release_check.sh against its SOURCE-SHA256SUMS.
+    stray = sorted(
+        relative for relative in (path.relative_to(repo).as_posix() for path in (repo / "pool").rglob("*") if path.is_file())
+        if relative not in indexed and not relative.startswith("pool/third-party-source/"))
+    if stray:
+        errors.append(f"pool files no index names: {', '.join(stray)}")
+    return errors
+
+def pool_build_errors(repo, build):
+    """Every .deb in the pool is byte-identical to the one this tree built."""
+    debs = sorted((repo / "pool").rglob("*.deb"))
+    if not debs:
+        return ["repo/pool holds no .deb"]
+    errors = []
+    for deb in debs:
+        built = build / deb.name
+        if not built.is_file():
+            errors.append(f"{deb.relative_to(repo)}: build/ has no {deb.name}")
+        elif digest(built) != digest(deb):
+            errors.append(f"{deb.relative_to(repo)} differs from build/{deb.name}")
+    return errors
+
+def signed_index_errors(dists, signed_text, codename):
+    """The verified InRelease covers every index file exactly, and Release says the same.
+
+    apt rejects an index whose bytes differ from what InRelease lists (Hash Sum
+    mismatch), so a stale or hand-edited file in dists/ would break `apt update`
+    on every installed system -- for an APT-only update, the whole release.
+    Nothing unsigned is uploaded beside it either.
+    """
+    errors = []
+    fields = dict(line.split(": ", 1) for line in signed_text.splitlines() if ": " in line and not line.startswith(" "))
+    if fields.get("Codename") != codename:
+        errors.append(f"the signed index is for {fields.get('Codename')!r}, not {codename!r}")
+    listed, section = {}, None
+    for line in signed_text.splitlines():
+        if not line.startswith(" "):
+            section = line[:-1] if line.endswith(":") else None
+        elif section == "SHA256":
+            sha, size, name = line.split()
+            listed[name] = (sha, int(size))
+    if not listed:
+        errors.append("the signed index lists no SHA256 entries")
+    for name, (sha, size) in sorted(listed.items()):
+        path = dists / name
+        if not path.is_file() or path.stat().st_size != size or digest(path) != sha:
+            errors.append(f"dists/{codename}/{name}: missing or not the bytes the signed index names")
+    present = {path.relative_to(dists).as_posix() for path in dists.rglob("*") if path.is_file()}
+    unsigned = sorted(present - set(listed) - {"InRelease", "Release", "Release.gpg"})
+    if unsigned:
+        errors.append(f"files in dists/{codename} that the signed index does not cover: {', '.join(unsigned)}")
+    release_file = dists / "Release"
+    if not release_file.is_file() or release_file.read_text(encoding="utf-8") != signed_text:
+        errors.append(f"dists/{codename}/Release is not the text InRelease signs")
+    return errors
+
+def check_apt_only_scope(objects, codename=None):
+    """What an APT-only publication may write, and in which order. Raises.
+
+    Run when the plan is made and again immediately before the first network
+    call, so no later change to the plan can slip the ISO, an evidence file or
+    releases/CURRENT.json into a packages-only update.
+    """
+    codename = codename or RELEASE.codename
+    terminal = (f"apt/dists/{codename}/Release.gpg", f"apt/dists/{codename}/Release", f"apt/dists/{codename}/InRelease")
+    rank = 0
+    for item in objects:
+        if item.key == REPOSITORY_KEY:
+            stage = 0
+        elif item.key.startswith("apt/pool/"):
+            stage = 1
+        elif item.key in terminal:
+            stage = 3
+        elif item.key.startswith("apt/dists/"):
+            stage = 2
+        else:
+            raise ValueError(f"An APT-only publication may not write {item.key}")
+        if item.mutable != item.key.startswith("apt/dists/"):
+            raise ValueError(f"Only APT index files may be replaced; {item.key} is marked {'mutable' if item.mutable else 'immutable'}")
+        if stage < rank:
+            raise ValueError(f"{item.key} would be written after something that directs a reader to it")
+        rank = stage
+    if not objects or objects[-1].key != terminal[-1]:
+        raise ValueError("The signed InRelease must be the last object written")
+    if len({item.key for item in objects}) != len(objects):
+        raise ValueError("Duplicate publication object key")
+
+def apt_only_plan(root, signed_text, release=None):
+    """The APT repository objects, once the repository is shown to be this release.
+
+    The ISO, its sidecars, the evidence files and releases/CURRENT.json are
+    never read here, so whatever the tree holds they cannot be planned.
+    """
+    release = release or RELEASE
+    repo = root / "repo"
+    objects = repository_objects(root, release.codename)
+    errors = [
+        *repository_errors(repo, release),
+        *pool_build_errors(repo, root / "build"),
+        *signed_index_errors(repo / "dists" / release.codename, signed_text, release.codename),
+    ]
+    if errors:
+        raise ValueError("APT-only publication refused:\n  - " + "\n  - ".join(errors))
+    check_apt_only_scope(objects, release.codename)
+    return objects
+
+def publish_apt_only(client, objects):
+    """Upload the repository, proving each object's bytes before the next write.
+
+    Every object -- uploaded now or already present -- is streamed back and
+    hashed before anything after it is written, so no index names a package,
+    and InRelease names no index, that the bucket was not shown to hold.
+    Nothing is deleted, and an immutable object that differs refuses the whole
+    plan before the first upload (existing_matches).
+    """
+    check_apt_only_scope(objects)
+    config = transfer_config()
+    matches = {item.key: existing_matches(client, item) for item in objects}
+    for item in objects:
+        if matches[item.key]:
+            print("UNCHANGED " + item.key, flush=True)
+        else:
+            upload_object(client, item, config)
+        if remote_digest(client, item.key) != item.sha256:
+            raise ValueError("R2 bytes do not match the release file: " + item.key)
+    print(f"R2_APT_BYTES_VERIFIED objects={len(objects)}", flush=True)
+    print("R2_APT_ONLY_PUBLISHED no ISO, evidence or releases/CURRENT.json was written", flush=True)
+
+def credentialed_client():
     if sys.platform != "linux" or ROOT != PUBLISHER or os.geteuid() == 0:
         raise ValueError("Release publication must run from the authorized Linux 4.0 source tree, as a non-root user")
     endpoint = os.environ.get("SHADOWFETCH_R2_ENDPOINT", "")
@@ -261,8 +673,54 @@ def main():
         if not os.environ.get(name):
             raise ValueError("Missing process credential: " + name)
     import boto3
-    client = boto3.client("s3", endpoint_url=endpoint, region_name="auto")
-    publish(client, plan, pointer)
+    return boto3.client("s3", endpoint_url=endpoint, region_name="auto")
+
+def pre_release_check():
+    subprocess.run([str(ROOT / "tools/pre_release_check.sh")], check=True, env=dict(os.environ, ROOT=str(ROOT), REPO_MIN_VALID_FOR_SECONDS=str(7 * 86400)))
+
+def main_apt_only(args):
+    if args.published is not None:
+        raise ValueError("--published dates releases/CURRENT.json, which an APT-only update never writes")
+    selected_by = "release data" if delivery() == APT_ONLY else "--apt-only"
+    print(f"PUBLICATION_MODE apt-only version={VERSION} selected_by={selected_by}", flush=True)
+    apt_only_acceptance(ROOT)
+    pre_release_check()
+    plan = apt_only_plan(ROOT, verify_repository_signatures(ROOT))
+    if not args.apply:
+        print(json.dumps([{"key": item.key, "bytes": item.size, "sha256": item.sha256, "mutable": item.mutable} for item in plan], indent=2))
+        return 0
+    publish_apt_only(credentialed_client(), plan)
+    return 0
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--published", default=None,
+                        help="Publication timestamp for releases/CURRENT.json. "
+                             "Defaults to the ISO's own mtime, so re-running "
+                             "this rewrites nothing.")
+    parser.add_argument("--apt-only", action="store_true",
+                        help="Publish only the APT repository: a point update "
+                             "that ships no ISO. Implied when the release data "
+                             "says delivery = \"apt-only\".")
+    args = parser.parse_args(argv)
+    if publication_mode(args.apt_only) == APT_ONLY:
+        return main_apt_only(args)
+    subprocess.run(
+        [sys.executable, str(ROOT / "tools/release/acceptance.py"),
+         "--version", VERSION, "verify"],
+        check=True,
+    )
+    pre_release_check()
+    subprocess.run([SHA256SUM, "--check", ISO + ".sha256"], cwd=ROOT, check=True, env=trusted_env())
+    verify_signatures(ROOT)
+    plan = publication_plan(ROOT)
+    iso = next(item for item in plan if item.path.name == ISO)
+    pointer = pointer_object(ROOT, iso, args.published)
+    if not args.apply:
+        print(json.dumps([{"key": item.key, "bytes": item.size, "sha256": item.sha256, "mutable": item.mutable} for item in [*plan, pointer]], indent=2))
+        return 0
+    publish(credentialed_client(), plan, pointer)
     return 0
 
 if __name__ == "__main__":
