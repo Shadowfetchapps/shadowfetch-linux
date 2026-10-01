@@ -28,11 +28,17 @@ operation or actual data checksum failed" and the loop stopped at 3 of 22.
   CLEANUP_TIMEOUT after the result is recorded as cleanup_timeout together with
   a bounded `podman container inspect` of its state (still running, or only
   being removed?), and is watched on until it exits or reaches HANG_LIMIT.
-* Cleanup overlaps the next cycle. Once a cycle's result is verified the loop
-  pauses 5 s and starts the next one; at most MAX_OUTSTANDING_CLEANUPS earlier
-  clients may still be removing, so the load stays bounded and close to 4.x.
-  Each cycle has its own name (sfqa-stress-RUN-N): a container that is still
-  being removed still holds its name.
+* One cycle at a time, paced as in 4.x: the next `podman run` starts PAUSE
+  seconds after the previous client has exited. An overlapped variant (the
+  next cycle started while earlier clients were still removing) was withdrawn
+  after review: podman serializes a container's --rm layer removal with the
+  next container's create/start on its storage lock. Measured with host
+  podman 4.9.3: a 0.3 s canonical `podman run` started 0.5 s into another
+  container's 3 s removal printed its checksum only after that removal ended,
+  3 of 3 times. So overlap bought no throughput, ran up to three clients at
+  once, and charged earlier removals to the next cycle's workload time. Each
+  cycle keeps its own name (sfqa-stress-RUN-N), so a leftover container is
+  attributed to its cycle.
 * Final cleanup does not trust the clients: exact-name `podman rm --force
   --ignore` for every container whose client did not exit 0, then one
   `podman ps -a` listing proves none of this run's containers remain.
@@ -68,10 +74,9 @@ HANG_LIMIT = 600
 FINAL_OP_TIMEOUT = 300
 # A state probe is evidence only; it must not stall the loop for long.
 PROBE_TIMEOUT = 60
-# Two removal slots: with the slowest phases seen (workload 107 s + 5 s pause,
-# removal 138 s) the cycle period stays at the workload's ~112 s, 24 cycles in
-# 2700 s against the 22 required; one slot would pace it at 138 s, 19 cycles.
-MAX_OUTSTANDING_CLEANUPS = 2
+# 4.x pacing: the next cycle starts this long after the previous client exits.
+# At 5.0.0's slowest phases (workload 107 s, removal 138 s) that is a ~250 s
+# period, about 11 cycles in 2700 s: such a run FAILS the 22-cycle floor.
 PAUSE = 5.0
 POLL = 0.5
 CLIENT_GRACE = 5
@@ -427,17 +432,16 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
         return cycle
 
     try:
-        workload, next_start = None, start
+        next_start = start
         while not stopped() and primary_error is None and clock() - start < duration:
             for cycle in list(live):
                 update(cycle, clock())
-            if workload is not None and (workload['result_at'] is not None or workload not in live):
-                workload, next_start = None, clock() + PAUSE
+                if cycle not in live:
+                    next_start = clock() + PAUSE
             if primary_error is not None or stopped() or clock() - start >= duration:
                 break
-            removing = sum(1 for cycle in live if cycle is not workload)
-            if workload is None and clock() >= next_start and removing < MAX_OUTSTANDING_CLEANUPS:
-                workload = launch()
+            if not live and clock() >= next_start:
+                launch()
                 continue
             sleep(POLL)
         # Bounded drain: every started cycle is judged to its end or its hang bound.
@@ -503,7 +507,7 @@ def run_profile(duration, image, run_id, *, run=operation, start_client=Client, 
             'expected_sha256': EXPECTED_SHA256, 'image_id': image, 'container_name_prefix': prefix,
             'latency_target_seconds': LIMIT, 'cleanup_timeout_seconds': CLEANUP_TIMEOUT,
             'hang_limit_seconds': HANG_LIMIT, 'final_operation_timeout_seconds': FINAL_OP_TIMEOUT,
-            'max_outstanding_cleanups': MAX_OUTSTANDING_CLEANUPS, 'pause_seconds': PAUSE,
+            'pause_seconds': PAUSE, 'pacing': 'next cycle starts pause_seconds after the previous client exits (4.x)',
             'client_termination_grace_seconds': CLIENT_GRACE, 'client_kill_observation_seconds': KILL_GRACE,
             'phase_seconds': {'workload': spread(row['workload_seconds'] for row in rows),
                               'cleanup': spread(row['cleanup_seconds'] for row in rows)},

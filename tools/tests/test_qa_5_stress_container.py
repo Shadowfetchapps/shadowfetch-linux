@@ -213,28 +213,30 @@ class Judge(unittest.TestCase):
 
 
 class Loop(unittest.TestCase):
-    def test_5_0_0_timings_pass_with_slow_cleanup_observations(self):
-        # Every cycle as slow as 5.0.0's worst: v2 failed the first such cycle.
+    def test_5_0_0_timings_are_judged_correct_but_cannot_reach_the_floor(self):
+        # Every cycle as slow as 5.0.0's worst. v2 called the first such cycle
+        # a failed operation; v3 verifies each one, and the run still FAILS,
+        # honestly, on the 4.x floor: a ~250 s period gives ~11 of 22 cycles.
         p = Profile(plan=lambda n: dict(result_after=RUN2_WORKLOAD, cleanup=RUN2_CLEANUP))
         r = p.go(2700)
-        self.assertEqual(r['status'], 'PASS', r['failures'])
-        self.assertGreaterEqual(r['verified_cycles'], r['minimum_cycles'])
+        self.assertEqual(r['status'], 'FAIL')
         self.assertEqual(r['minimum_cycles'], 22)
-        self.assertEqual(r['failures'], [])
+        self.assertEqual(r['verdicts'], {'ok': r['cycles']})
+        self.assertEqual(r['verified_cycles'], 11)
+        self.assertEqual([f['error'] for f in r['failures']], ['Insufficient sustained container activity'])
+        self.assertIsNone(r['primary_error'])
         self.assertEqual(r['cleanup_errors'], [])
         self.assertIs(r['final_container_exists'], False)
-        self.assertTrue(all(o['kind'] == 'slow_cleanup' for o in r['observations']))
-        self.assertEqual(len(r['observations']), r['cycles'])
-        self.assertLessEqual(p.live_peak, 1 + target.MAX_OUTSTANDING_CLEANUPS)
         self.assertEqual(r['phase_seconds']['cleanup']['max'], RUN2_CLEANUP)
+        self.assertEqual(r['phase_seconds']['workload']['max'], RUN2_WORKLOAD)
 
-    def test_one_removal_slot_could_not_reach_22_on_that_evidence(self):
+    def test_one_client_at_a_time_like_4x(self):
+        # Overlap was withdrawn: podman serializes a removal with the next
+        # create/start, so overlapping clients only added load.
         p = Profile(plan=lambda n: dict(result_after=RUN2_WORKLOAD, cleanup=RUN2_CLEANUP))
-        with patch.object(target, 'MAX_OUTSTANDING_CLEANUPS', 1):
-            r = p.go(2700)
-        self.assertEqual(r['status'], 'FAIL')
-        self.assertLess(r['verified_cycles'], 22)
-        self.assertEqual(r['failures'][-1]['error'], 'Insufficient sustained container activity')
+        p.go(2700)
+        self.assertEqual(p.live_peak, 1)
+        self.assertFalse(hasattr(target, 'MAX_OUTSTANDING_CLEANUPS'))
 
     def test_every_cycle_is_the_canonical_run_with_its_own_name_and_no_retry(self):
         p = Profile(plan=lambda n: dict(result_after=1.0, cleanup=0.2))
@@ -251,12 +253,12 @@ class Loop(unittest.TestCase):
         # All clients exited 0, so no exact-name rm is needed; the listing still runs.
         self.assertEqual([argv[1] for argv, _ in p.ops], ['ps'])
 
-    def test_pause_after_each_result_like_4x(self):
+    def test_pause_after_each_client_exit_like_4x(self):
         p = Profile(plan=lambda n: dict(result_after=1.0, cleanup=0.2))
         p.go(60)
-        starts = [c.started for c in p.clients]
-        gaps = [b - a for a, b in zip(starts, starts[1:])]
-        self.assertTrue(all(gap >= 1.0 + target.PAUSE for gap in gaps), gaps)
+        for before, after in zip(p.clients, p.clients[1:]):
+            self.assertGreaterEqual(after.started - before.exited_at, target.PAUSE)
+            self.assertLessEqual(after.started - before.exited_at, target.PAUSE + 2 * target.POLL)
 
     def test_cleanup_past_timeout_is_probed_and_observed_not_failed(self):
         slow = target.CLEANUP_TIMEOUT + 100
@@ -355,9 +357,9 @@ class Loop(unittest.TestCase):
         r = p.go(2700, stopped=lambda: p.clock.now > 1000.0 + 120)
         self.assertEqual(r['status'], 'CANCELLED')
         self.assertTrue(all(c.finished for c in p.clients))
-        # At +120 s cycle 2 is removing and cycle 3 is in its workload.
-        self.assertEqual(r['verdicts'], {'cancelled': 2, 'ok': 1})
-        self.assertEqual([c.terminate_calls for c in p.clients], [0, 1, 1])
+        # Cycle 1 exits at +100 s; at +120 s cycle 2 (from +105 s) is in its workload.
+        self.assertEqual(r['verdicts'], {'cancelled': 1, 'ok': 1})
+        self.assertEqual([c.terminate_calls for c in p.clients], [0, 1])
 
     def test_log_rows_count_cycles_once_and_summary_carries_no_cycle_key(self):
         # stress_45m.sh counts '"container_cycle"' lines in container-loop.log.
